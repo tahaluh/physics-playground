@@ -22,7 +22,7 @@ int main()
     Renderer2D renderer(&window);
 
     Scene2D scene;
-    scene.setGravity(Vector2(0.0f, 0.0f));
+    scene.setGravity(Vector2(0.0f, 980.0f));
     scene.addBody(std::make_unique<BorderCircleBody2D>(Vector2(400, 300), 200));
     // Bola com reflexão realista (branca)
     scene.addBody(std::make_unique<BallBody2D>(10, Vector2(420, 270), Vector2(600, 400), 0xFFFFFFFF));
@@ -32,21 +32,29 @@ int main()
     using clock = std::chrono::high_resolution_clock;
     auto last = clock::now();
 
+    const float fixedTimeStep = 1.0f / 120.0f;
     const float targetFrameTime = 1.0f / 60.0f; // 60 FPS
+    float accumulator = 0.0f;
+
     while (!window.shouldClose())
     {
         auto frameStart = clock::now();
-        float dt = std::chrono::duration<float>(frameStart - last).count();
-        if (dt > 0.033f)
+        float frameDelta = std::chrono::duration<float>(frameStart - last).count();
+        if (frameDelta > 0.25f)
         {
-            dt = 0.033f;
+            frameDelta = 0.25f;
         }
         last = frameStart;
+        accumulator += frameDelta;
 
         window.pollEvents();
 
-        scene.update(dt);
-        scene.checkCollisions();
+        while (accumulator >= fixedTimeStep)
+        {
+            scene.update(fixedTimeStep);
+            scene.checkCollisions();
+            accumulator -= fixedTimeStep;
+        }
 
         renderer.clear(0xFF000000);
         scene.render(renderer);

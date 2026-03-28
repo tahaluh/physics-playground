@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <memory>
 #include "physics/shapes/Shape.h"
 #include "math/Vector2.h"
@@ -14,6 +15,7 @@ public:
     Vector2 acceleration;
     float rotation;
     float mass;
+    float linearDamping;
     uint32_t color = 0xFFFFFFFF; // cor padrão: branco
 
     PhysicsBody2D(std::unique_ptr<Shape> shape,
@@ -21,13 +23,15 @@ public:
                   Vector2 vel = {0, 0},
                   float rot = 0.0f,
                   uint32_t color = 0xFFFFFFFF,
-                  float mass = 1.0f)
+                  float mass = 1.0f,
+                  float linearDamping = 0.0f)
         : shape(std::move(shape)),
           position(pos),
           velocity(vel),
           acceleration(0.0f, 0.0f),
           rotation(rot),
           mass(mass),
+          linearDamping(linearDamping),
           color(color) {}
 
     virtual bool isStatic() const
@@ -48,6 +52,8 @@ public:
             return;
 
         velocity = velocity + acceleration * dt;
+        const float dampingFactor = std::max(0.0f, 1.0f - linearDamping * dt);
+        velocity = velocity * dampingFactor;
         position = position + velocity * dt;
         acceleration = Vector2(0.0f, 0.0f);
     }
@@ -60,4 +66,7 @@ public:
     }
 
     virtual ~PhysicsBody2D() = default;
+
+protected:
+    static bool resolveDynamicCircleCollision(PhysicsBody2D &a, PhysicsBody2D &b, float restitution);
 };

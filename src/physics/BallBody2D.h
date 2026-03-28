@@ -10,10 +10,18 @@ class BallBody2D : public PhysicsBody2D
 {
 public:
     BallBody2D(float radius, Vector2 pos, Vector2 vel = {0, 0}, uint32_t color = 0xFFFFFFFF)
-        : PhysicsBody2D(std::make_unique<CircleShape>(radius), pos, vel, 0.0f, color) {}
+        : PhysicsBody2D(std::make_unique<CircleShape>(radius), pos, vel, 0.0f, color, 1.0f, 0.0f) {}
 
     void onCollision(PhysicsBody2D &other) override
     {
+        constexpr float restitution = 0.75f;
+        constexpr float stopThreshold = 25.0f;
+
+        if (resolveDynamicCircleCollision(*this, other, restitution))
+        {
+            return;
+        }
+
         // Colisão com círculo oco (borda)
         BorderCircleBody2D *borderCircle = dynamic_cast<BorderCircleBody2D *>(&other);
         if (borderCircle)
@@ -31,7 +39,11 @@ public:
             {
                 Vector2 normal = toBall.normalized();
                 position = center + normal * (R - r);
-                velocity = velocity.reflect(normal);
+                velocity = velocity.reflect(normal) * restitution;
+                if (velocity.length() < stopThreshold)
+                {
+                    velocity = Vector2(0.0f, 0.0f);
+                }
                 std::cout << "Bola colidiu com a borda circular e refletiu!\n";
                 return;
             }
@@ -77,7 +89,11 @@ public:
         }
         if (reflected && (normal.x != 0 || normal.y != 0))
         {
-            velocity = velocity.reflect(normal);
+            velocity = velocity.reflect(normal) * restitution;
+            if (velocity.length() < stopThreshold)
+            {
+                velocity = Vector2(0.0f, 0.0f);
+            }
             std::cout << "Bola colidiu com a borda e refletiu!\n";
         }
     }

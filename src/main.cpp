@@ -6,7 +6,6 @@
 #include "render/Renderer2D.h"
 #include "scene/Scene2D.h"
 #include "physics/BallBody2D.h"
-#include "physics/BallInvertBody2D.h"
 #include "physics/BorderCircleBody2D.h"
 
 int main()
@@ -24,10 +23,7 @@ int main()
     Scene2D scene;
     scene.setGravity(Vector2(0.0f, 980.0f));
     scene.addBody(std::make_unique<BorderCircleBody2D>(Vector2(400, 300), 200));
-    // Bola com reflexão realista (branca)
     scene.addBody(std::make_unique<BallBody2D>(10, Vector2(420, 270), Vector2(600, 400), 0xFFFFFFFF));
-    // Bola com inversão de eixo (vermelha)
-    scene.addBody(std::make_unique<BallInvertBody2D>(10, Vector2(380, 330), Vector2(-600, -400), 0xFFCC2222));
 
     using clock = std::chrono::high_resolution_clock;
     auto last = clock::now();

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <cmath>
 
 struct Vector2
@@ -6,10 +7,38 @@ struct Vector2
     float x, y;
     Vector2(float x = 0, float y = 0) : x(x), y(y) {}
 
+    static Vector2 zero() { return Vector2(0.0f, 0.0f); }
+
     Vector2 operator+(const Vector2 &other) const { return Vector2(x + other.x, y + other.y); }
     Vector2 operator-(const Vector2 &other) const { return Vector2(x - other.x, y - other.y); }
     Vector2 operator*(float scalar) const { return Vector2(x * scalar, y * scalar); }
     Vector2 operator/(float scalar) const { return Vector2(x / scalar, y / scalar); }
+    Vector2 &operator+=(const Vector2 &other)
+    {
+        x += other.x;
+        y += other.y;
+        return *this;
+    }
+    Vector2 &operator-=(const Vector2 &other)
+    {
+        x -= other.x;
+        y -= other.y;
+        return *this;
+    }
+    Vector2 &operator*=(float scalar)
+    {
+        x *= scalar;
+        y *= scalar;
+        return *this;
+    }
+    Vector2 &operator/=(float scalar)
+    {
+        x /= scalar;
+        y /= scalar;
+        return *this;
+    }
+
+    float lengthSquared() const { return x * x + y * y; }
     float length() const { return std::sqrt(x * x + y * y); }
     float dot(const Vector2 &other) const { return x * other.x + y * other.y; }
 
@@ -17,7 +46,7 @@ struct Vector2
     {
         float len = length();
         if (len == 0)
-            return Vector2(0, 0);
+            return zero();
         return *this / len;
     }
 

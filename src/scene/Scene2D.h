@@ -1,10 +1,7 @@
-
-
 #pragma once
-#include <vector>
 #include <memory>
+#include <vector>
 #include "physics/PhysicsBody2D.h"
-#include "physics/shapes/Shape.h"
 #include "render/Renderer2D.h"
 
 class Scene2D
@@ -26,7 +23,10 @@ public:
         {
             if (!body->isStatic())
             {
-                body->applyForce(gravity * body->mass);
+                if (body->useGravity)
+                {
+                    body->applyForce(gravity * body->mass);
+                }
             }
             body->integrate(dt);
         }
@@ -40,11 +40,8 @@ public:
             {
                 Shape *sa = bodies[i]->shape.get();
                 Shape *sb = bodies[j]->shape.get();
-                auto &pa = bodies[i]->position;
-                auto &pb = bodies[j]->position;
-                if (sa && sb && sa->collidesWith(*sb, pa, pb))
+                if (sa && sb && sa->collidesWith(*sb, bodies[i]->position, bodies[j]->position))
                 {
-                    // Colisão detectada entre bodies[i] e bodies[j]
                     bodies[i]->onCollision(*bodies[j]);
                     bodies[j]->onCollision(*bodies[i]);
                 }

@@ -1,0 +1,11 @@
+#include "engine/physics/2d/BorderCircleBody2D.h"
+#include "engine/render/2d/Renderer2D.h"
+
+void BorderCircleBody2D::render(Renderer2D &renderer) const
+{
+    renderer.drawCircle(
+        static_cast<int>(getPosition().x),
+        static_cast<int>(getPosition().y),
+        static_cast<int>(radius),
+        0xFFFFFFFF);
+}

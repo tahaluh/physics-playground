@@ -36,6 +36,25 @@ void Renderer2D::drawLine(int x0, int y0, int x1, int y1, uint32_t color)
     }
 }
 
+void Renderer2D::drawRect(int x, int y, int width, int height, uint32_t color)
+{
+    drawLine(x, y, x + width, y, color);
+    drawLine(x + width, y, x + width, y + height, color);
+    drawLine(x + width, y + height, x, y + height, color);
+    drawLine(x, y + height, x, y, color);
+}
+
+void Renderer2D::fillRect(int x, int y, int width, int height, uint32_t color)
+{
+    for (int j = 0; j <= height; ++j)
+    {
+        for (int i = 0; i <= width; ++i)
+        {
+            drawPixel(x + i, y + j, color);
+        }
+    }
+}
+
 void Renderer2D::clear(uint32_t color)
 {
     framebuffer.clear(color);

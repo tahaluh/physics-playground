@@ -17,7 +17,10 @@ int main()
         Renderer2D renderer(window);
 
         renderer.clear(0xFFFF0000);
-        renderer.drawLine(100, 100, 700, 500, 0xFF000000);
+
+        renderer.fillRect(400, 300, 100, 100, 0xFFFFFFFF);
+        renderer.drawRect(400, 300, 100, 100, 0xFF000000);
+
         renderer.present();
     }
 

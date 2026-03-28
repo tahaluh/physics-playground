@@ -1,12 +1,13 @@
 #include <chrono>
-#include <thread>
 #include <iostream>
+#include <thread>
 
 #include "platform/linux/X11Window.h"
-#include "render/Renderer2D.h"
-#include "scene/Scene2D.h"
 #include "physics/BallBody2D.h"
 #include "physics/BorderCircleBody2D.h"
+#include "physics/PhysicsWorld2D.h"
+#include "render/Renderer2D.h"
+#include "scene/Scene2D.h"
 
 int main()
 {
@@ -19,9 +20,9 @@ int main()
     }
 
     Renderer2D renderer(&window);
-
     Scene2D scene;
-    scene.setGravity(Vector2(0.0f, 980.0f));
+    PhysicsWorld2D physicsWorld;
+    physicsWorld.setGravity(Vector2(0.0f, 980.0f));
     scene.addBody(std::make_unique<BorderCircleBody2D>(Vector2(400, 300), 200));
     scene.addBody(std::make_unique<BallBody2D>(10, Vector2(420, 270), Vector2(600, 400), 0xFFFFFFFF));
 
@@ -47,8 +48,7 @@ int main()
 
         while (accumulator >= fixedTimeStep)
         {
-            scene.update(fixedTimeStep);
-            scene.checkCollisions();
+            physicsWorld.step(scene, fixedTimeStep);
             accumulator -= fixedTimeStep;
         }
 

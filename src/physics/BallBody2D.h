@@ -6,20 +6,15 @@ class BallBody2D : public PhysicsBody2D
 {
 public:
     BallBody2D(float radius, Vector2 pos, Vector2 vel = {0, 0}, uint32_t color = 0xFFFFFFFF)
-        : PhysicsBody2D(std::make_unique<CircleShape>(radius), pos, vel, 0.0f, color, 1.0f, 0.0f, 0.9f, 0.08f, true) {}
+        : PhysicsBody2D(std::make_unique<CircleShape>(radius), pos, vel, 0.0f, color, 1.0f, Material2D{0.0f, 0.9f, 0.08f, true}) {}
 
-    void onCollision(PhysicsBody2D &other) override
+    void onCollision(const Contact2D &contact) override
     {
         constexpr float stopThreshold = 25.0f;
 
-        if (resolveDynamicCircleCollision(*this, other))
-        {
-            return;
-        }
-
-        if (resolveBorderCircleCollision(other, stopThreshold))
+        if (resolveBorderCircleCollision(contact, stopThreshold))
             return;
 
-        resolveBorderBoxCollision(other, stopThreshold);
+        resolveBorderBoxCollision(contact, stopThreshold);
     }
 };

@@ -23,7 +23,7 @@ bool X11Window::create(int w, int h, const char *title)
         width, height,
         1,
         BlackPixel(display, screen),
-        WhitePixel(display, screen));
+        BlackPixel(display, screen));
 
     XSelectInput(display, window,
                  ExposureMask |
@@ -63,4 +63,37 @@ void X11Window::pollEvents()
 bool X11Window::shouldClose() const
 {
     return !running;
+}
+
+void X11Window::present(const uint32_t *pixels)
+{
+    if (!display || !window || !pixels)
+        return;
+
+    XImage *image = XCreateImage(
+        display,
+        DefaultVisual(display, DefaultScreen(display)),
+        DefaultDepth(display, DefaultScreen(display)),
+        ZPixmap,
+        0,
+        (char *)pixels,
+        width,
+        height,
+        32,
+        0);
+
+    if (!image)
+        return;
+
+    XPutImage(
+        display,
+        window,
+        DefaultGC(display, DefaultScreen(display)),
+        image,
+        0, 0,
+        0, 0,
+        width,
+        height);
+
+    XFlush(display);
 }

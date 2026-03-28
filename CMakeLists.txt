@@ -8,10 +8,10 @@ find_package(X11 REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-add_executable(app
-    src/main.cpp
-    src/platform/linux/X11Window.cpp
-)
+file(GLOB_RECURSE APP_SOURCES src/*.cpp)
+add_executable(app ${APP_SOURCES})
+
+target_include_directories(app PRIVATE src)
 
 target_include_directories(app PRIVATE ${X11_INCLUDE_DIR})
 target_link_libraries(app PRIVATE ${X11_LIBRARIES})

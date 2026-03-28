@@ -1,7 +1,7 @@
 #include <iostream>
 
-#include "platform/IWindow.h"
 #include "platform/linux/X11Window.h"
+#include "render/Renderer2D.h"
 
 int main()
 {
@@ -13,6 +13,11 @@ int main()
     while (!window->shouldClose())
     {
         window->pollEvents();
+
+        Renderer2D renderer(window);
+        renderer.clear(0xFFFF0000);
+        renderer.drawPixel(100, 100, 0xFF00FF00);
+        renderer.present();
     }
 
     delete window;

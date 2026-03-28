@@ -2,6 +2,9 @@
 
 enum class EngineKeyCode
 {
+    C,
+    ControlLeft,
+    ControlRight,
     W,
     A,
     S,

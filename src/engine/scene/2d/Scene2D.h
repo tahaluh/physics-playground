@@ -3,7 +3,8 @@
 #include <memory>
 #include <vector>
 
-class PhysicsBody2D;
+#include "engine/physics/2d/PhysicsBody2D.h"
+
 class Renderer2D;
 
 class Scene2D

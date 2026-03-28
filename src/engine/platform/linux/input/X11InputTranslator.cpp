@@ -10,6 +10,16 @@ bool tryTranslateKey(XKeyEvent &event, EngineKeyCode &outKey)
 
     switch (keysym)
     {
+    case XK_c:
+    case XK_C:
+        outKey = EngineKeyCode::C;
+        return true;
+    case XK_Control_L:
+        outKey = EngineKeyCode::ControlLeft;
+        return true;
+    case XK_Control_R:
+        outKey = EngineKeyCode::ControlRight;
+        return true;
     case XK_w:
     case XK_W:
         outKey = EngineKeyCode::W;

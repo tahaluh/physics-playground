@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <memory>
 
+#include "engine/graphics/GraphicsBackend.h"
+
 class ApplicationLayer;
 
 struct ApplicationConfig
@@ -11,9 +13,11 @@ struct ApplicationConfig
     int windowHeight = 600;
     const char *title = "Engine Playground";
     float fixedTimeStep = 1.0f / 120.0f;
-    float targetFrameTime = 1.0f / 60.0f;
+    int targetFrameRate = 60;
+    bool vsyncEnabled = true;
     float maxFrameDelta = 0.25f;
     uint32_t clearColor = 0xFF000000;
+    GraphicsBackend preferredGraphicsBackend = GraphicsBackend::Vulkan;
 };
 
 class Application

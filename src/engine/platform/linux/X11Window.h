@@ -14,6 +14,8 @@ public:
     void present(const uint32_t *pixels);
     void setMouseCaptured(bool captured) override;
     void setTitle(const char *title) override;
+    void *getNativeDisplayHandle() override;
+    unsigned long getNativeWindowHandle() override;
     ~X11Window() override;
 
     int getWidth() const { return width; }
@@ -23,6 +25,7 @@ private:
     void recenterCursor();
     bool recreateBackbuffer();
     void destroyPresentationResources();
+    void requestInitialFocus();
 
     Display *display = nullptr;
     Window window = 0;
@@ -37,4 +40,5 @@ private:
     bool mouseCaptureRequested = false;
     bool suppressCenteredMotion = false;
     bool hasDbe = false;
+    bool focusRequested = false;
 };

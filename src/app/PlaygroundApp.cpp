@@ -4,6 +4,7 @@
 
 #include "app/demos/RenderDemo3D.h"
 #include "engine/core/Application.h"
+#include "engine/graphics/GraphicsBackend.h"
 
 ApplicationConfig PlaygroundApp::makeConfig() const
 {
@@ -12,6 +13,9 @@ ApplicationConfig PlaygroundApp::makeConfig() const
     config.windowHeight = 600;
     config.title = "Phys Playground";
     config.clearColor = 0xFF000000;
+    config.targetFrameRate = 60;
+    config.vsyncEnabled = true;
+    config.preferredGraphicsBackend = GraphicsBackend::Vulkan;
     return config;
 }
 

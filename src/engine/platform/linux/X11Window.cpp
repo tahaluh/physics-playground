@@ -9,6 +9,30 @@
 #include "engine/input/KeyCode.h"
 #include "engine/platform/linux/input/X11InputTranslator.h"
 
+void X11Window::requestInitialFocus()
+{
+    if (!display || !window)
+    {
+        return;
+    }
+
+    XWindowAttributes attributes;
+    if (XGetWindowAttributes(display, window, &attributes) == 0)
+    {
+        return;
+    }
+
+    if (attributes.map_state != IsViewable)
+    {
+        return;
+    }
+
+    XRaiseWindow(display, window);
+    XSetInputFocus(display, window, RevertToParent, CurrentTime);
+    XFlush(display);
+    focusRequested = true;
+}
+
 void X11Window::destroyPresentationResources()
 {
     if (image)
@@ -88,6 +112,12 @@ bool X11Window::create(int w, int h, const char *title)
         BlackPixel(display, screen),
         BlackPixel(display, screen));
 
+    XWMHints hints;
+    std::memset(&hints, 0, sizeof(hints));
+    hints.flags = InputHint;
+    hints.input = True;
+    XSetWMHints(display, window, &hints);
+
     XSelectInput(display, window,
                  ExposureMask |
                      ButtonPressMask |
@@ -102,8 +132,10 @@ bool X11Window::create(int w, int h, const char *title)
     wmDeleteMessage = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wmDeleteMessage, 1);
 
-    XMapWindow(display, window);
+    XMapRaised(display, window);
     XFlush(display);
+    XSync(display, False);
+    requestInitialFocus();
 
     int dbeMajor = 0;
     int dbeMinor = 0;
@@ -215,6 +247,16 @@ void X11Window::setTitle(const char *title)
     XFlush(display);
 }
 
+void *X11Window::getNativeDisplayHandle()
+{
+    return display;
+}
+
+unsigned long X11Window::getNativeWindowHandle()
+{
+    return window;
+}
+
 void X11Window::recenterCursor()
 {
     if (!display || !window)
@@ -238,6 +280,11 @@ void X11Window::pollEvents()
         setMouseCaptured(true);
     }
 
+    if (!focusRequested)
+    {
+        requestInitialFocus();
+    }
+
     while (XPending(display))
     {
         XEvent event;
@@ -259,6 +306,7 @@ void X11Window::pollEvents()
         }
         else if (event.type == FocusIn)
         {
+            focusRequested = true;
             if (mouseCaptureRequested && !mouseCaptured)
             {
                 setMouseCaptured(true);

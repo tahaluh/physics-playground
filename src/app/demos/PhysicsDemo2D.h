@@ -1,15 +1,24 @@
 #pragma once
 
-class Renderer2D;
+#include <memory>
 
-class PhysicsDemo2D
+#include "engine/core/ApplicationLayer.h"
+#include "engine/physics/2d/PhysicsWorld2D.h"
+#include "engine/scene/2d/Scene2D.h"
+
+class IGraphicsDevice;
+
+class PhysicsDemo2D : public ApplicationLayer
 {
 public:
-    void initialize();
-    void step(float dt);
-    void render(Renderer2D &renderer) const;
+    ~PhysicsDemo2D() override;
+
+    void onAttach(int viewportWidth, int viewportHeight) override;
+    void onResize(int viewportWidth, int viewportHeight) override;
+    void onFixedUpdate(float dt) override;
+    void onRender(IGraphicsDevice &graphicsDevice) const override;
 
 private:
-    class Scene2D *scene = nullptr;
-    class PhysicsWorld2D *physicsWorld = nullptr;
+    std::unique_ptr<Scene2D> scene;
+    std::unique_ptr<PhysicsWorld2D> physicsWorld;
 };

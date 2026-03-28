@@ -1,13 +1,25 @@
 #include "engine/core/Application.h"
 
+#include <atomic>
 #include <chrono>
-#include <thread>
+#include <cstdio>
+#include <csignal>
 
 #include "engine/core/ApplicationLayer.h"
+#include "engine/graphics/GraphicsDeviceFactory.h"
+#include "engine/graphics/IGraphicsDevice.h"
 #include "engine/input/Input.h"
 #include "engine/platform/linux/X11Window.h"
-#include "engine/render/2d/Renderer2D.h"
-#include <cstdio>
+
+namespace
+{
+std::atomic<bool> gInterruptRequested = false;
+
+void handleInterrupt(int)
+{
+    gInterruptRequested.store(true);
+}
+}
 
 Application::Application(ApplicationConfig config)
     : config(config)
@@ -16,19 +28,47 @@ Application::Application(ApplicationConfig config)
 
 int Application::run(std::unique_ptr<ApplicationLayer> layer)
 {
+    gInterruptRequested.store(false);
+    const auto previousSigIntHandler = std::signal(SIGINT, handleInterrupt);
+
     if (!layer)
     {
+        std::signal(SIGINT, previousSigIntHandler);
         return 1;
     }
 
     X11Window window;
     if (!window.create(config.windowWidth, config.windowHeight, config.title))
     {
+        std::signal(SIGINT, previousSigIntHandler);
         return 1;
     }
     window.setMouseCaptured(true);
 
-    Renderer2D renderer(&window);
+    std::unique_ptr<IGraphicsDevice> graphicsDevice = GraphicsDeviceFactory::create(config.preferredGraphicsBackend);
+    if (!graphicsDevice)
+    {
+        std::signal(SIGINT, previousSigIntHandler);
+        return 1;
+    }
+
+    graphicsDevice->configurePresentation(config.vsyncEnabled, config.targetFrameRate);
+
+    if (!graphicsDevice->initialize(window))
+    {
+        std::signal(SIGINT, previousSigIntHandler);
+        return 1;
+    }
+
+    char initialTitleBuffer[256];
+    std::snprintf(
+        initialTitleBuffer,
+        sizeof(initialTitleBuffer),
+        "%s | %s",
+        config.title,
+        graphicsDevice->getBackendName());
+    window.setTitle(initialTitleBuffer);
+
     layer->onAttach(window.getWidth(), window.getHeight());
     bool mouseCaptured = true;
 
@@ -38,7 +78,7 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
     float titleUpdateAccumulator = 0.0f;
     int framesSinceTitleUpdate = 0;
 
-    while (!window.shouldClose())
+    while (!window.shouldClose() && !gInterruptRequested.load())
     {
         auto frameStart = clock::now();
         float frameDelta = std::chrono::duration<float>(frameStart - last).count();
@@ -65,9 +105,15 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             window.setMouseCaptured(true);
         }
 
-        if (renderer.getWidth() != window.getWidth() || renderer.getHeight() != window.getHeight())
+        const bool ctrlDown = Input::isKeyDown(EngineKeyCode::ControlLeft) || Input::isKeyDown(EngineKeyCode::ControlRight);
+        if (ctrlDown && Input::wasKeyPressed(EngineKeyCode::C))
         {
-            renderer.resize(window.getWidth(), window.getHeight());
+            gInterruptRequested.store(true);
+        }
+
+        if (graphicsDevice->getWidth() != window.getWidth() || graphicsDevice->getHeight() != window.getHeight())
+        {
+            graphicsDevice->resize(window.getWidth(), window.getHeight());
             layer->onResize(window.getWidth(), window.getHeight());
         }
 
@@ -77,13 +123,10 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             accumulator -= config.fixedTimeStep;
         }
 
-        renderer.clear(config.clearColor);
-        renderer.clearDepth();
-        layer->onRender(renderer);
-        renderer.present();
-
-        auto frameEnd = clock::now();
-        float frameTime = std::chrono::duration<float>(frameEnd - frameStart).count();
+        graphicsDevice->beginFrame(config.clearColor);
+        layer->onRender(*graphicsDevice);
+        graphicsDevice->endFrame();
+        graphicsDevice->present();
 
         if (titleUpdateAccumulator >= 0.25f)
         {
@@ -93,8 +136,11 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             std::snprintf(
                 titleBuffer,
                 sizeof(titleBuffer),
-                "%s | %.1f FPS | %.2f ms",
+                "%s | %s | %s | %d target | %.1f FPS | %.2f ms",
                 config.title,
+                graphicsDevice->getBackendName(),
+                config.vsyncEnabled ? "VSync On" : "VSync Off",
+                config.targetFrameRate,
                 fps,
                 averageFrameTime * 1000.0f);
             window.setTitle(titleBuffer);
@@ -102,12 +148,8 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             titleUpdateAccumulator = 0.0f;
             framesSinceTitleUpdate = 0;
         }
-
-        if (frameTime < config.targetFrameTime)
-        {
-            std::this_thread::sleep_for(std::chrono::duration<float>(config.targetFrameTime - frameTime));
-        }
     }
 
+    std::signal(SIGINT, previousSigIntHandler);
     return 0;
 }

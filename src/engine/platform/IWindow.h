@@ -11,6 +11,8 @@ public:
     virtual void present(const uint32_t *pixels) = 0;
     virtual void setMouseCaptured(bool captured) = 0;
     virtual void setTitle(const char *title) = 0;
+    virtual void *getNativeDisplayHandle() = 0;
+    virtual unsigned long getNativeWindowHandle() = 0;
 
     int getWidth() const { return width; }
     int getHeight() const { return height; }

@@ -8,7 +8,8 @@ find_package(X11 REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-file(GLOB_RECURSE APP_SOURCES src/*.cpp)
+file(GLOB_RECURSE APP_SOURCES src/*.cpp src/physics/shapes/*.cpp)
+file(GLOB_RECURSE APP_SOURCES "src/*.cpp" "src/Scene2D.cpp" "src/PhysicsBody2D.h" "src/PhysicsBody2D.cpp")
 add_executable(app ${APP_SOURCES})
 
 target_include_directories(app PRIVATE src)

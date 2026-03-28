@@ -1,13 +1,15 @@
 #include "engine/render/3d/SolidRenderer3D.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "engine/math/Vector2.h"
+#include "engine/render/2d/Renderer2D.h"
 #include "engine/render/3d/Camera3D.h"
-#include "engine/render/3d/CubeMesh3D.h"
+#include "engine/render/3d/Material3D.h"
 #include "engine/render/3d/ProjectedVertex3D.h"
 #include "engine/render/3d/RenderUtils3D.h"
-#include "engine/render/2d/Renderer2D.h"
+#include "engine/render/3d/mesh/Mesh3D.h"
 
 namespace
 {
@@ -54,19 +56,21 @@ void drawFilledTriangle(Renderer2D &renderer, const ProjectedVertex3D &v0, const
 }
 }
 
-void SolidRenderer3D::drawCube(Renderer2D &renderer, const Camera3D &camera, const Transform3D &transform, float size) const
+void SolidRenderer3D::drawMesh(Renderer2D &renderer, const Camera3D &camera, const Mesh3D &mesh, const Material3D &material, const Transform3D &transform) const
 {
-    const Matrix4 model = transform.getModelMatrix();
-    const auto localVertices = CubeMesh3D::makeVertices(size);
-    const auto projected = RenderUtils3D::projectVertices(localVertices, model, camera, renderer);
+    if (!material.renderSolid)
+        return;
 
-    for (const auto &triangle : CubeMesh3D::faces)
+    const Matrix4 model = transform.getModelMatrix();
+    const auto projected = RenderUtils3D::projectVertices(mesh.vertices, model, camera, renderer);
+
+    for (const auto &triangle : mesh.triangles)
     {
         drawFilledTriangle(
             renderer,
             projected[triangle.indices[0]],
             projected[triangle.indices[1]],
             projected[triangle.indices[2]],
-            triangle.color);
+            triangle.color ? triangle.color : material.fillColor);
     }
 }

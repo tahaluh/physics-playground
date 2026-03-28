@@ -9,6 +9,7 @@ public:
     virtual void pollEvents() = 0;
     virtual bool shouldClose() const = 0;
     virtual void present(const uint32_t *pixels) = 0;
+    virtual void setMouseCaptured(bool captured) = 0;
 
     int getWidth() const { return width; }
     int getHeight() const { return height; }

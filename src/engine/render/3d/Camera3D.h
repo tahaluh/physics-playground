@@ -24,9 +24,27 @@ public:
         return Matrix4::perspective(fovRadians, aspectRatio, nearPlane, farPlane);
     }
 
+    void setAspectRatio(float newAspectRatio)
+    {
+        if (newAspectRatio > 0.0f)
+        {
+            aspectRatio = newAspectRatio;
+        }
+    }
+
     Vector3 getForward() const
     {
         return Matrix4::rotationXYZ(transform.rotation).transformVector(Vector3(0.0f, 0.0f, -1.0f)).normalized();
+    }
+
+    Vector3 getRight() const
+    {
+        return Matrix4::rotationXYZ(transform.rotation).transformVector(Vector3::right()).normalized();
+    }
+
+    Vector3 getUp() const
+    {
+        return getRight().cross(getForward() * -1.0f).normalized();
     }
 
     bool projectPoint(const Vector3 &worldPoint, int viewportWidth, int viewportHeight, Vector2 &screenPoint) const

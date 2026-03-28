@@ -1,19 +1,33 @@
 #pragma once
 
+#include <memory>
+
+#include "engine/core/ApplicationLayer.h"
+#include "engine/render/3d/Camera3D.h"
+#include "engine/render/3d/SolidRenderer3D.h"
+#include "engine/render/3d/WireframeRenderer3D.h"
+#include "engine/scene/3d/Entity3D.h"
+#include "engine/scene/3d/Scene3D.h"
+
 class Renderer2D;
 
-class RenderDemo3D
+class RenderDemo3D : public ApplicationLayer
 {
 public:
-    void initialize(int viewportWidth, int viewportHeight);
-    void resizeViewport(int viewportWidth, int viewportHeight);
-    void step(float dt);
-    void render(Renderer2D &renderer) const;
+    ~RenderDemo3D() override;
+
+    void onAttach(int viewportWidth, int viewportHeight) override;
+    void onResize(int viewportWidth, int viewportHeight) override;
+    void onFixedUpdate(float dt) override;
+    void onRender(Renderer2D &renderer) const override;
 
 private:
-    class Camera3D *camera = nullptr;
-    class SolidRenderer3D *solidRenderer = nullptr;
-    class WireframeRenderer3D *wireframeRenderer = nullptr;
-    class Transform3D *cubeTransform = nullptr;
+    void updateCamera(float dt);
+
+    std::unique_ptr<Camera3D> camera;
+    std::unique_ptr<SolidRenderer3D> solidRenderer;
+    std::unique_ptr<WireframeRenderer3D> wireframeRenderer;
+    std::unique_ptr<Scene3D> scene;
+    Entity3D *cubeEntity = nullptr;
     float cubeRotation = 0.0f;
 };

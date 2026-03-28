@@ -1,6 +1,43 @@
 #include "X11Window.h"
-#include <iostream>
+
 #include <X11/Xutil.h>
+#include <cmath>
+#include <cstring>
+#include <iostream>
+
+#include "engine/input/Input.h"
+#include "engine/input/KeyCode.h"
+#include "engine/platform/linux/input/X11InputTranslator.h"
+
+bool X11Window::recreateBackbuffer()
+{
+    if (!display || !window || width <= 0 || height <= 0)
+    {
+        return false;
+    }
+
+    if (image)
+    {
+        image->data = nullptr;
+        XDestroyImage(image);
+        image = nullptr;
+    }
+
+    imagePixels.assign(static_cast<size_t>(width) * static_cast<size_t>(height), 0);
+    image = XCreateImage(
+        display,
+        DefaultVisual(display, DefaultScreen(display)),
+        DefaultDepth(display, DefaultScreen(display)),
+        ZPixmap,
+        0,
+        reinterpret_cast<char *>(imagePixels.data()),
+        width,
+        height,
+        32,
+        0);
+
+    return image != nullptr;
+}
 
 bool X11Window::create(int w, int h, const char *title)
 {
@@ -29,6 +66,8 @@ bool X11Window::create(int w, int h, const char *title)
     XSelectInput(display, window,
                  ExposureMask |
                      KeyPressMask |
+                     KeyReleaseMask |
+                     PointerMotionMask |
                      StructureNotifyMask);
 
     XStoreName(display, window, title);
@@ -37,16 +76,30 @@ bool X11Window::create(int w, int h, const char *title)
     XSetWMProtocols(display, window, &wmDeleteMessage, 1);
 
     XMapWindow(display, window);
-
     XFlush(display);
 
     running = true;
-
-    return true;
+    return recreateBackbuffer();
 }
 
 X11Window::~X11Window()
 {
+    if (display && mouseCaptured)
+    {
+        XUngrabPointer(display, CurrentTime);
+    }
+
+    if (display && invisibleCursor)
+    {
+        XFreeCursor(display, invisibleCursor);
+    }
+
+    if (image)
+    {
+        image->data = nullptr;
+        XDestroyImage(image);
+    }
+
     if (display && window)
     {
         XDestroyWindow(display, window);
@@ -58,23 +111,163 @@ X11Window::~X11Window()
     }
 }
 
+void X11Window::setMouseCaptured(bool captured)
+{
+    if (!display || !window)
+    {
+        return;
+    }
+
+    mouseCaptureRequested = captured;
+
+    if (mouseCaptured == captured)
+    {
+        return;
+    }
+
+    if (captured)
+    {
+        Input::resetMouseDelta();
+        char bitmapData[1] = {0};
+        Pixmap blankPixmap = XCreateBitmapFromData(display, window, bitmapData, 1, 1);
+        XColor dummyColor;
+        std::memset(&dummyColor, 0, sizeof(dummyColor));
+
+        if (!invisibleCursor)
+        {
+            invisibleCursor = XCreatePixmapCursor(display, blankPixmap, blankPixmap, &dummyColor, &dummyColor, 0, 0);
+        }
+
+        XFreePixmap(display, blankPixmap);
+        XDefineCursor(display, window, invisibleCursor);
+
+        XRaiseWindow(display, window);
+        XSync(display, False);
+
+        const int grabResult = XGrabPointer(
+            display,
+            window,
+            False,
+            ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+            GrabModeAsync,
+            GrabModeAsync,
+            window,
+            invisibleCursor,
+            CurrentTime);
+
+        if (grabResult == GrabSuccess)
+        {
+            mouseCaptured = true;
+            recenterCursor();
+        }
+        else
+        {
+            mouseCaptured = false;
+            XUndefineCursor(display, window);
+        }
+    }
+    else
+    {
+        Input::resetMouseDelta();
+        XUngrabPointer(display, CurrentTime);
+        XUndefineCursor(display, window);
+        mouseCaptured = false;
+    }
+
+    XFlush(display);
+}
+
+void X11Window::recenterCursor()
+{
+    if (!display || !window)
+    {
+        return;
+    }
+
+    suppressCenteredMotion = true;
+    Input::setMousePosition(static_cast<float>(width) * 0.5f, static_cast<float>(height) * 0.5f);
+    XWarpPointer(display, None, window, 0, 0, 0, 0, width / 2, height / 2);
+    XFlush(display);
+}
+
 void X11Window::pollEvents()
 {
     if (!display)
         return;
+
+    if (mouseCaptureRequested && !mouseCaptured)
+    {
+        setMouseCaptured(true);
+    }
+
     while (XPending(display))
     {
         XEvent event;
         XNextEvent(display, &event);
+
         if (event.type == ClientMessage &&
             static_cast<Atom>(event.xclient.data.l[0]) == wmDeleteMessage)
         {
             running = false;
         }
+        else if (event.type == KeyPress || event.type == KeyRelease)
+        {
+            const bool isDown = event.type == KeyPress;
+            EngineKeyCode key;
+            if (X11InputTranslator::tryTranslateKey(event.xkey, key))
+            {
+                Input::setKeyState(key, isDown);
+            }
+        }
+        else if (event.type == MotionNotify)
+        {
+            const float mouseX = static_cast<float>(event.xmotion.x);
+            const float mouseY = static_cast<float>(event.xmotion.y);
+
+            if (mouseCaptured)
+            {
+                const float centerX = static_cast<float>(width) * 0.5f;
+                const float centerY = static_cast<float>(height) * 0.5f;
+                const float dx = mouseX - centerX;
+                const float dy = mouseY - centerY;
+
+                if (suppressCenteredMotion)
+                {
+                    if (std::abs(dx) <= 1.0f && std::abs(dy) <= 1.0f)
+                    {
+                        suppressCenteredMotion = false;
+                    }
+
+                    Input::setMousePosition(centerX, centerY);
+                    continue;
+                }
+
+                Input::addMouseDelta(dx, dy);
+                Input::setMousePosition(centerX, centerY);
+
+                if (dx != 0.0f || dy != 0.0f)
+                {
+                    recenterCursor();
+                }
+            }
+            else
+            {
+                Input::setMousePosition(mouseX, mouseY);
+            }
+        }
         else if (event.type == ConfigureNotify)
         {
+            const bool resized = width != event.xconfigure.width || height != event.xconfigure.height;
             width = event.xconfigure.width;
             height = event.xconfigure.height;
+            if (resized)
+            {
+                recreateBackbuffer();
+            }
+            if (mouseCaptured)
+            {
+                recenterCursor();
+            }
         }
     }
 }
@@ -86,23 +279,10 @@ bool X11Window::shouldClose() const
 
 void X11Window::present(const uint32_t *pixels)
 {
-    if (!display || !window || !pixels)
+    if (!display || !window || !pixels || !image)
         return;
 
-    XImage *image = XCreateImage(
-        display,
-        DefaultVisual(display, DefaultScreen(display)),
-        DefaultDepth(display, DefaultScreen(display)),
-        ZPixmap,
-        0,
-        (char *)pixels,
-        width,
-        height,
-        32,
-        0);
-
-    if (!image)
-        return;
+    std::memcpy(imagePixels.data(), pixels, static_cast<size_t>(width) * static_cast<size_t>(height) * sizeof(uint32_t));
 
     XPutImage(
         display,
@@ -115,6 +295,4 @@ void X11Window::present(const uint32_t *pixels)
         height);
 
     XFlush(display);
-    image->data = nullptr;
-    XDestroyImage(image);
 }

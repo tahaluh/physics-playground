@@ -1,14 +1,13 @@
 #pragma once
 
-#include <cstdint>
-
-#include "engine/math/Transform3D.h"
-
 class Camera3D;
+struct Material3D;
+struct Mesh3D;
 class Renderer2D;
+struct Transform3D;
 
 class SolidRenderer3D
 {
 public:
-    void drawCube(Renderer2D &renderer, const Camera3D &camera, const Transform3D &transform, float size) const;
+    void drawMesh(Renderer2D &renderer, const Camera3D &camera, const Mesh3D &mesh, const Material3D &material, const Transform3D &transform) const;
 };

@@ -63,14 +63,21 @@ void SolidRenderer3D::drawMesh(Renderer2D &renderer, const Camera3D &camera, con
 
     const Matrix4 model = transform.getModelMatrix();
     const auto projected = RenderUtils3D::projectVertices(mesh.vertices, model, camera, renderer);
+    drawProjectedMesh(renderer, mesh, material, projected);
+}
+
+void SolidRenderer3D::drawProjectedMesh(Renderer2D &renderer, const Mesh3D &mesh, const Material3D &material, const std::vector<ProjectedVertex3D> &projectedVertices) const
+{
+    if (!material.renderSolid)
+        return;
 
     for (const auto &triangle : mesh.triangles)
     {
         drawFilledTriangle(
             renderer,
-            projected[triangle.indices[0]],
-            projected[triangle.indices[1]],
-            projected[triangle.indices[2]],
+            projectedVertices[triangle.indices[0]],
+            projectedVertices[triangle.indices[1]],
+            projectedVertices[triangle.indices[2]],
             triangle.color ? triangle.color : material.fillColor);
     }
 }

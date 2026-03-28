@@ -9,6 +9,22 @@
 #include "engine/input/KeyCode.h"
 #include "engine/platform/linux/input/X11InputTranslator.h"
 
+void X11Window::destroyPresentationResources()
+{
+    if (image)
+    {
+        image->data = nullptr;
+        XDestroyImage(image);
+        image = nullptr;
+    }
+
+    if (display && dbeBackBuffer)
+    {
+        XdbeDeallocateBackBufferName(display, dbeBackBuffer);
+        dbeBackBuffer = 0;
+    }
+}
+
 bool X11Window::recreateBackbuffer()
 {
     if (!display || !window || width <= 0 || height <= 0)
@@ -16,12 +32,7 @@ bool X11Window::recreateBackbuffer()
         return false;
     }
 
-    if (image)
-    {
-        image->data = nullptr;
-        XDestroyImage(image);
-        image = nullptr;
-    }
+    destroyPresentationResources();
 
     imagePixels.assign(static_cast<size_t>(width) * static_cast<size_t>(height), 0);
     image = XCreateImage(
@@ -36,7 +47,21 @@ bool X11Window::recreateBackbuffer()
         32,
         0);
 
-    return image != nullptr;
+    if (!image)
+    {
+        return false;
+    }
+
+    if (hasDbe)
+    {
+        dbeBackBuffer = XdbeAllocateBackBufferName(display, window, XdbeUndefined);
+        if (!dbeBackBuffer)
+        {
+            hasDbe = false;
+        }
+    }
+
+    return true;
 }
 
 bool X11Window::create(int w, int h, const char *title)
@@ -65,6 +90,8 @@ bool X11Window::create(int w, int h, const char *title)
 
     XSelectInput(display, window,
                  ExposureMask |
+                     ButtonPressMask |
+                     FocusChangeMask |
                      KeyPressMask |
                      KeyReleaseMask |
                      PointerMotionMask |
@@ -77,6 +104,10 @@ bool X11Window::create(int w, int h, const char *title)
 
     XMapWindow(display, window);
     XFlush(display);
+
+    int dbeMajor = 0;
+    int dbeMinor = 0;
+    hasDbe = XdbeQueryExtension(display, &dbeMajor, &dbeMinor) != 0;
 
     running = true;
     return recreateBackbuffer();
@@ -94,11 +125,7 @@ X11Window::~X11Window()
         XFreeCursor(display, invisibleCursor);
     }
 
-    if (image)
-    {
-        image->data = nullptr;
-        XDestroyImage(image);
-    }
+    destroyPresentationResources();
 
     if (display && window)
     {
@@ -177,6 +204,17 @@ void X11Window::setMouseCaptured(bool captured)
     XFlush(display);
 }
 
+void X11Window::setTitle(const char *title)
+{
+    if (!display || !window || !title)
+    {
+        return;
+    }
+
+    XStoreName(display, window, title);
+    XFlush(display);
+}
+
 void X11Window::recenterCursor()
 {
     if (!display || !window)
@@ -209,6 +247,29 @@ void X11Window::pollEvents()
             static_cast<Atom>(event.xclient.data.l[0]) == wmDeleteMessage)
         {
             running = false;
+        }
+        else if (event.type == FocusOut)
+        {
+            if (mouseCaptured)
+            {
+                XUngrabPointer(display, CurrentTime);
+                XUndefineCursor(display, window);
+                mouseCaptured = false;
+            }
+        }
+        else if (event.type == FocusIn)
+        {
+            if (mouseCaptureRequested && !mouseCaptured)
+            {
+                setMouseCaptured(true);
+            }
+        }
+        else if (event.type == ButtonPress)
+        {
+            if (mouseCaptureRequested && !mouseCaptured)
+            {
+                setMouseCaptured(true);
+            }
         }
         else if (event.type == KeyPress || event.type == KeyRelease)
         {
@@ -284,15 +345,29 @@ void X11Window::present(const uint32_t *pixels)
 
     std::memcpy(imagePixels.data(), pixels, static_cast<size_t>(width) * static_cast<size_t>(height) * sizeof(uint32_t));
 
+    Drawable target = window;
+    if (hasDbe && dbeBackBuffer)
+    {
+        target = dbeBackBuffer;
+    }
+
     XPutImage(
         display,
-        window,
+        target,
         DefaultGC(display, DefaultScreen(display)),
         image,
         0, 0,
         0, 0,
         width,
         height);
+
+    if (hasDbe && dbeBackBuffer)
+    {
+        XdbeSwapInfo swapInfo;
+        swapInfo.swap_window = window;
+        swapInfo.swap_action = XdbeUndefined;
+        XdbeSwapBuffers(display, &swapInfo, 1);
+    }
 
     XFlush(display);
 }

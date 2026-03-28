@@ -1,5 +1,6 @@
 #pragma once
 #include <X11/Xlib.h>
+#include <X11/extensions/Xdbe.h>
 #include <vector>
 
 #include "engine/platform/IWindow.h"
@@ -12,6 +13,7 @@ public:
     bool shouldClose() const;
     void present(const uint32_t *pixels);
     void setMouseCaptured(bool captured) override;
+    void setTitle(const char *title) override;
     ~X11Window() override;
 
     int getWidth() const { return width; }
@@ -20,16 +22,19 @@ public:
 private:
     void recenterCursor();
     bool recreateBackbuffer();
+    void destroyPresentationResources();
 
     Display *display = nullptr;
     Window window = 0;
     Atom wmDeleteMessage = 0;
     Cursor invisibleCursor = 0;
     XImage *image = nullptr;
+    XdbeBackBuffer dbeBackBuffer = 0;
     std::vector<uint32_t> imagePixels;
 
     bool running = true;
     bool mouseCaptured = false;
     bool mouseCaptureRequested = false;
     bool suppressCenteredMotion = false;
+    bool hasDbe = false;
 };

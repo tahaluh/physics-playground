@@ -7,6 +7,7 @@
 #include "engine/input/Input.h"
 #include "engine/platform/linux/X11Window.h"
 #include "engine/render/2d/Renderer2D.h"
+#include <cstdio>
 
 Application::Application(ApplicationConfig config)
     : config(config)
@@ -34,6 +35,8 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
     using clock = std::chrono::high_resolution_clock;
     auto last = clock::now();
     float accumulator = 0.0f;
+    float titleUpdateAccumulator = 0.0f;
+    int framesSinceTitleUpdate = 0;
 
     while (!window.shouldClose())
     {
@@ -45,6 +48,8 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
         }
         last = frameStart;
         accumulator += frameDelta;
+        titleUpdateAccumulator += frameDelta;
+        ++framesSinceTitleUpdate;
 
         Input::beginFrame();
         window.pollEvents();
@@ -79,6 +84,25 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
 
         auto frameEnd = clock::now();
         float frameTime = std::chrono::duration<float>(frameEnd - frameStart).count();
+
+        if (titleUpdateAccumulator >= 0.25f)
+        {
+            const float averageFrameTime = titleUpdateAccumulator / static_cast<float>(framesSinceTitleUpdate);
+            const float fps = static_cast<float>(framesSinceTitleUpdate) / titleUpdateAccumulator;
+            char titleBuffer[256];
+            std::snprintf(
+                titleBuffer,
+                sizeof(titleBuffer),
+                "%s | %.1f FPS | %.2f ms",
+                config.title,
+                fps,
+                averageFrameTime * 1000.0f);
+            window.setTitle(titleBuffer);
+
+            titleUpdateAccumulator = 0.0f;
+            framesSinceTitleUpdate = 0;
+        }
+
         if (frameTime < config.targetFrameTime)
         {
             std::this_thread::sleep_for(std::chrono::duration<float>(config.targetFrameTime - frameTime));

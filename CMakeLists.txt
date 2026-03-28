@@ -15,3 +15,6 @@ target_include_directories(app PRIVATE src)
 
 target_include_directories(app PRIVATE ${X11_INCLUDE_DIR})
 target_link_libraries(app PRIVATE ${X11_LIBRARIES})
+if (X11_Xext_LIB)
+    target_link_libraries(app PRIVATE ${X11_Xext_LIB})
+endif()

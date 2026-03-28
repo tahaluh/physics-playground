@@ -4,8 +4,7 @@
 
 #include "engine/core/ApplicationLayer.h"
 #include "engine/render/3d/Camera3D.h"
-#include "engine/render/3d/SolidRenderer3D.h"
-#include "engine/render/3d/WireframeRenderer3D.h"
+#include "engine/render/3d/SceneRenderer3D.h"
 #include "engine/scene/3d/Entity3D.h"
 #include "engine/scene/3d/Scene3D.h"
 
@@ -25,8 +24,7 @@ private:
     void updateCamera(float dt);
 
     std::unique_ptr<Camera3D> camera;
-    std::unique_ptr<SolidRenderer3D> solidRenderer;
-    std::unique_ptr<WireframeRenderer3D> wireframeRenderer;
+    std::unique_ptr<SceneRenderer3D> sceneRenderer;
     std::unique_ptr<Scene3D> scene;
     Entity3D *cubeEntity = nullptr;
     float cubeRotation = 0.0f;

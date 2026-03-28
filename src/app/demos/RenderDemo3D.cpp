@@ -7,8 +7,7 @@
 #include "engine/math/Vector3.h"
 #include "engine/render/2d/Renderer2D.h"
 #include "engine/render/3d/Camera3D.h"
-#include "engine/render/3d/SolidRenderer3D.h"
-#include "engine/render/3d/WireframeRenderer3D.h"
+#include "engine/render/3d/SceneRenderer3D.h"
 #include "engine/render/3d/mesh/MeshFactory3D.h"
 #include "engine/scene/3d/Entity3D.h"
 #include "engine/scene/3d/Scene3D.h"
@@ -51,8 +50,7 @@ RenderDemo3D::~RenderDemo3D() = default;
 void RenderDemo3D::onAttach(int viewportWidth, int viewportHeight)
 {
     camera = makeDefaultCamera(viewportWidth, viewportHeight);
-    solidRenderer = std::make_unique<SolidRenderer3D>();
-    wireframeRenderer = std::make_unique<WireframeRenderer3D>();
+    sceneRenderer = std::make_unique<SceneRenderer3D>();
     scene = std::make_unique<Scene3D>();
 
     Entity3D cube;
@@ -61,7 +59,7 @@ void RenderDemo3D::onAttach(int viewportWidth, int viewportHeight)
     cube.material.fillColor = 0xFF3A86FF;
     cube.material.wireframeColor = 0xFF44AAFF;
     cube.material.renderSolid = true;
-    cube.material.renderWireframe = true;
+    cube.material.renderWireframe = false;
     cubeEntity = &scene->createEntity(cube);
 }
 
@@ -148,9 +146,5 @@ void RenderDemo3D::onRender(Renderer2D &renderer) const
     if (!scene || !camera)
         return;
 
-    for (const auto &entity : scene->getEntities())
-    {
-        solidRenderer->drawMesh(renderer, *camera, entity.mesh, entity.material, entity.transform);
-        wireframeRenderer->drawMesh(renderer, *camera, entity.mesh, entity.material, entity.transform);
-    }
+    sceneRenderer->render(renderer, *camera, *scene);
 }

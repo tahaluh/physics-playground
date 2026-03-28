@@ -13,6 +13,13 @@ void WireframeRenderer3D::drawMesh(Renderer2D &renderer, const Camera3D &camera,
 
     const Matrix4 modelMatrix = transform.getModelMatrix();
     const auto projectedVertices = RenderUtils3D::projectVertices(mesh.vertices, modelMatrix, camera, renderer);
+    drawProjectedMesh(renderer, mesh, material, projectedVertices);
+}
+
+void WireframeRenderer3D::drawProjectedMesh(Renderer2D &renderer, const Mesh3D &mesh, const Material3D &material, const std::vector<ProjectedVertex3D> &projectedVertices) const
+{
+    if (!material.renderWireframe)
+        return;
 
     for (const auto &edge : mesh.edges)
     {

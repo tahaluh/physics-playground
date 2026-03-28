@@ -17,6 +17,7 @@ public:
     float mass;
     float linearDamping;
     float restitution;
+    float surfaceFriction;
     bool useGravity;
     uint32_t color = 0xFFFFFFFF; // cor padrão: branco
 
@@ -28,6 +29,7 @@ public:
                   float mass = 1.0f,
                   float linearDamping = 0.0f,
                   float restitution = 1.0f,
+                  float surfaceFriction = 0.0f,
                   bool useGravity = true)
         : shape(std::move(shape)),
           position(pos),
@@ -37,6 +39,7 @@ public:
           mass(mass),
           linearDamping(linearDamping),
           restitution(restitution),
+          surfaceFriction(surfaceFriction),
           useGravity(useGravity),
           color(color) {}
 
@@ -78,4 +81,5 @@ protected:
     bool resolveBorderCircleCollision(PhysicsBody2D &other, float stopThreshold = 0.0f);
     bool resolveBorderBoxCollision(PhysicsBody2D &other, float stopThreshold = 0.0f);
     bool resolveBorderCircleAxisInvertCollision(PhysicsBody2D &other);
+    void applySurfaceFrictionAlongNormal(const Vector2 &normal);
 };

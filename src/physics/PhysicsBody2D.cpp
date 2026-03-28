@@ -99,6 +99,7 @@ bool PhysicsBody2D::resolveBorderCircleCollision(PhysicsBody2D &other, float sto
     Vector2 normal = toBody / distance;
     position = borderCircle->getCenter() + normal * innerRadius;
     velocity = velocity.reflect(normal) * restitution;
+    applySurfaceFrictionAlongNormal(normal);
 
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
@@ -149,12 +150,23 @@ bool PhysicsBody2D::resolveBorderBoxCollision(PhysicsBody2D &other, float stopTh
         return false;
 
     velocity = velocity.reflect(normal) * restitution;
+    applySurfaceFrictionAlongNormal(normal);
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
         velocity = Vector2::zero();
     }
 
     return true;
+}
+
+void PhysicsBody2D::applySurfaceFrictionAlongNormal(const Vector2 &normal)
+{
+    if (surfaceFriction <= 0.0f)
+        return;
+
+    const float normalSpeed = velocity.dot(normal);
+    const Vector2 tangentialVelocity = velocity - normal * normalSpeed;
+    velocity -= tangentialVelocity * surfaceFriction;
 }
 
 bool PhysicsBody2D::resolveBorderCircleAxisInvertCollision(PhysicsBody2D &other)

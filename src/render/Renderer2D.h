@@ -14,6 +14,9 @@ public:
     void drawRect(int x, int y, int width, int height, uint32_t color);
     void fillRect(int x, int y, int width, int height, uint32_t color);
 
+    void drawTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
+    void fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color);
+
     void drawCircle(int cx, int cy, int radius, uint32_t color);
     void fillCircle(int cx, int cy, int radius, uint32_t color);
 

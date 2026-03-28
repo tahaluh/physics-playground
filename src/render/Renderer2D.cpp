@@ -100,6 +100,61 @@ void Renderer2D::fillCircle(int cx, int cy, int radius, uint32_t color)
     }
 }
 
+void Renderer2D::drawTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+{
+    drawLine(x0, y0, x1, y1, color);
+    drawLine(x1, y1, x2, y2, color);
+    drawLine(x2, y2, x0, y0, color);
+}
+
+void Renderer2D::fillTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
+{
+    auto swapVertex = [](int &xa, int &ya, int &xb, int &yb)
+    {
+        std::swap(xa, xb);
+        std::swap(ya, yb);
+    };
+
+    // Sort by y
+    if (y0 > y1)
+        swapVertex(x0, y0, x1, y1);
+    if (y1 > y2)
+        swapVertex(x1, y1, x2, y2);
+    if (y0 > y1)
+        swapVertex(x0, y0, x1, y1);
+
+    auto interpX = [](int xa, int ya, int xb, int yb, int y) -> float
+    {
+        if (ya == yb)
+            return (float)xa;
+        return xa + (xb - xa) * ((float)(y - ya) / (float)(yb - ya));
+    };
+
+    for (int y = y0; y <= y2; ++y)
+    {
+        float xA, xB;
+
+        if (y < y1)
+        {
+            xA = interpX(x0, y0, x1, y1, y);
+            xB = interpX(x0, y0, x2, y2, y);
+        }
+        else
+        {
+            xA = interpX(x1, y1, x2, y2, y);
+            xB = interpX(x0, y0, x2, y2, y);
+        }
+
+        if (xA > xB)
+            std::swap(xA, xB);
+
+        for (int x = (int)xA; x <= (int)xB; ++x)
+        {
+            drawPixel(x, y, color);
+        }
+    }
+}
+
 void Renderer2D::clear(uint32_t color)
 {
     framebuffer.clear(color);

@@ -18,8 +18,8 @@ int main()
 
         renderer.clear(0xFFFF0000);
 
-        renderer.fillCircle(400, 300, 100, 0xFF0000FF);
-        renderer.drawCircle(400, 300, 100, 0xFF00FF00);
+        renderer.fillTriangle(100, 100, 200, 50, 150, 200, 0xFFFFFF00);
+        renderer.drawTriangle(100, 100, 200, 50, 150, 200, 0xFF000000);
 
         renderer.present();
     }

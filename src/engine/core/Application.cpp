@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <csignal>
+#include <thread>
 
 #include "engine/core/ApplicationLayer.h"
 #include "engine/graphics/GraphicsDeviceFactory.h"
@@ -73,6 +74,10 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
     bool mouseCaptured = true;
 
     using clock = std::chrono::high_resolution_clock;
+    const bool frameLimiterEnabled = config.targetFrameRate > 0;
+    const auto targetFrameDuration = frameLimiterEnabled
+        ? std::chrono::duration<float>(1.0f / static_cast<float>(config.targetFrameRate))
+        : std::chrono::duration<float>(0.0f);
     auto last = clock::now();
     float accumulator = 0.0f;
     float titleUpdateAccumulator = 0.0f;
@@ -127,6 +132,16 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
         layer->onRender(*graphicsDevice);
         graphicsDevice->endFrame();
         graphicsDevice->present();
+
+        if (frameLimiterEnabled)
+        {
+            const auto frameEnd = clock::now();
+            const auto elapsedFrameTime = frameEnd - frameStart;
+            if (elapsedFrameTime < targetFrameDuration)
+            {
+                std::this_thread::sleep_for(targetFrameDuration - elapsedFrameTime);
+            }
+        }
 
         if (titleUpdateAccumulator >= 0.25f)
         {

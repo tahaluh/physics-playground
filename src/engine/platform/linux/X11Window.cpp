@@ -71,6 +71,11 @@ void X11Window::pollEvents()
         {
             running = false;
         }
+        else if (event.type == ConfigureNotify)
+        {
+            width = event.xconfigure.width;
+            height = event.xconfigure.height;
+        }
     }
 }
 

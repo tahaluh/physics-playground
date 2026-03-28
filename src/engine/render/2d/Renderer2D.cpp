@@ -115,6 +115,11 @@ int Renderer2D::getHeight() const
     return framebuffer.getHeight();
 }
 
+void Renderer2D::resize(int width, int height)
+{
+    framebuffer.resize(width, height);
+}
+
 void Renderer2D::drawTriangle(int x0, int y0, int x1, int y1, int x2, int y2, uint32_t color)
 {
     drawLine(x0, y0, x1, y1, color);

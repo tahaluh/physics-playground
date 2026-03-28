@@ -24,6 +24,7 @@ public:
     int getWidth() const;
     int getHeight() const;
 
+    void resize(int width, int height);
     void clear(uint32_t color);
     void clearDepth(float value = 1.0e9f);
     void present();

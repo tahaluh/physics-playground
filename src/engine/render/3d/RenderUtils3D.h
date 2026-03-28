@@ -36,7 +36,7 @@ std::array<ProjectedVertex3D, N> projectVertices(
         projected[i].visible = true;
         projected[i].position.x = (clip.x * 0.5f + 0.5f) * static_cast<float>(renderer.getWidth());
         projected[i].position.y = (1.0f - (clip.y * 0.5f + 0.5f)) * static_cast<float>(renderer.getHeight());
-        projected[i].depth = -viewPoint.z;
+        projected[i].depth = clip.z * 0.5f + 0.5f;
     }
 
     return projected;

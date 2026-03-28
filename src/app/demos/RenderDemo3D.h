@@ -6,6 +6,7 @@ class RenderDemo3D
 {
 public:
     void initialize(int viewportWidth, int viewportHeight);
+    void resizeViewport(int viewportWidth, int viewportHeight);
     void step(float dt);
     void render(Renderer2D &renderer) const;
 

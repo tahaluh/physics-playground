@@ -32,6 +32,16 @@ void RenderDemo3D::initialize(int viewportWidth, int viewportHeight)
         cubeTransform = new Transform3D();
 }
 
+void RenderDemo3D::resizeViewport(int viewportWidth, int viewportHeight)
+{
+    if (!camera || viewportWidth <= 0 || viewportHeight <= 0)
+    {
+        return;
+    }
+
+    camera->aspectRatio = static_cast<float>(viewportWidth) / static_cast<float>(viewportHeight);
+}
+
 void RenderDemo3D::step(float dt)
 {
     cubeRotation += dt;

@@ -47,6 +47,12 @@ int PlaygroundApp::run()
 
         window.pollEvents();
 
+        if (renderer.getWidth() != window.getWidth() || renderer.getHeight() != window.getHeight())
+        {
+            renderer.resize(window.getWidth(), window.getHeight());
+            renderDemo.resizeViewport(window.getWidth(), window.getHeight());
+        }
+
         while (accumulator >= kFixedTimeStep)
         {
             renderDemo.step(kFixedTimeStep);

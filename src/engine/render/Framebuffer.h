@@ -13,6 +13,24 @@ public:
     {
     }
 
+    void resize(int newWidth, int newHeight)
+    {
+        if (newWidth <= 0 || newHeight <= 0)
+        {
+            return;
+        }
+
+        if (newWidth == width && newHeight == height)
+        {
+            return;
+        }
+
+        width = newWidth;
+        height = newHeight;
+        pixels.assign(width * height, 0);
+        depth.assign(width * height, std::numeric_limits<float>::infinity());
+    }
+
     void clear(uint32_t color)
     {
         std::fill(pixels.begin(), pixels.end(), color);

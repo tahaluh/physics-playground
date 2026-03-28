@@ -1,5 +1,6 @@
 #include "X11Window.h"
 #include <iostream>
+#include <X11/Xutil.h>
 
 bool X11Window::create(int w, int h, const char *title)
 {
@@ -42,6 +43,19 @@ bool X11Window::create(int w, int h, const char *title)
     running = true;
 
     return true;
+}
+
+X11Window::~X11Window()
+{
+    if (display && window)
+    {
+        XDestroyWindow(display, window);
+    }
+
+    if (display)
+    {
+        XCloseDisplay(display);
+    }
 }
 
 void X11Window::pollEvents()
@@ -96,4 +110,6 @@ void X11Window::present(const uint32_t *pixels)
         height);
 
     XFlush(display);
+    image->data = nullptr;
+    XDestroyImage(image);
 }

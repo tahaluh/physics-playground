@@ -10,14 +10,15 @@ public:
     void pollEvents();
     bool shouldClose() const;
     void present(const uint32_t *pixels);
+    ~X11Window() override;
 
     int getWidth() const { return width; }
     int getHeight() const { return height; }
 
 private:
     Display *display = nullptr;
-    Window window;
-    Atom wmDeleteMessage;
+    Window window = 0;
+    Atom wmDeleteMessage = 0;
 
     bool running = true;
 };

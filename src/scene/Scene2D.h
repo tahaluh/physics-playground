@@ -5,13 +5,16 @@
 #include <memory>
 #include "physics/PhysicsBody2D.h"
 #include "physics/shapes/Shape.h"
-#include "physics/shapes/CircleShape.h"
-#include "physics/shapes/RectShape.h"
-#include "physics/BorderCircleBody2D.h"
+#include "render/Renderer2D.h"
 
 class Scene2D
 {
 public:
+    void setGravity(const Vector2 &newGravity)
+    {
+        gravity = newGravity;
+    }
+
     void addBody(std::unique_ptr<PhysicsBody2D> body)
     {
         bodies.push_back(std::move(body));
@@ -21,7 +24,11 @@ public:
     {
         for (auto &body : bodies)
         {
-            body->position = body->position + body->velocity * dt;
+            if (!body->isStatic())
+            {
+                body->applyForce(gravity * body->mass);
+            }
+            body->integrate(dt);
         }
     }
 
@@ -49,37 +56,7 @@ public:
     {
         for (const auto &body : bodies)
         {
-            Shape *shape = body->shape.get();
-            uint32_t drawColor = body->color;
-            // Detecta se é BorderCircleBody2D para desenhar só a borda (sempre branco)
-            if (dynamic_cast<const BorderCircleBody2D *>(body.get()))
-            {
-                auto *circ = static_cast<CircleShape *>(shape);
-                renderer.drawCircle(
-                    body->position.x,
-                    body->position.y,
-                    circ->getRadius(),
-                    0xFFFFFFFF); // borda sempre branca
-            }
-            else if (shape->getType() == ShapeType::Rect)
-            {
-                auto *rect = static_cast<RectShape *>(shape);
-                renderer.drawRect(
-                    body->position.x,
-                    body->position.y,
-                    rect->getWidth(),
-                    rect->getHeight(),
-                    drawColor);
-            }
-            else if (shape->getType() == ShapeType::Circle)
-            {
-                auto *circ = static_cast<CircleShape *>(shape);
-                renderer.drawCircle(
-                    body->position.x,
-                    body->position.y,
-                    circ->getRadius(),
-                    drawColor);
-            }
+            body->render(renderer);
         }
     }
 
@@ -90,4 +67,5 @@ public:
 
 private:
     std::vector<std::unique_ptr<PhysicsBody2D>> bodies;
+    Vector2 gravity = Vector2(0.0f, 0.0f);
 };

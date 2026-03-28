@@ -6,7 +6,7 @@ class BorderBoxBody2D : public PhysicsBody2D
 {
 public:
     BorderBoxBody2D(Vector2 pos, float width, float height)
-        : PhysicsBody2D(std::make_unique<RectShape>(width, height), pos) {}
+        : PhysicsBody2D(std::make_unique<RectShape>(width, height), pos, Vector2(), 0.0f, 0xFFFFFFFF, 0.0f) {}
 
     float left() const { return position.x; }
     float right() const { return position.x + static_cast<RectShape *>(shape.get())->getWidth(); }

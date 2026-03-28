@@ -15,8 +15,9 @@ int main()
         window->pollEvents();
 
         Renderer2D renderer(window);
+
         renderer.clear(0xFFFF0000);
-        renderer.drawPixel(100, 100, 0xFF00FF00);
+        renderer.drawLine(100, 100, 700, 500, 0xFF000000);
         renderer.present();
     }
 

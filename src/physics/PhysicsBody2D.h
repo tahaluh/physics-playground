@@ -10,9 +10,10 @@ public:
     Vector2 position;
     Vector2 velocity;
     float rotation;
+    uint32_t color = 0xFFFFFFFF; // cor padrão: branco
 
-    PhysicsBody2D(std::unique_ptr<Shape> shape, Vector2 pos, Vector2 vel = {0, 0}, float rot = 0.0f)
-        : shape(std::move(shape)), position(pos), velocity(vel), rotation(rot) {}
+    PhysicsBody2D(std::unique_ptr<Shape> shape, Vector2 pos, Vector2 vel = {0, 0}, float rot = 0.0f, uint32_t color = 0xFFFFFFFF)
+        : shape(std::move(shape)), position(pos), velocity(vel), rotation(rot), color(color) {}
 
     virtual void onCollision(PhysicsBody2D &other)
     {

@@ -8,6 +8,7 @@
 #include "physics/PhysicsBody2D.h"
 #include "physics/BorderBoxBody2D.h"
 #include "physics/BallBody2D.h"
+#include "physics/BallInvertBody2D.h"
 #include "physics/shapes/CircleShape.h"
 #include "physics/shapes/RectShape.h"
 
@@ -20,8 +21,10 @@ int main()
 
     Scene2D scene;
     scene.addBody(std::make_unique<BorderCircleBody2D>(Vector2(400, 300), 200));
-    scene.addBody(std::make_unique<BallBody2D>(
-        std::make_unique<CircleShape>(10), Vector2(420, 270), Vector2(600, 400)));
+    // Bola com reflexão realista (branca)
+    scene.addBody(std::make_unique<BallBody2D>(10, Vector2(420, 270), Vector2(600, 400), 0xFFFFFFFF));
+    // Bola com inversão de eixo (vermelha)
+    scene.addBody(std::make_unique<BallInvertBody2D>(10, Vector2(380, 330), Vector2(-600, -400), 0xFFCC2222));
 
     using clock = std::chrono::high_resolution_clock;
     auto last = clock::now();

@@ -50,7 +50,8 @@ public:
         for (const auto &body : bodies)
         {
             Shape *shape = body->shape.get();
-            // Detecta se é BorderCircleBody2D para desenhar só a borda
+            uint32_t drawColor = body->color;
+            // Detecta se é BorderCircleBody2D para desenhar só a borda (sempre branco)
             if (dynamic_cast<const BorderCircleBody2D *>(body.get()))
             {
                 auto *circ = static_cast<CircleShape *>(shape);
@@ -58,7 +59,7 @@ public:
                     body->position.x,
                     body->position.y,
                     circ->getRadius(),
-                    0xFFFFFFFF); // cor branca para borda
+                    0xFFFFFFFF); // borda sempre branca
             }
             else if (shape->getType() == ShapeType::Rect)
             {
@@ -68,7 +69,7 @@ public:
                     body->position.y,
                     rect->getWidth(),
                     rect->getHeight(),
-                    0xFFFFFFFF);
+                    drawColor);
             }
             else if (shape->getType() == ShapeType::Circle)
             {
@@ -77,7 +78,7 @@ public:
                     body->position.x,
                     body->position.y,
                     circ->getRadius(),
-                    0xFFFFFFFF);
+                    drawColor);
             }
         }
     }

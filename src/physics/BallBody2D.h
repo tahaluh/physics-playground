@@ -1,6 +1,7 @@
-#include "physics/BorderCircleBody2D.h"
+
 #pragma once
 #include "physics/PhysicsBody2D.h"
+#include "physics/BorderCircleBody2D.h"
 #include "physics/BorderBoxBody2D.h"
 #include "physics/shapes/CircleShape.h"
 #include <iostream>
@@ -8,7 +9,8 @@
 class BallBody2D : public PhysicsBody2D
 {
 public:
-    using PhysicsBody2D::PhysicsBody2D;
+    BallBody2D(float radius, Vector2 pos, Vector2 vel = {0, 0}, uint32_t color = 0xFFFFFFFF)
+        : PhysicsBody2D(std::make_unique<CircleShape>(radius), pos, vel, 0.0f, color) {}
 
     void onCollision(PhysicsBody2D &other) override
     {

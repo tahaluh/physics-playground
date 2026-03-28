@@ -18,8 +18,8 @@ int main()
 
         renderer.clear(0xFFFF0000);
 
-        renderer.fillRect(400, 300, 100, 100, 0xFFFFFFFF);
-        renderer.drawRect(400, 300, 100, 100, 0xFF000000);
+        renderer.fillCircle(400, 300, 100, 0xFF0000FF);
+        renderer.drawCircle(400, 300, 100, 0xFF00FF00);
 
         renderer.present();
     }

@@ -55,6 +55,51 @@ void Renderer2D::fillRect(int x, int y, int width, int height, uint32_t color)
     }
 }
 
+void Renderer2D::drawCircle(int cx, int cy, int radius, uint32_t color)
+{
+    // Midpoint circle algorithm
+    int x = radius;
+    int y = 0;
+    int err = 0;
+
+    while (x >= y)
+    {
+        drawPixel(cx + x, cy + y, color);
+        drawPixel(cx + y, cy + x, color);
+        drawPixel(cx - y, cy + x, color);
+        drawPixel(cx - x, cy + y, color);
+        drawPixel(cx - x, cy - y, color);
+        drawPixel(cx - y, cy - x, color);
+        drawPixel(cx + y, cy - x, color);
+        drawPixel(cx + x, cy - y, color);
+
+        if (err <= 0)
+        {
+            ++y;
+            err += 2 * y + 1;
+        }
+        if (err > 0)
+        {
+            --x;
+            err -= 2 * x + 1;
+        }
+    }
+}
+
+void Renderer2D::fillCircle(int cx, int cy, int radius, uint32_t color)
+{
+    for (int y = -radius; y <= radius; ++y)
+    {
+        for (int x = -radius; x <= radius; ++x)
+        {
+            if (x * x + y * y <= radius * radius)
+            {
+                drawPixel(cx + x, cy + y, color);
+            }
+        }
+    }
+}
+
 void Renderer2D::clear(uint32_t color)
 {
     framebuffer.clear(color);

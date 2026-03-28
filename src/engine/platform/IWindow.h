@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <vulkan/vulkan.h>
+
 class IWindow
 {
 public:
@@ -11,6 +13,8 @@ public:
     virtual void present(const uint32_t *pixels) = 0;
     virtual void setMouseCaptured(bool captured) = 0;
     virtual void setTitle(const char *title) = 0;
+    virtual const char *const *getRequiredVulkanInstanceExtensions(uint32_t &count) const = 0;
+    virtual bool createVulkanSurface(VkInstance instance, VkSurfaceKHR &surface) const = 0;
     virtual void *getNativeDisplayHandle() = 0;
     virtual unsigned long getNativeWindowHandle() = 0;
 

@@ -4,7 +4,6 @@ project(PhysicsExperiment)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(X11 REQUIRED)
 find_package(Vulkan REQUIRED)
 find_program(GLSLC_EXECUTABLE glslc)
 find_program(GLSLANG_VALIDATOR_EXECUTABLE glslangValidator)
@@ -16,11 +15,14 @@ add_executable(app ${APP_SOURCES})
 
 target_include_directories(app PRIVATE src)
 
-target_include_directories(app PRIVATE ${X11_INCLUDE_DIR})
-target_link_libraries(app PRIVATE ${X11_LIBRARIES})
 target_link_libraries(app PRIVATE Vulkan::Vulkan)
-if (X11_Xext_LIB)
-    target_link_libraries(app PRIVATE ${X11_Xext_LIB})
+if (UNIX AND NOT APPLE)
+    find_package(X11 REQUIRED)
+    target_include_directories(app PRIVATE ${X11_INCLUDE_DIR})
+    target_link_libraries(app PRIVATE ${X11_LIBRARIES})
+    if (X11_Xext_LIB)
+        target_link_libraries(app PRIVATE ${X11_Xext_LIB})
+    endif()
 endif()
 
 file(GLOB_RECURSE VULKAN_SHADER_SOURCES CONFIGURE_DEPENDS

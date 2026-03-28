@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <vulkan/vulkan_xlib.h>
 
 #include "engine/input/Input.h"
 #include "engine/input/KeyCode.h"
@@ -245,6 +246,32 @@ void X11Window::setTitle(const char *title)
 
     XStoreName(display, window, title);
     XFlush(display);
+}
+
+const char *const *X11Window::getRequiredVulkanInstanceExtensions(uint32_t &count) const
+{
+    static const char *extensions[] = {
+        VK_KHR_SURFACE_EXTENSION_NAME,
+        VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
+    };
+
+    count = static_cast<uint32_t>(sizeof(extensions) / sizeof(extensions[0]));
+    return extensions;
+}
+
+bool X11Window::createVulkanSurface(VkInstance instance, VkSurfaceKHR &surface) const
+{
+    if (!display || !window)
+    {
+        return false;
+    }
+
+    VkXlibSurfaceCreateInfoKHR createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+    createInfo.dpy = display;
+    createInfo.window = window;
+
+    return vkCreateXlibSurfaceKHR(instance, &createInfo, nullptr, &surface) == VK_SUCCESS;
 }
 
 void *X11Window::getNativeDisplayHandle()

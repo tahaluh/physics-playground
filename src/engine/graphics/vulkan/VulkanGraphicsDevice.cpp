@@ -10,9 +10,6 @@
 #include <limits>
 #include <vector>
 
-#include <X11/Xlib.h>
-#include <vulkan/vulkan_xlib.h>
-
 #include "engine/math/Matrix4.h"
 #include "engine/platform/IWindow.h"
 #include "engine/render/3d/Camera3D.h"
@@ -351,10 +348,13 @@ void VulkanGraphicsDevice::present()
 
 bool VulkanGraphicsDevice::createInstance()
 {
-    const std::array<const char *, 2> requiredExtensions = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_XLIB_SURFACE_EXTENSION_NAME,
-    };
+    std::vector<const char *> requiredExtensions;
+    if (window)
+    {
+        uint32_t extensionCount = 0;
+        const char *const *extensions = window->getRequiredVulkanInstanceExtensions(extensionCount);
+        requiredExtensions.assign(extensions, extensions + extensionCount);
+    }
 
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -368,19 +368,14 @@ bool VulkanGraphicsDevice::createInstance()
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
     createInfo.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
-    createInfo.ppEnabledExtensionNames = requiredExtensions.data();
+    createInfo.ppEnabledExtensionNames = requiredExtensions.empty() ? nullptr : requiredExtensions.data();
 
     return vkCreateInstance(&createInfo, nullptr, &instance) == VK_SUCCESS;
 }
 
 bool VulkanGraphicsDevice::createSurface(IWindow &windowRef)
 {
-    VkXlibSurfaceCreateInfoKHR createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-    createInfo.dpy = static_cast<Display *>(windowRef.getNativeDisplayHandle());
-    createInfo.window = static_cast<Window>(windowRef.getNativeWindowHandle());
-
-    return vkCreateXlibSurfaceKHR(instance, &createInfo, nullptr, &surface) == VK_SUCCESS;
+    return windowRef.createVulkanSurface(instance, surface);
 }
 
 bool VulkanGraphicsDevice::pickPhysicalDevice()

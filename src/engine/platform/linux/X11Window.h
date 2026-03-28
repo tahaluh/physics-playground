@@ -1,4 +1,5 @@
 #pragma once
+
 #include <X11/Xlib.h>
 #include <X11/extensions/Xdbe.h>
 #include <vector>
@@ -14,6 +15,8 @@ public:
     void present(const uint32_t *pixels);
     void setMouseCaptured(bool captured) override;
     void setTitle(const char *title) override;
+    const char *const *getRequiredVulkanInstanceExtensions(uint32_t &count) const override;
+    bool createVulkanSurface(VkInstance instance, VkSurfaceKHR &surface) const override;
     void *getNativeDisplayHandle() override;
     unsigned long getNativeWindowHandle() override;
     ~X11Window() override;

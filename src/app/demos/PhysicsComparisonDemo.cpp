@@ -10,7 +10,6 @@ namespace
 {
 const float kMoveSpeed = 4.0f;
 const float kMouseLookSensitivity = 0.0025f;
-const float kMinimumCameraDistance = 6.0f;
 const Vector3 kScene2DOffset(-5.0f, 0.0f, 0.0f);
 const Vector3 kScene3DOffset(5.0f, 0.0f, 0.0f);
 
@@ -90,12 +89,6 @@ void PhysicsComparisonDemo::updateCamera(float dt)
     if (movement.lengthSquared() > 0.0f)
     {
         camera3D->transform.position += movement.normalized() * (kMoveSpeed * dt);
-    }
-
-    const float distanceFromOrigin = camera3D->transform.position.length();
-    if (distanceFromOrigin < kMinimumCameraDistance && distanceFromOrigin > 0.0f)
-    {
-        camera3D->transform.position = camera3D->transform.position.normalized() * kMinimumCameraDistance;
     }
 
     camera3D->transform.rotation.y -= Input::getMouseDeltaX() * kMouseLookSensitivity;

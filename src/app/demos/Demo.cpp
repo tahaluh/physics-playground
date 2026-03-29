@@ -25,6 +25,69 @@ const float kSpotLightInnerConeCos = 0.96f;
 const float kSpotLightOuterConeCos = 0.86f;
 const uint32_t kSpotLightColor = 0xFFFFFFFF;
 
+RingObjectDesc makeRingObjectDesc()
+{
+    RingObjectDesc desc;
+    desc.worldOffset = kRingWorldOffset;
+    desc.center = Vector2(400.0f, 300.0f);
+    desc.ballStartPosition = Vector2(230.0f, 180.0f);
+    desc.ballStartVelocity = Vector2(110.0f, -40.0f);
+    desc.simulationScale = 100.0f;
+    desc.borderRadiusPixels = 200.0f;
+    desc.borderThicknessWorld = 0.02f;
+    desc.ballRadiusPixels = 10.0f;
+    desc.ballOutlineThicknessWorld = 0.02f;
+    desc.planeThicknessWorld = 0.04f;
+    desc.planeZ = 0.0f;
+    desc.borderSegments = 96;
+    desc.ballSegments = 48;
+    desc.borderColor = 0xFFFFFFFF;
+    desc.ballColor = 0xFFFFFFFF;
+    desc.physicsMaterial = Material2D{0.0f, 0.9f, 0.08f, true};
+    desc.borderMaterial.solid.color = desc.borderColor;
+    desc.borderMaterial.wireframe.color = desc.borderColor;
+    desc.borderMaterial.renderSolid = true;
+    desc.borderMaterial.renderWireframe = false;
+    desc.ballMaterial.solid.color = desc.ballColor;
+    desc.ballMaterial.wireframe.color = desc.ballColor;
+    desc.ballMaterial.renderSolid = true;
+    desc.ballMaterial.renderWireframe = false;
+    return desc;
+}
+
+SphereObjectDesc makeSphereObjectDesc()
+{
+    SphereObjectDesc desc;
+    desc.worldOffset = kSphereWorldOffset;
+    desc.boundaryRadius = 4.0f;
+    desc.ballRadius = 0.45f;
+    desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
+    desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
+    desc.physicsMaterial = PhysicsMaterial3D{0.03f, 0.75f, 0.5f, true};
+    desc.boundarySphereRings = 10;
+    desc.boundarySphereSegments = 16;
+    desc.ballSphereRings = 16;
+    desc.ballSphereSegments = 24;
+    desc.borderMaterial.solid.color = 0xFF9AD1FF;
+    desc.borderMaterial.solid.opacity = 0.18f;
+    desc.borderMaterial.solid.specularStrength = 0.05f;
+    desc.borderMaterial.solid.shininess = 14.0f;
+    desc.borderMaterial.wireframe.color = 0xFFBFE6FF;
+    desc.borderMaterial.wireframe.opacity = 0.55f;
+    desc.borderMaterial.renderSolid = true;
+    desc.borderMaterial.renderWireframe = true;
+    desc.ballMaterial.solid.color = 0xFFFFFFFF;
+    desc.ballMaterial.solid.opacity = 1.0f;
+    desc.ballMaterial.solid.emissiveColor = 0x00000000;
+    desc.ballMaterial.solid.specularStrength = 1.0f;
+    desc.ballMaterial.solid.shininess = 96.0f;
+    desc.ballMaterial.wireframe.color = 0xFF707070;
+    desc.ballMaterial.wireframe.opacity = 1.0f;
+    desc.ballMaterial.renderSolid = true;
+    desc.ballMaterial.renderWireframe = true;
+    return desc;
+}
+
 Vector3 getPlanarForward(const Camera3D &camera)
 {
     Vector3 forward = camera.getForward();
@@ -46,17 +109,10 @@ Demo::~Demo() = default;
 
 void Demo::onAttach(int viewportWidth, int viewportHeight)
 {
-    RingObjectDesc ringDesc = RingObject::makeDefaultDesc();
-    ringDesc.worldOffset = kRingWorldOffset;
+    RingObjectDesc ringDesc = makeRingObjectDesc();
     ringObject = RingObject::create(ringDesc);
 
-    SphereObjectDesc sphereDesc = SphereObject::makeDefaultDesc();
-    sphereDesc.worldOffset = kSphereWorldOffset;
-    sphereDesc.ballMaterial.solid.color = 0xFFFFFFFF;
-    sphereDesc.ballMaterial.wireframe.color = 0xFF707070;
-    sphereDesc.ballMaterial.solid.emissiveColor = 0x00000000;
-    sphereDesc.ballMaterial.solid.specularStrength = 1.0f;
-    sphereDesc.ballMaterial.solid.shininess = 96.0f;
+    SphereObjectDesc sphereDesc = makeSphereObjectDesc();
     sphereObject = SphereObject::create(sphereDesc);
 
     physicsWorld2D = std::make_unique<PhysicsWorld2D>();

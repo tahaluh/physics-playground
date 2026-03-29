@@ -4,8 +4,8 @@
 
 #include "app/objects/RingObject.h"
 #include "app/objects/SphereObject.h"
+#include "engine/input/InputAction.h"
 #include "engine/input/Input.h"
-#include "engine/input/KeyCode.h"
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 #include "engine/render/3d/mesh/MeshFactory3D.h"
@@ -98,17 +98,17 @@ void Demo::updateCamera(float dt)
     const Vector3 planarForward = getPlanarForward(*camera3D);
     const Vector3 planarRight = getPlanarRight(*camera3D);
     Vector3 movement = Vector3::zero();
-    if (Input::isKeyDown(EngineKeyCode::W))
+    if (Input::isActionDown(EngineInputAction::MoveForward))
         movement += planarForward;
-    if (Input::isKeyDown(EngineKeyCode::S))
+    if (Input::isActionDown(EngineInputAction::MoveBackward))
         movement -= planarForward;
-    if (Input::isKeyDown(EngineKeyCode::D))
+    if (Input::isActionDown(EngineInputAction::MoveRight))
         movement += planarRight;
-    if (Input::isKeyDown(EngineKeyCode::A))
+    if (Input::isActionDown(EngineInputAction::MoveLeft))
         movement -= planarRight;
-    if (Input::isKeyDown(EngineKeyCode::E))
+    if (Input::isActionDown(EngineInputAction::MoveUp))
         movement += Vector3::up();
-    if (Input::isKeyDown(EngineKeyCode::Q))
+    if (Input::isActionDown(EngineInputAction::MoveDown))
         movement -= Vector3::up();
 
     if (movement.lengthSquared() > 0.0f)
@@ -121,10 +121,30 @@ void Demo::updateCamera(float dt)
     camera3D->transform.rotation.x = Vector3::clamp(camera3D->transform.rotation.x, -1.4f, 1.4f);
 }
 
+void Demo::updateDebugToggles()
+{
+    bool changed = false;
+
+    if (Input::wasActionPressed(EngineInputAction::ToggleLightDebug))
+    {
+        showLightDebugMarkers = !showLightDebugMarkers;
+        changed = true;
+    }
+
+    if (Input::wasActionPressed(EngineInputAction::ToggleWireframe))
+    {
+        showWireframes = !showWireframes;
+        changed = true;
+    }
+
+    if (changed)
+    {
+        rebuildCombinedScene();
+    }
+}
+
 void Demo::onFixedUpdate(float dt)
 {
-    updateCamera(dt);
-
     if (physicsWorld2D && ringObject)
     {
         ringObject->step(*physicsWorld2D, dt);
@@ -136,6 +156,12 @@ void Demo::onFixedUpdate(float dt)
     }
 
     rebuildCombinedScene();
+}
+
+void Demo::onUpdate(float dt)
+{
+    updateDebugToggles();
+    updateCamera(dt);
 }
 
 void Demo::onRender(IGraphicsDevice &graphicsDevice) const
@@ -176,18 +202,29 @@ void Demo::rebuildCombinedScene()
         combinedScene->appendEntitiesFrom(sphereObject->getRenderScene());
     }
 
-    Entity3D pointLightMarker;
-    pointLightMarker.name = "PointLightMarker";
-    pointLightMarker.transform.position = kPointLightPosition;
-    pointLightMarker.mesh = MeshFactory3D::makeSphere(0.16f, 10, 16, 0);
-    pointLightMarker.material.solid.color = 0xFF000000;
-    pointLightMarker.material.solid.emissiveColor = 0xFFFF4040;
-    pointLightMarker.material.solid.ambientFactor = 0.0f;
-    pointLightMarker.material.solid.diffuseFactor = 0.0f;
-    pointLightMarker.material.wireframe.color = 0xFF000000;
-    pointLightMarker.material.wireframe.emissiveColor = 0xFFFF4040;
-    pointLightMarker.material.wireframe.ambientFactor = 0.0f;
-    pointLightMarker.material.renderSolid = true;
-    pointLightMarker.material.renderWireframe = false;
-    combinedScene->createEntity(pointLightMarker);
+    if (!showWireframes)
+    {
+        for (Entity3D &entity : combinedScene->getEntities())
+        {
+            entity.material.renderWireframe = false;
+        }
+    }
+
+    if (showLightDebugMarkers)
+    {
+        Entity3D pointLightMarker;
+        pointLightMarker.name = "PointLightMarker";
+        pointLightMarker.transform.position = kPointLightPosition;
+        pointLightMarker.mesh = MeshFactory3D::makeSphere(0.16f, 10, 16, 0);
+        pointLightMarker.material.solid.color = 0xFF000000;
+        pointLightMarker.material.solid.emissiveColor = 0xFFFF4040;
+        pointLightMarker.material.solid.ambientFactor = 0.0f;
+        pointLightMarker.material.solid.diffuseFactor = 0.0f;
+        pointLightMarker.material.wireframe.color = 0xFF000000;
+        pointLightMarker.material.wireframe.emissiveColor = 0xFFFF4040;
+        pointLightMarker.material.wireframe.ambientFactor = 0.0f;
+        pointLightMarker.material.renderSolid = true;
+        pointLightMarker.material.renderWireframe = false;
+        combinedScene->createEntity(pointLightMarker);
+    }
 }

@@ -229,6 +229,8 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             layer->onResize(window->getWidth(), window->getHeight());
         }
 
+        layer->onUpdate(frameDelta);
+
         while (accumulator >= config.fixedTimeStep)
         {
             layer->onFixedUpdate(config.fixedTimeStep);

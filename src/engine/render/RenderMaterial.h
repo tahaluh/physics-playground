@@ -13,6 +13,7 @@ struct RenderMaterial
     float shininess = 16.0f;
     float metallic = 0.0f;
     float roughness = 1.0f;
+    bool unlit = false;
 
     uint32_t resolveColor(uint32_t fallbackColor = 0) const
     {

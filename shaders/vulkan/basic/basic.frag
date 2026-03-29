@@ -4,7 +4,7 @@ layout(location = 0) in vec4 fragColor;
 layout(location = 1) in vec3 fragEmissive;
 layout(location = 2) in vec3 fragNormal;
 layout(location = 3) in vec3 fragWorldPosition;
-layout(location = 4) in vec2 fragMaterial;
+layout(location = 4) in vec4 fragMaterial;
 layout(location = 0) out vec4 outColor;
 
 struct DirectionalLight
@@ -39,6 +39,12 @@ layout(std430, set = 0, binding = 2) readonly buffer PointLightBuffer
 void main()
 {
     vec3 baseColor = fragColor.rgb;
+    if (fragMaterial.z > 0.5)
+    {
+        outColor = vec4(clamp(baseColor + fragEmissive, 0.0, 1.0), fragColor.a);
+        return;
+    }
+
     vec3 result = baseColor * ambientLighting.ambientColorIntensity.rgb * ambientLighting.ambientColorIntensity.a * fragMaterial.x + fragEmissive;
 
     vec3 normal = fragNormal;

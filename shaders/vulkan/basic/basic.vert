@@ -11,7 +11,7 @@ layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec3 fragEmissive;
 layout(location = 2) out vec3 fragNormal;
 layout(location = 3) out vec3 fragWorldPosition;
-layout(location = 4) out vec2 fragMaterial;
+layout(location = 4) out vec4 fragMaterial;
 
 void main()
 {
@@ -20,5 +20,5 @@ void main()
     fragEmissive = inEmissive.rgb;
     fragNormal = inNormal.xyz;
     fragWorldPosition = inWorldPosition.xyz;
-    fragMaterial = inMaterial.xy;
+    fragMaterial = inMaterial;
 }

@@ -17,5 +17,7 @@ enum class EngineKeyCode
     Right,
     Enter,
     Escape,
+    F1,
+    F2,
     Count
 };

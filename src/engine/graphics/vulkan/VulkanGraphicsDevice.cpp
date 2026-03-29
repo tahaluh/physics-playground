@@ -1404,7 +1404,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.worldPosition[3] = 1.0f;
                 vertex.material[0] = Vector3::clamp(entity.material.solid.ambientFactor, 0.0f, 1.0f);
                 vertex.material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
-                vertex.material[2] = 0.0f;
+                vertex.material[2] = entity.material.solid.unlit ? 1.0f : 0.0f;
                 vertex.material[3] = 0.0f;
                 vertices.push_back(vertex);
             }
@@ -1480,7 +1480,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.worldPosition[3] = 1.0f;
                 vertex.material[0] = Vector3::clamp(entity.material.wireframe.ambientFactor, 0.0f, 1.0f);
                 vertex.material[1] = 0.0f;
-                vertex.material[2] = 0.0f;
+                vertex.material[2] = entity.material.wireframe.unlit ? 1.0f : 0.0f;
                 vertex.material[3] = 0.0f;
                 lineVertices.push_back(vertex);
             }

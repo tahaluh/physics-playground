@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 
+#include "engine/input/InputAction.h"
 #include "engine/input/KeyCode.h"
 
 class Input
@@ -12,6 +13,8 @@ public:
     static void setKeyState(EngineKeyCode key, bool isDown);
     static bool isKeyDown(EngineKeyCode key);
     static bool wasKeyPressed(EngineKeyCode key);
+    static bool isActionDown(EngineInputAction action);
+    static bool wasActionPressed(EngineInputAction action);
 
     static void setMousePosition(float x, float y);
     static void addMouseDelta(float dx, float dy);
@@ -24,6 +27,7 @@ public:
 private:
     static inline std::array<bool, static_cast<std::size_t>(EngineKeyCode::Count)> currentKeys = {};
     static inline std::array<bool, static_cast<std::size_t>(EngineKeyCode::Count)> previousKeys = {};
+    static inline std::array<bool, static_cast<std::size_t>(EngineKeyCode::Count)> pressedKeys = {};
     static inline float mouseX = 0.0f;
     static inline float mouseY = 0.0f;
     static inline float previousMouseX = 0.0f;

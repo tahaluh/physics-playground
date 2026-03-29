@@ -35,6 +35,8 @@ std::unique_ptr<PhysicsSphereScene3D> PhysicsSphereScene3D::createDefault()
     auto loadedScene = std::make_unique<PhysicsSphereScene3D>();
     loadedScene->physicsScene = std::make_unique<PhysicsScene3D>();
     loadedScene->renderScene = std::make_unique<Scene3D>();
+    loadedScene->getRenderScene().getAmbientLight().color = 0xFFFFFFFF;
+    loadedScene->getRenderScene().getAmbientLight().intensity = 1.0f;
 
     loadedScene->borderBodyIndex = loadedScene->getPhysicsScene().getBodies().size();
     loadedScene->getPhysicsScene().addBody(std::make_unique<BorderSphereBody3D>(Vector3::zero(), kBoundaryRadius));
@@ -63,6 +65,7 @@ std::unique_ptr<PhysicsSphereScene3D> PhysicsSphereScene3D::createDefault()
     ball.mesh = MeshFactory3D::makeSphere(kBallRadius, kBallSphereRings, kBallSphereSegments, 0);
     ball.material.solid.color = 0xFFFF9F1C;
     ball.material.solid.opacity = 1.0f;
+    ball.material.solid.emissiveColor = 0x14080400;
     ball.material.wireframe.color = 0xFFFFD166;
     ball.material.wireframe.opacity = 1.0f;
     ball.material.renderSolid = true;

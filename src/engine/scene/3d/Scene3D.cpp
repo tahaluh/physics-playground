@@ -15,3 +15,13 @@ const std::vector<Entity3D> &Scene3D::getEntities() const
 {
     return entities;
 }
+
+AmbientLight &Scene3D::getAmbientLight()
+{
+    return ambientLight;
+}
+
+const AmbientLight &Scene3D::getAmbientLight() const
+{
+    return ambientLight;
+}

@@ -91,9 +91,6 @@ bool X11Window::recreateBackbuffer()
 
 bool X11Window::create(int w, int h, const char *title)
 {
-    width = w;
-    height = h;
-
     display = XOpenDisplay(nullptr);
     if (!display)
     {
@@ -103,6 +100,8 @@ bool X11Window::create(int w, int h, const char *title)
 
     int screen = DefaultScreen(display);
     Window root = RootWindow(display, screen);
+    width = w > 0 ? w : DisplayWidth(display, screen);
+    height = h > 0 ? h : DisplayHeight(display, screen);
 
     window = XCreateSimpleWindow(
         display,

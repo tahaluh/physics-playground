@@ -46,6 +46,8 @@ std::unique_ptr<PhysicsRingScene> PhysicsRingScene::createDefault(bool enableRen
     if (enableRenderScene)
     {
         loadedScene->renderScene = std::make_unique<Scene3D>();
+        loadedScene->getRenderScene().getAmbientLight().color = 0xFFFFFFFF;
+        loadedScene->getRenderScene().getAmbientLight().intensity = 1.0f;
     }
 
     loadedScene->borderBodyIndex = loadedScene->getPhysicsScene().getBodies().size();

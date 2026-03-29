@@ -9,8 +9,8 @@
 ApplicationConfig PlaygroundApp::makeConfig() const
 {
     ApplicationConfig config;
-    config.windowWidth = 800;
-    config.windowHeight = 600;
+    config.windowWidth = 0;
+    config.windowHeight = 0;
     config.title = "Phys Playground";
     config.clearColor = 0xFF000000;
     config.targetFrameRate = 60;

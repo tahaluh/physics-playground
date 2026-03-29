@@ -157,6 +157,27 @@ std::array<float, 4> colorToFloat4(uint32_t argb)
     const float b = static_cast<float>(argb & 0xFF) / 255.0f;
     return {r, g, b, a};
 }
+
+std::array<float, 4> applyAmbientLighting(
+    uint32_t baseColor,
+    uint32_t emissiveColor,
+    float ambientFactor,
+    uint32_t ambientLightColor,
+    float ambientLightIntensity)
+{
+    const std::array<float, 4> base = colorToFloat4(baseColor);
+    const std::array<float, 4> emissive = colorToFloat4(emissiveColor);
+    const std::array<float, 4> ambient = colorToFloat4(ambientLightColor);
+    const float clampedAmbientFactor = std::clamp(ambientFactor, 0.0f, 1.0f);
+    const float clampedAmbientIntensity = std::max(ambientLightIntensity, 0.0f);
+
+    std::array<float, 4> result{};
+    result[0] = std::clamp(base[0] * ambient[0] * clampedAmbientFactor * clampedAmbientIntensity + emissive[0], 0.0f, 1.0f);
+    result[1] = std::clamp(base[1] * ambient[1] * clampedAmbientFactor * clampedAmbientIntensity + emissive[1], 0.0f, 1.0f);
+    result[2] = std::clamp(base[2] * ambient[2] * clampedAmbientFactor * clampedAmbientIntensity + emissive[2], 0.0f, 1.0f);
+    result[3] = base[3];
+    return result;
+}
 }
 
 VulkanGraphicsDevice::~VulkanGraphicsDevice()
@@ -1023,10 +1044,16 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        const AmbientLight &ambientLight = scene.getAmbientLight();
         for (const MeshTriangle3D &triangle : entity.mesh.triangles)
         {
             const uint32_t triangleColor = entity.material.solid.resolveColor(triangle.color);
-            const std::array<float, 4> rgba = colorToFloat4(triangleColor);
+            const std::array<float, 4> rgba = applyAmbientLighting(
+                triangleColor,
+                entity.material.solid.resolveEmissiveColor(),
+                entity.material.solid.ambientFactor,
+                ambientLight.color,
+                ambientLight.intensity);
 
             bool triangleVisible = true;
             std::array<Vector3, 3> ndcVertices{};
@@ -1081,8 +1108,14 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        const AmbientLight &ambientLight = scene.getAmbientLight();
         const uint32_t lineColor = entity.material.wireframe.resolveColor();
-        const std::array<float, 4> rgba = colorToFloat4(lineColor);
+        const std::array<float, 4> rgba = applyAmbientLighting(
+            lineColor,
+            entity.material.wireframe.resolveEmissiveColor(),
+            entity.material.wireframe.ambientFactor,
+            ambientLight.color,
+            ambientLight.intensity);
 
         for (const MeshEdge3D &edge : entity.mesh.edges)
         {

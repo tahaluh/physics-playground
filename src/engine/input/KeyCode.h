@@ -19,5 +19,6 @@ enum class EngineKeyCode
     Escape,
     F1,
     F2,
+    F3,
     Count
 };

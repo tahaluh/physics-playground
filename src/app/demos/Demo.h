@@ -1,7 +1,10 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
+#include "app/objects/ComposedObject3D.h"
+#include "app/objects/SphereArenaObject.h"
 #include "engine/core/ApplicationLayer.h"
 #include "engine/graphics/IGraphicsDevice.h"
 #include "engine/physics/2d/PhysicsWorld2D.h"
@@ -32,8 +35,11 @@ private:
     std::unique_ptr<PhysicsWorld3D> physicsWorld3D;
     std::unique_ptr<Camera3D> camera3D;
     std::unique_ptr<Scene3D> combinedScene;
-    std::unique_ptr<RingObject> ringObject;
-    std::unique_ptr<SphereObject> sphereObject;
+    std::vector<std::unique_ptr<RingObject>> ringObjects;
+    std::vector<std::unique_ptr<SphereArenaObject>> sphereArenaObjects;
+    std::vector<std::unique_ptr<SphereObject>> sphereObjects;
+    std::vector<std::unique_ptr<ComposedObject3D>> composedObjects;
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
+    bool showPhysicsDebugMarkers = false;
 };

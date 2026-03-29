@@ -1,7 +1,5 @@
 #pragma once
 
-class Shape3D
-{
-public:
-    virtual ~Shape3D() = default;
-};
+#include "engine/physics/3d/shapes/Collider3D.h"
+
+using Shape3D = Collider3D;

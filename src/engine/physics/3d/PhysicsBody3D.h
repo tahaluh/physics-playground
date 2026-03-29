@@ -7,6 +7,7 @@
 #include "engine/math/Quaternion.h"
 #include "engine/math/Vector3.h"
 #include "engine/physics/3d/PhysicsMaterial3D.h"
+#include "engine/physics/3d/shapes/BoxCollider3D.h"
 #include "engine/physics/3d/shapes/SphereShape3D.h"
 #include "engine/physics/3d/shapes/Shape3D.h"
 
@@ -92,11 +93,12 @@ public:
             return;
 
         velocity += acceleration * dt;
-        const float dampingFactor = std::max(0.0f, 1.0f - material.linearDamping * dt);
-        velocity *= dampingFactor;
+        const float linearDampingFactor = std::max(0.0f, 1.0f - material.linearDamping * dt);
+        velocity *= linearDampingFactor;
         position += velocity * dt;
         angularVelocity += torque * inverseMomentOfInertia * dt;
-        angularVelocity *= dampingFactor;
+        const float angularDampingFactor = std::max(0.0f, 1.0f - material.angularDamping * dt);
+        angularVelocity *= angularDampingFactor;
         const float angularSpeed = angularVelocity.length();
         if (angularSpeed > 0.0f)
         {
@@ -122,6 +124,15 @@ private:
         {
             const float radius = sphere->getRadius();
             return 0.4f * mass * radius * radius;
+        }
+
+        if (const auto *box = dynamic_cast<const BoxCollider3D *>(shape.get()))
+        {
+            const Vector3 e = box->getHalfExtents();
+            const float ix = (1.0f / 3.0f) * mass * (e.y * e.y + e.z * e.z);
+            const float iy = (1.0f / 3.0f) * mass * (e.x * e.x + e.z * e.z);
+            const float iz = (1.0f / 3.0f) * mass * (e.x * e.x + e.y * e.y);
+            return (ix + iy + iz) / 3.0f;
         }
 
         return 0.0f;

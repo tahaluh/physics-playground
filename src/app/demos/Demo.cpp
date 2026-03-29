@@ -2,103 +2,17 @@
 
 #include <memory>
 
-#include "app/objects/RingObject.h"
-#include "app/objects/SphereObject.h"
+#include "app/scenes/PlaygroundScene.h"
 #include "engine/input/InputAction.h"
 #include "engine/input/Input.h"
-#include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 #include "engine/render/debug/LightDebug3D.h"
-#include "engine/render/3d/mesh/MeshFactory3D.h"
-#include "engine/scene/3d/Entity3D.h"
+#include "engine/render/debug/PhysicsDebug3D.h"
 
 namespace
 {
     const float kMoveSpeed = 4.0f;
     const float kMouseLookSensitivity = 0.0025f;
-    const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
-    const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
-    const Vector3 kPointLightPosition = kSphereWorldOffset + Vector3(2.8f, 0.5f, 0.0f);
-    const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-5.2f, 2.4f, 2.0f);
-    const Vector3 kSpotLightDirection = (kSphereWorldOffset - kSpotLightPosition).normalized();
-    const float kSpotLightIntensity = 1.1f;
-    const float kSpotLightRange = 10.0f;
-    const float kSpotLightInnerConeCos = 0.96f;
-    const float kSpotLightOuterConeCos = 0.86f;
-    const uint32_t kSpotLightColor = 0xFFFFFFFF;
-const Vector3 kShadowTestSphereOffset = kSphereWorldOffset + Vector3(1.6f, 0.2f, 5.0f);
-
-    RingObjectDesc makeRingObjectDesc()
-    {
-        RingObjectDesc desc;
-        desc.worldOffset = kRingWorldOffset;
-        desc.center = Vector2(400.0f, 300.0f);
-        desc.ballStartPosition = Vector2(230.0f, 180.0f);
-        desc.ballStartVelocity = Vector2(110.0f, -40.0f);
-        desc.simulationScale = 100.0f;
-        desc.borderRadiusPixels = 200.0f;
-        desc.borderThicknessWorld = 0.02f;
-        desc.ballRadiusPixels = 10.0f;
-        desc.ballOutlineThicknessWorld = 0.02f;
-        desc.planeThicknessWorld = 0.04f;
-        desc.planeZ = 0.0f;
-        desc.borderSegments = 96;
-        desc.ballSegments = 48;
-        desc.borderColor = 0xFFFFFFFF;
-        desc.ballColor = 0xFFFFFFFF;
-        desc.physicsMaterial = Material2D{0.0f, 0.92f, 0.01f, true};
-        desc.borderMaterial.solid.baseColor = desc.borderColor;
-        desc.borderMaterial.wireframe.baseColor = desc.borderColor;
-        desc.borderMaterial.renderSolid = true;
-        desc.borderMaterial.renderWireframe = false;
-        desc.ballMaterial.solid.baseColor = desc.ballColor;
-        desc.ballMaterial.wireframe.baseColor = desc.ballColor;
-        desc.ballMaterial.renderSolid = true;
-        desc.ballMaterial.renderWireframe = false;
-        return desc;
-    }
-
-    Entity3D makeShadowTestSphere()
-    {
-        Entity3D sphere;
-        sphere.name = "ShadowTestSphere";
-        sphere.transform.position = kShadowTestSphereOffset;
-        sphere.mesh = MeshFactory3D::makeSphere(1.2f, 14, 20, 0);
-        sphere.material.solid = MaterialPresets3D::makePlastic(0xFF2F6BFF, 0.4f);
-        sphere.material.wireframe.baseColor = 0xFF7EA2FF;
-        sphere.material.renderSolid = true;
-        sphere.material.renderWireframe = false;
-        return sphere;
-    }
-
-    SphereObjectDesc makeSphereObjectDesc()
-    {
-        SphereObjectDesc desc;
-        desc.worldOffset = kSphereWorldOffset;
-        desc.boundaryRadius = 4.0f;
-        desc.ballRadius = 0.45f;
-        desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
-        desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
-        desc.physicsMaterial = PhysicsMaterial3D{0.03f, 0.75f, 0.5f, true};
-        desc.boundarySphereRings = 10;
-        desc.boundarySphereSegments = 16;
-        desc.ballSphereRings = 16;
-        desc.ballSphereSegments = 24;
-        desc.borderMaterial.solid = MaterialPresets3D::makeFrostedGlass(0x669AD1FF);
-        desc.borderMaterial.solid.opacity = 0.18f;
-        desc.borderMaterial.wireframe.baseColor = 0xFFBFE6FF;
-        desc.borderMaterial.wireframe.opacity = 0.55f;
-        desc.borderMaterial.renderSolid = true;
-        desc.borderMaterial.renderWireframe = true;
-        desc.ballMaterial.solid = MaterialPresets3D::makeBrushedSteel(0xFFFFFFFF);
-        desc.ballMaterial.solid.opacity = 1.0f;
-        desc.ballMaterial.solid.emissiveColor = 0x00000000;
-        desc.ballMaterial.wireframe.baseColor = 0xFF707070;
-        desc.ballMaterial.wireframe.opacity = 1.0f;
-        desc.ballMaterial.renderSolid = true;
-        desc.ballMaterial.renderWireframe = true;
-        return desc;
-    }
 
     Vector3 getPlanarForward(const Camera3D &camera)
     {
@@ -121,40 +35,56 @@ Demo::~Demo() = default;
 
 void Demo::onAttach(int viewportWidth, int viewportHeight)
 {
-    RingObjectDesc ringDesc = makeRingObjectDesc();
-    ringObject = RingObject::create(ringDesc);
+    const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
 
-    SphereObjectDesc sphereDesc = makeSphereObjectDesc();
-    sphereObject = SphereObject::create(sphereDesc);
+    ringObjects.clear();
+    for (const RingObjectDesc &ringDesc : sceneDesc.ringObjects)
+    {
+        ringObjects.push_back(RingObject::create(ringDesc));
+    }
+
+    sphereArenaObjects.clear();
+    for (const SphereArenaObjectDesc &arenaDesc : sceneDesc.sphereArenaObjects)
+    {
+        sphereArenaObjects.push_back(SphereArenaObject::create(arenaDesc));
+    }
+
+    sphereObjects.clear();
+    for (const SphereObjectDesc &sphereDesc : sceneDesc.sphereObjects)
+    {
+        sphereObjects.push_back(SphereObject::create(sphereDesc));
+    }
+
+    composedObjects.clear();
+    for (const ComposedObject3DDesc &objectDesc : sceneDesc.composedObjects)
+    {
+        composedObjects.push_back(ComposedObject3D::create(objectDesc));
+    }
 
     physicsWorld2D = std::make_unique<PhysicsWorld2D>();
-    physicsWorld2D->setGravity(Vector2(0.0f, 980.0f));
+    physicsWorld2D->setGravity(sceneDesc.gravity2D);
 
     physicsWorld3D = std::make_unique<PhysicsWorld3D>();
-    physicsWorld3D->setGravity(Vector3(0.0f, -7.5f, 0.0f));
+    physicsWorld3D->setGravity(sceneDesc.gravity3D);
 
     camera3D = std::make_unique<Camera3D>();
-    camera3D->transform.position = Vector3(0.0f, 3.5f, 22.0f);
-    camera3D->transform.rotation = Vector3(-0.12f, 0.0f, 0.0f);
-    const Vector3 initialCameraForward = camera3D->getForward();
+    camera3D->transform.position = sceneDesc.cameraPosition;
+    camera3D->transform.rotation = sceneDesc.cameraRotation;
 
     combinedScene = std::make_unique<Scene3D>();
-    combinedScene->createDirectionalLight({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
-                                           0xFFFFFFFF,
-                                           0.9f});
-    combinedScene->createPointLight({
-        kPointLightPosition,
-        0xFFFF4040,
-        0.75f,
-        8.0f});
-    combinedScene->createSpotLight({
-        kSpotLightPosition,
-        kSpotLightDirection,
-        kSpotLightColor,
-        kSpotLightIntensity,
-        kSpotLightRange,
-        kSpotLightInnerConeCos,
-        kSpotLightOuterConeCos});
+    combinedScene->getAmbientLight() = sceneDesc.ambientLight;
+    for (const DirectionalLightDesc &lightDesc : sceneDesc.directionalLights)
+    {
+        combinedScene->createDirectionalLight(lightDesc);
+    }
+    for (const PointLightDesc &lightDesc : sceneDesc.pointLights)
+    {
+        combinedScene->createPointLight(lightDesc);
+    }
+    for (const SpotLightDesc &lightDesc : sceneDesc.spotLights)
+    {
+        combinedScene->createSpotLight(lightDesc);
+    }
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }
@@ -221,6 +151,12 @@ void Demo::updateDebugToggles()
         changed = true;
     }
 
+    if (Input::wasActionPressed(EngineInputAction::TogglePhysicsDebug))
+    {
+        showPhysicsDebugMarkers = !showPhysicsDebugMarkers;
+        changed = true;
+    }
+
     if (changed)
     {
         rebuildCombinedScene();
@@ -229,14 +165,42 @@ void Demo::updateDebugToggles()
 
 void Demo::onFixedUpdate(float dt)
 {
-    if (physicsWorld2D && ringObject)
+    if (physicsWorld2D)
     {
-        ringObject->step(*physicsWorld2D, dt);
+        for (const auto &ringObject : ringObjects)
+        {
+            if (ringObject)
+            {
+                ringObject->step(*physicsWorld2D, dt);
+            }
+        }
     }
 
-    if (physicsWorld3D && sphereObject)
+    if (physicsWorld3D)
     {
-        sphereObject->step(*physicsWorld3D, dt);
+        for (const auto &sphereArenaObject : sphereArenaObjects)
+        {
+            if (sphereArenaObject)
+            {
+                sphereArenaObject->step(*physicsWorld3D, dt);
+            }
+        }
+
+        for (const auto &sphereObject : sphereObjects)
+        {
+            if (sphereObject)
+            {
+                sphereObject->syncRenderScene();
+            }
+        }
+
+        for (const auto &composedObject : composedObjects)
+        {
+            if (composedObject)
+            {
+                composedObject->step(*physicsWorld3D, dt);
+            }
+        }
     }
 
     rebuildCombinedScene();
@@ -265,16 +229,65 @@ void Demo::rebuildCombinedScene()
         return;
     }
 
-    combinedScene->copyAmbientLightFromFirstAvailable({sphereObject ? &sphereObject->getRenderScene() : nullptr,
-                                                       ringObject ? &ringObject->getRenderScene() : nullptr});
-    combinedScene->replaceEntitiesFrom({ringObject ? &ringObject->getRenderScene() : nullptr,
-                                        sphereObject ? &sphereObject->getRenderScene() : nullptr});
-    combinedScene->createEntity(makeShadowTestSphere());
+    combinedScene->clearEntities();
+    for (const auto &ringObject : ringObjects)
+    {
+        if (ringObject)
+        {
+            combinedScene->appendEntitiesFrom(ringObject->getRenderScene());
+        }
+    }
+    for (const auto &sphereObject : sphereObjects)
+    {
+        if (sphereObject)
+        {
+            combinedScene->appendEntitiesFrom(sphereObject->getRenderScene());
+        }
+    }
+    for (const auto &sphereArenaObject : sphereArenaObjects)
+    {
+        if (sphereArenaObject)
+        {
+            combinedScene->appendEntitiesFrom(sphereArenaObject->getRenderScene());
+        }
+    }
+    for (const auto &composedObject : composedObjects)
+    {
+        if (composedObject)
+        {
+            combinedScene->appendEntitiesFrom(composedObject->getRenderScene());
+        }
+    }
 
     combinedScene->applyWireframeVisibilityOverride(showWireframes);
 
     if (showLightDebugMarkers)
     {
         LightDebug3D::appendLightMarkers(*combinedScene, *combinedScene);
+    }
+
+    if (showPhysicsDebugMarkers)
+    {
+        for (const auto &sphereArenaObject : sphereArenaObjects)
+        {
+            if (sphereArenaObject)
+            {
+                PhysicsDebug3D::appendPhysicsSceneMarkers(
+                    sphereArenaObject->getPhysicsScene(),
+                    *combinedScene,
+                    sphereArenaObject->getWorldOffset());
+            }
+        }
+
+        for (const auto &composedObject : composedObjects)
+        {
+            if (composedObject)
+            {
+                PhysicsDebug3D::appendPhysicsSceneMarkers(
+                    composedObject->getPhysicsScene(),
+                    *combinedScene,
+                    composedObject->getWorldOffset());
+            }
+        }
     }
 }

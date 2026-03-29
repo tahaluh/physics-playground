@@ -69,6 +69,9 @@ bool tryTranslateKey(XKeyEvent &event, EngineKeyCode &outKey)
     case XK_F2:
         outKey = EngineKeyCode::F2;
         return true;
+    case XK_F3:
+        outKey = EngineKeyCode::F3;
+        return true;
     default:
         return false;
     }

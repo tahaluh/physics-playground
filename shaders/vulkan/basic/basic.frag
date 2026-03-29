@@ -32,6 +32,8 @@ layout(set = 0, binding = 0) uniform AmbientUniform
 {
     vec4 ambientColorIntensity;
     vec4 cameraWorldPosition;
+    vec4 shadowLightMatrixRows[4];
+    vec4 shadowParams;
 } ambientLighting;
 
 layout(std430, set = 0, binding = 1) readonly buffer DirectionalLightBuffer
@@ -51,6 +53,44 @@ layout(std430, set = 0, binding = 3) readonly buffer SpotLightBuffer
     uvec4 spotLightMeta;
     SpotLight spotLights[];
 };
+
+layout(set = 0, binding = 4) uniform sampler2D shadowMap;
+
+vec4 multiplyShadowMatrix(vec3 worldPosition)
+{
+    vec4 point = vec4(worldPosition, 1.0);
+    return vec4(
+        dot(ambientLighting.shadowLightMatrixRows[0], point),
+        dot(ambientLighting.shadowLightMatrixRows[1], point),
+        dot(ambientLighting.shadowLightMatrixRows[2], point),
+        dot(ambientLighting.shadowLightMatrixRows[3], point));
+}
+
+float computeDirectionalShadowFactor(vec3 worldPosition, float ndotl)
+{
+    if (ambientLighting.shadowParams.x < 0.5)
+    {
+        return 1.0;
+    }
+
+    vec4 lightClip = multiplyShadowMatrix(worldPosition);
+    if (abs(lightClip.w) < 0.0001)
+    {
+        return 1.0;
+    }
+
+    vec3 lightNdc = lightClip.xyz / lightClip.w;
+    vec3 shadowCoord = vec3(lightNdc.xy * 0.5 + 0.5, lightNdc.z);
+    if (shadowCoord.x <= 0.0 || shadowCoord.x >= 1.0 || shadowCoord.y <= 0.0 || shadowCoord.y >= 1.0 || shadowCoord.z <= 0.0 || shadowCoord.z >= 1.0)
+    {
+        return 1.0;
+    }
+
+    float bias = max(ambientLighting.shadowParams.y * (1.0 - ndotl), ambientLighting.shadowParams.y * 0.25);
+    float closestDepth = texture(shadowMap, shadowCoord.xy).r;
+    float visibility = shadowCoord.z - bias > closestDepth ? (1.0 - ambientLighting.shadowParams.z) : 1.0;
+    return visibility;
+}
 
 void main()
 {
@@ -79,12 +119,13 @@ void main()
             float ndotl = fragMaterial.w > 0.5 ? abs(ndotlRaw) : max(ndotlRaw, 0.0);
             float intensity = directionalLights[i].colorIntensity.a;
             vec3 lightColor = directionalLights[i].colorIntensity.rgb;
-            result += baseColor * lightColor * ndotl * intensity * fragMaterial.y;
+            float shadowFactor = i == 0 ? computeDirectionalShadowFactor(fragWorldPosition, ndotl) : 1.0;
+            result += baseColor * lightColor * ndotl * intensity * fragMaterial.y * shadowFactor;
             if (ndotl > 0.0 && specularStrength > 0.0)
             {
                 vec3 reflectDirection = reflect(lightDirection, normal);
                 float specular = pow(max(dot(viewDirection, reflectDirection), 0.0), shininess);
-                result += lightColor * specular * specularStrength * intensity;
+                result += lightColor * specular * specularStrength * intensity * shadowFactor;
             }
         }
 

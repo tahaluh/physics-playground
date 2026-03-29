@@ -70,14 +70,9 @@ bool Scene3D::copyAmbientLightFromFirstAvailable(std::initializer_list<const Sce
 
 void Scene3D::applyWireframeVisibilityOverride(bool visible)
 {
-    if (visible)
-    {
-        return;
-    }
-
     for (Entity3D &entity : entities)
     {
-        entity.material.renderWireframe = false;
+        entity.material.renderWireframe = visible;
     }
 }
 

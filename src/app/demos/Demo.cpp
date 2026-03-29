@@ -9,100 +9,119 @@
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 #include "engine/render/debug/LightDebug3D.h"
+#include "engine/render/3d/mesh/MeshFactory3D.h"
+#include "engine/scene/3d/Entity3D.h"
 
 namespace
 {
-const float kMoveSpeed = 4.0f;
-const float kMouseLookSensitivity = 0.0025f;
-const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
-const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
-const Vector3 kPointLightPosition = kSphereWorldOffset + Vector3(2.8f, 0.5f, 0.0f);
-const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-5.2f, 2.4f, 2.0f);
-const Vector3 kSpotLightDirection = (kSphereWorldOffset - kSpotLightPosition).normalized();
-const float kSpotLightIntensity = 1.1f;
-const float kSpotLightRange = 10.0f;
-const float kSpotLightInnerConeCos = 0.96f;
-const float kSpotLightOuterConeCos = 0.86f;
-const uint32_t kSpotLightColor = 0xFFFFFFFF;
+    const float kMoveSpeed = 4.0f;
+    const float kMouseLookSensitivity = 0.0025f;
+    const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
+    const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
+    const Vector3 kPointLightPosition = kSphereWorldOffset + Vector3(2.8f, 0.5f, 0.0f);
+    const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-5.2f, 2.4f, 2.0f);
+    const Vector3 kSpotLightDirection = (kSphereWorldOffset - kSpotLightPosition).normalized();
+    const float kSpotLightIntensity = 1.1f;
+    const float kSpotLightRange = 10.0f;
+    const float kSpotLightInnerConeCos = 0.96f;
+    const float kSpotLightOuterConeCos = 0.86f;
+    const uint32_t kSpotLightColor = 0xFFFFFFFF;
+    const Vector3 kShadowTestSphereOffset = kSphereWorldOffset + Vector3(0.0f, -3.2f, -4.5f);
 
-RingObjectDesc makeRingObjectDesc()
-{
-    RingObjectDesc desc;
-    desc.worldOffset = kRingWorldOffset;
-    desc.center = Vector2(400.0f, 300.0f);
-    desc.ballStartPosition = Vector2(230.0f, 180.0f);
-    desc.ballStartVelocity = Vector2(110.0f, -40.0f);
-    desc.simulationScale = 100.0f;
-    desc.borderRadiusPixels = 200.0f;
-    desc.borderThicknessWorld = 0.02f;
-    desc.ballRadiusPixels = 10.0f;
-    desc.ballOutlineThicknessWorld = 0.02f;
-    desc.planeThicknessWorld = 0.04f;
-    desc.planeZ = 0.0f;
-    desc.borderSegments = 96;
-    desc.ballSegments = 48;
-    desc.borderColor = 0xFFFFFFFF;
-    desc.ballColor = 0xFFFFFFFF;
-    desc.physicsMaterial = Material2D{0.0f, 0.9f, 0.08f, true};
-    desc.borderMaterial.solid.color = desc.borderColor;
-    desc.borderMaterial.wireframe.color = desc.borderColor;
-    desc.borderMaterial.renderSolid = true;
-    desc.borderMaterial.renderWireframe = false;
-    desc.ballMaterial.solid.color = desc.ballColor;
-    desc.ballMaterial.wireframe.color = desc.ballColor;
-    desc.ballMaterial.renderSolid = true;
-    desc.ballMaterial.renderWireframe = false;
-    return desc;
-}
-
-SphereObjectDesc makeSphereObjectDesc()
-{
-    SphereObjectDesc desc;
-    desc.worldOffset = kSphereWorldOffset;
-    desc.boundaryRadius = 4.0f;
-    desc.ballRadius = 0.45f;
-    desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
-    desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
-    desc.physicsMaterial = PhysicsMaterial3D{0.03f, 0.75f, 0.5f, true};
-    desc.boundarySphereRings = 10;
-    desc.boundarySphereSegments = 16;
-    desc.ballSphereRings = 16;
-    desc.ballSphereSegments = 24;
-    desc.borderMaterial.solid.color = 0xFF9AD1FF;
-    desc.borderMaterial.solid.opacity = 0.18f;
-    desc.borderMaterial.solid.specularStrength = 0.05f;
-    desc.borderMaterial.solid.shininess = 14.0f;
-    desc.borderMaterial.wireframe.color = 0xFFBFE6FF;
-    desc.borderMaterial.wireframe.opacity = 0.55f;
-    desc.borderMaterial.renderSolid = true;
-    desc.borderMaterial.renderWireframe = true;
-    desc.ballMaterial.solid.color = 0xFFFFFFFF;
-    desc.ballMaterial.solid.opacity = 1.0f;
-    desc.ballMaterial.solid.emissiveColor = 0x00000000;
-    desc.ballMaterial.solid.specularStrength = 1.0f;
-    desc.ballMaterial.solid.shininess = 96.0f;
-    desc.ballMaterial.wireframe.color = 0xFF707070;
-    desc.ballMaterial.wireframe.opacity = 1.0f;
-    desc.ballMaterial.renderSolid = true;
-    desc.ballMaterial.renderWireframe = true;
-    return desc;
-}
-
-Vector3 getPlanarForward(const Camera3D &camera)
-{
-    Vector3 forward = camera.getForward();
-    forward.y = 0.0f;
-    if (forward.lengthSquared() == 0.0f)
+    RingObjectDesc makeRingObjectDesc()
     {
-        return Vector3(0.0f, 0.0f, -1.0f);
+        RingObjectDesc desc;
+        desc.worldOffset = kRingWorldOffset;
+        desc.center = Vector2(400.0f, 300.0f);
+        desc.ballStartPosition = Vector2(230.0f, 180.0f);
+        desc.ballStartVelocity = Vector2(110.0f, -40.0f);
+        desc.simulationScale = 100.0f;
+        desc.borderRadiusPixels = 200.0f;
+        desc.borderThicknessWorld = 0.02f;
+        desc.ballRadiusPixels = 10.0f;
+        desc.ballOutlineThicknessWorld = 0.02f;
+        desc.planeThicknessWorld = 0.04f;
+        desc.planeZ = 0.0f;
+        desc.borderSegments = 96;
+        desc.ballSegments = 48;
+        desc.borderColor = 0xFFFFFFFF;
+        desc.ballColor = 0xFFFFFFFF;
+        desc.physicsMaterial = Material2D{0.0f, 0.55f, 0.08f, true};
+        desc.borderMaterial.solid.color = desc.borderColor;
+        desc.borderMaterial.wireframe.color = desc.borderColor;
+        desc.borderMaterial.renderSolid = true;
+        desc.borderMaterial.renderWireframe = false;
+        desc.ballMaterial.solid.color = desc.ballColor;
+        desc.ballMaterial.wireframe.color = desc.ballColor;
+        desc.ballMaterial.renderSolid = true;
+        desc.ballMaterial.renderWireframe = false;
+        return desc;
     }
-    return forward.normalized();
-}
 
-Vector3 getPlanarRight(const Camera3D &camera)
-{
-    return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
-}
+    Entity3D makeShadowTestSphere()
+    {
+        Entity3D sphere;
+        sphere.name = "ShadowTestSphere";
+        sphere.transform.position = kShadowTestSphereOffset;
+        sphere.mesh = MeshFactory3D::makeSphere(1.2f, 14, 20, 0);
+        sphere.material.solid.color = 0xFF2F6BFF;
+        sphere.material.solid.opacity = 1.0f;
+        sphere.material.solid.specularStrength = 0.25f;
+        sphere.material.solid.shininess = 28.0f;
+        sphere.material.wireframe.color = 0xFF7EA2FF;
+        sphere.material.renderSolid = true;
+        sphere.material.renderWireframe = false;
+        return sphere;
+    }
+
+    SphereObjectDesc makeSphereObjectDesc()
+    {
+        SphereObjectDesc desc;
+        desc.worldOffset = kSphereWorldOffset;
+        desc.boundaryRadius = 4.0f;
+        desc.ballRadius = 0.45f;
+        desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
+        desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
+        desc.physicsMaterial = PhysicsMaterial3D{0.03f, 0.75f, 0.5f, true};
+        desc.boundarySphereRings = 10;
+        desc.boundarySphereSegments = 16;
+        desc.ballSphereRings = 16;
+        desc.ballSphereSegments = 24;
+        desc.borderMaterial.solid.color = 0xFF9AD1FF;
+        desc.borderMaterial.solid.opacity = 0.18f;
+        desc.borderMaterial.solid.specularStrength = 0.05f;
+        desc.borderMaterial.solid.shininess = 14.0f;
+        desc.borderMaterial.wireframe.color = 0xFFBFE6FF;
+        desc.borderMaterial.wireframe.opacity = 0.55f;
+        desc.borderMaterial.renderSolid = true;
+        desc.borderMaterial.renderWireframe = true;
+        desc.ballMaterial.solid.color = 0xFFFFFFFF;
+        desc.ballMaterial.solid.opacity = 1.0f;
+        desc.ballMaterial.solid.emissiveColor = 0x00000000;
+        desc.ballMaterial.solid.specularStrength = 1.0f;
+        desc.ballMaterial.solid.shininess = 96.0f;
+        desc.ballMaterial.wireframe.color = 0xFF707070;
+        desc.ballMaterial.wireframe.opacity = 1.0f;
+        desc.ballMaterial.renderSolid = true;
+        desc.ballMaterial.renderWireframe = true;
+        return desc;
+    }
+
+    Vector3 getPlanarForward(const Camera3D &camera)
+    {
+        Vector3 forward = camera.getForward();
+        forward.y = 0.0f;
+        if (forward.lengthSquared() == 0.0f)
+        {
+            return Vector3(0.0f, 0.0f, -1.0f);
+        }
+        return forward.normalized();
+    }
+
+    Vector3 getPlanarRight(const Camera3D &camera)
+    {
+        return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
+    }
 }
 
 Demo::~Demo() = default;
@@ -127,23 +146,22 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     const Vector3 initialCameraForward = camera3D->getForward();
 
     combinedScene = std::make_unique<Scene3D>();
-    combinedScene->createDirectionalLight({
-        initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
-        0xFFFFFFFF,
-        0.55f});
-    combinedScene->createPointLight({
-        kPointLightPosition,
-        0xFFFF4040,
-        0.75f,
-        8.0f});
-    combinedScene->createSpotLight({
-        kSpotLightPosition,
-        kSpotLightDirection,
-        kSpotLightColor,
-        kSpotLightIntensity,
-        kSpotLightRange,
-        kSpotLightInnerConeCos,
-        kSpotLightOuterConeCos});
+    combinedScene->createDirectionalLight({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
+                                           0xFFFFFFFF,
+                                           0.9f});
+    // combinedScene->createPointLight({
+    //     kPointLightPosition,
+    //     0xFFFF4040,
+    //     0.75f,
+    //     8.0f});
+    // combinedScene->createSpotLight({
+    //     kSpotLightPosition,
+    //     kSpotLightDirection,
+    //     kSpotLightColor,
+    //     kSpotLightIntensity,
+    //     kSpotLightRange,
+    //     kSpotLightInnerConeCos,
+    //     kSpotLightOuterConeCos});
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }
@@ -254,17 +272,13 @@ void Demo::rebuildCombinedScene()
         return;
     }
 
-    combinedScene->copyAmbientLightFromFirstAvailable({
-        sphereObject ? &sphereObject->getRenderScene() : nullptr,
-        ringObject ? &ringObject->getRenderScene() : nullptr});
-    combinedScene->replaceEntitiesFrom({
-        ringObject ? &ringObject->getRenderScene() : nullptr,
-        sphereObject ? &sphereObject->getRenderScene() : nullptr});
+    combinedScene->copyAmbientLightFromFirstAvailable({sphereObject ? &sphereObject->getRenderScene() : nullptr,
+                                                       ringObject ? &ringObject->getRenderScene() : nullptr});
+    combinedScene->replaceEntitiesFrom({ringObject ? &ringObject->getRenderScene() : nullptr,
+                                        sphereObject ? &sphereObject->getRenderScene() : nullptr});
+    combinedScene->createEntity(makeShadowTestSphere());
 
-    if (!showWireframes)
-    {
-        combinedScene->applyWireframeVisibilityOverride(false);
-    }
+    combinedScene->applyWireframeVisibilityOverride(showWireframes);
 
     if (showLightDebugMarkers)
     {

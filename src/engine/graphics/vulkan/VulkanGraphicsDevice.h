@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.h>
 
 #include "engine/graphics/IGraphicsDevice.h"
+#include "engine/math/Matrix4.h"
 
 class VulkanGraphicsDevice : public IGraphicsDevice
 {
@@ -44,6 +45,8 @@ public:
     {
         float ambientColorIntensity[4];
         float cameraWorldPosition[4];
+        float shadowLightMatrixRows[4][4];
+        float shadowParams[4];
     };
 
     struct LightStorageHeader
@@ -88,10 +91,13 @@ private:
     bool createSwapchain();
     bool createImageViews();
     bool createRenderPass();
+    bool createShadowRenderPass();
     bool createDepthResources();
+    bool createShadowResources();
     bool createLightingResources();
     bool createTrianglePipeline();
     bool createLinePipeline();
+    bool createShadowPipeline();
     void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
     bool updateLightingBuffers(const Camera3D &camera, const Scene3D &scene);
     bool uploadSceneVertexBuffers();
@@ -150,21 +156,31 @@ private:
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
+    VkImage shadowDepthImage = VK_NULL_HANDLE;
+    VkDeviceMemory shadowDepthImageMemory = VK_NULL_HANDLE;
+    VkImageView shadowDepthImageView = VK_NULL_HANDLE;
+    VkSampler shadowDepthSampler = VK_NULL_HANDLE;
+    VkFramebuffer shadowFramebuffer = VK_NULL_HANDLE;
+    VkExtent2D shadowExtent = {2048, 2048};
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkRenderPass shadowRenderPass = VK_NULL_HANDLE;
     VkDescriptorSetLayout lightingDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool lightingDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet lightingDescriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
+    VkPipelineLayout shadowPipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline linePipeline = VK_NULL_HANDLE;
+    VkPipeline shadowPipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     BufferHandle opaqueSceneVertexBuffer;
     BufferHandle transparentSceneVertexBuffer;
     BufferHandle lineSceneVertexBuffer;
+    BufferHandle shadowSceneVertexBuffer;
     BufferHandle ambientUniformBuffer;
     BufferHandle directionalLightStorageBuffer;
     BufferHandle pointLightStorageBuffer;
@@ -176,13 +192,18 @@ private:
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;
+    VkDeviceSize shadowSceneVertexBufferSize = 0;
     uint32_t opaqueSceneVertexCount = 0;
     uint32_t transparentSceneVertexCount = 0;
     uint32_t lineSceneVertexCount = 0;
+    uint32_t shadowSceneVertexCount = 0;
     std::vector<TriangleVertex> opaqueSceneVertices;
     std::vector<TriangleVertex> transparentSceneVertices;
     std::vector<TriangleVertex> lineSceneVertices;
+    std::vector<TriangleVertex> shadowSceneVertices;
     AmbientUniform ambientUniform = {};
+    Matrix4 currentShadowLightViewProjection = Matrix4::identity();
+    bool shadowMappingEnabled = false;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

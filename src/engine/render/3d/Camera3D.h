@@ -20,7 +20,7 @@ public:
 
     Matrix4 getViewMatrix() const
     {
-        return Matrix4::lookAt(transform.position, transform.position + getForward(), Vector3::up());
+        return Matrix4::lookAt(transform.position, transform.position + getForward(), getUp());
     }
 
     Matrix4 getProjectionMatrix() const
@@ -72,6 +72,9 @@ public:
             return false;
 
         Vector3 ndcPoint = getProjectionMatrix().transformPoint(viewPoint);
+        if (ndcPoint.z < 0.0f || ndcPoint.z > 1.0f)
+            return false;
+
         screenPoint.x = static_cast<float>(resolvedViewportX) +
                         (ndcPoint.x * 0.5f + 0.5f) * static_cast<float>(resolvedViewportWidth);
         screenPoint.y = static_cast<float>(resolvedViewportY) +

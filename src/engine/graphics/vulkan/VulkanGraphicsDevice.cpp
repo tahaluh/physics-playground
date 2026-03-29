@@ -168,6 +168,95 @@ Vector3 safeNormalized(const Vector3 &value, const Vector3 &fallback)
 
     return value.normalized();
 }
+
+struct SceneBounds3D
+{
+    Vector3 min = Vector3::zero();
+    Vector3 max = Vector3::zero();
+    bool valid = false;
+};
+
+void expandBounds(SceneBounds3D &bounds, const Vector3 &point)
+{
+    if (!bounds.valid)
+    {
+        bounds.min = point;
+        bounds.max = point;
+        bounds.valid = true;
+        return;
+    }
+
+    bounds.min.x = std::min(bounds.min.x, point.x);
+    bounds.min.y = std::min(bounds.min.y, point.y);
+    bounds.min.z = std::min(bounds.min.z, point.z);
+    bounds.max.x = std::max(bounds.max.x, point.x);
+    bounds.max.y = std::max(bounds.max.y, point.y);
+    bounds.max.z = std::max(bounds.max.z, point.z);
+}
+
+SceneBounds3D computeSceneBounds(const Scene3D &scene)
+{
+    SceneBounds3D bounds;
+    for (const Entity3D &entity : scene.getEntities())
+    {
+        if (!entity.material.renderSolid)
+        {
+            continue;
+        }
+
+        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        for (const Vector3 &vertex : entity.mesh.vertices)
+        {
+            expandBounds(bounds, modelMatrix.transformPoint(vertex));
+        }
+    }
+    return bounds;
+}
+
+Matrix4 computeDirectionalShadowMatrix(const Scene3D &scene, const DirectionalLight &light)
+{
+    const SceneBounds3D bounds = computeSceneBounds(scene);
+    if (!bounds.valid)
+    {
+        return Matrix4::identity();
+    }
+
+    const Vector3 center = (bounds.min + bounds.max) * 0.5f;
+    const Vector3 extents = bounds.max - bounds.min;
+    const float radius = std::max(extents.length() * 0.5f, 1.0f);
+    const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
+    const Vector3 upHint = std::abs(lightDirection.dot(Vector3::up())) > 0.98f ? Vector3::right() : Vector3::up();
+    const Vector3 lightPosition = center - lightDirection * (radius * 2.0f);
+    const Matrix4 lightView = Matrix4::lookAt(lightPosition, center, upHint);
+
+    const std::array<Vector3, 8> corners = {
+        Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+        Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
+        Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
+        Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
+        Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
+        Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
+        Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
+        Vector3(bounds.max.x, bounds.max.y, bounds.max.z)};
+
+    SceneBounds3D lightSpaceBounds;
+    for (const Vector3 &corner : corners)
+    {
+        expandBounds(lightSpaceBounds, lightView.transformPoint(corner));
+    }
+
+    const float padding = std::max(radius * 0.15f, 0.5f);
+    const float nearPlane = std::max(0.01f, -lightSpaceBounds.max.z - padding);
+    const float farPlane = std::max(nearPlane + 0.01f, -lightSpaceBounds.min.z + padding);
+    const Matrix4 lightProjection = Matrix4::orthographicVulkan(
+        lightSpaceBounds.min.x - padding,
+        lightSpaceBounds.max.x + padding,
+        lightSpaceBounds.min.y - padding,
+        lightSpaceBounds.max.y + padding,
+        nearPlane,
+        farPlane);
+    return lightProjection * lightView;
+}
 }
 
 VulkanGraphicsDevice::~VulkanGraphicsDevice()
@@ -205,7 +294,11 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
         return false;
     if (!createRenderPass())
         return false;
+    if (!createShadowRenderPass())
+        return false;
     if (!createDepthResources())
+        return false;
+    if (!createShadowResources())
         return false;
     if (!createLightingResources())
         return false;
@@ -220,6 +313,7 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
 
     triangleResourcesReady = createTrianglePipeline();
     triangleResourcesReady = triangleResourcesReady && createLinePipeline();
+    triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
     if (!triangleResourcesReady)
     {
         std::fprintf(
@@ -288,9 +382,11 @@ void VulkanGraphicsDevice::beginFrame(uint32_t clearColor)
     opaqueSceneVertices.clear();
     transparentSceneVertices.clear();
     lineSceneVertices.clear();
+    shadowSceneVertices.clear();
     opaqueSceneVertexCount = 0;
     transparentSceneVertexCount = 0;
     lineSceneVertexCount = 0;
+    shadowSceneVertexCount = 0;
     ambientUniform = {};
     ambientUniform.ambientColorIntensity[3] = 0.0f;
     frameBegun = true;
@@ -619,6 +715,51 @@ bool VulkanGraphicsDevice::createRenderPass()
     return vkCreateRenderPass(device, &renderPassInfo, nullptr, &renderPass) == VK_SUCCESS;
 }
 
+bool VulkanGraphicsDevice::createShadowRenderPass()
+{
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = depthFormat;
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkAttachmentReference depthAttachmentRef{};
+    depthAttachmentRef.attachment = 0;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.pDepthStencilAttachment = &depthAttachmentRef;
+
+    VkSubpassDependency dependencies[2]{};
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0;
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    dependencies[1].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    VkRenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &depthAttachment;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 2;
+    renderPassInfo.pDependencies = dependencies;
+    return vkCreateRenderPass(device, &renderPassInfo, nullptr, &shadowRenderPass) == VK_SUCCESS;
+}
+
 bool VulkanGraphicsDevice::createDepthResources()
 {
     VkImageCreateInfo imageInfo{};
@@ -677,9 +818,99 @@ bool VulkanGraphicsDevice::createDepthResources()
     return vkCreateImageView(device, &viewInfo, nullptr, &depthImageView) == VK_SUCCESS;
 }
 
+bool VulkanGraphicsDevice::createShadowResources()
+{
+    VkImageCreateInfo imageInfo{};
+    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.extent.width = shadowExtent.width;
+    imageInfo.extent.height = shadowExtent.height;
+    imageInfo.extent.depth = 1;
+    imageInfo.mipLevels = 1;
+    imageInfo.arrayLayers = 1;
+    imageInfo.format = depthFormat;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(device, &imageInfo, nullptr, &shadowDepthImage) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkMemoryRequirements memoryRequirements{};
+    vkGetImageMemoryRequirements(device, shadowDepthImage, &memoryRequirements);
+
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memoryRequirements.size;
+    allocInfo.memoryTypeIndex = findMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (allocInfo.memoryTypeIndex == UINT32_MAX)
+    {
+        return false;
+    }
+
+    if (vkAllocateMemory(device, &allocInfo, nullptr, &shadowDepthImageMemory) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    if (vkBindImageMemory(device, shadowDepthImage, shadowDepthImageMemory, 0) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = shadowDepthImage;
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = depthFormat;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &viewInfo, nullptr, &shadowDepthImageView) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkSamplerCreateInfo samplerInfo{};
+    samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerInfo.magFilter = VK_FILTER_LINEAR;
+    samplerInfo.minFilter = VK_FILTER_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    samplerInfo.maxAnisotropy = 1.0f;
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.minLod = 0.0f;
+    samplerInfo.maxLod = 1.0f;
+
+    if (vkCreateSampler(device, &samplerInfo, nullptr, &shadowDepthSampler) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkFramebufferCreateInfo framebufferInfo{};
+    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferInfo.renderPass = shadowRenderPass;
+    framebufferInfo.attachmentCount = 1;
+    framebufferInfo.pAttachments = &shadowDepthImageView;
+    framebufferInfo.width = shadowExtent.width;
+    framebufferInfo.height = shadowExtent.height;
+    framebufferInfo.layers = 1;
+    return vkCreateFramebuffer(device, &framebufferInfo, nullptr, &shadowFramebuffer) == VK_SUCCESS;
+}
+
 bool VulkanGraphicsDevice::createLightingResources()
 {
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -696,6 +927,10 @@ bool VulkanGraphicsDevice::createLightingResources()
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[4].binding = 4;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -746,11 +981,13 @@ bool VulkanGraphicsDevice::createLightingResources()
     }
     spotLightStorageBufferSize = sizeof(LightStorageHeader);
 
-    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    std::array<VkDescriptorPoolSize, 3> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = 3;
+    poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSizes[2].descriptorCount = 1;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -881,6 +1118,12 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 0;
+    colorBlending.pAttachments = nullptr;
 
     const std::array<VkDynamicState, 2> dynamicStates = {
         VK_DYNAMIC_STATE_VIEWPORT,
@@ -1138,6 +1381,130 @@ bool VulkanGraphicsDevice::createLinePipeline()
     return success;
 }
 
+bool VulkanGraphicsDevice::createShadowPipeline()
+{
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/shadow/shadow.vert.spv",
+        "shaders/vulkan/shadow/shadow.vert.spv"});
+    if (vertexShaderCode.empty())
+    {
+        return false;
+    }
+
+    const VkShaderModule vertexShaderModule = createShaderModule(vertexShaderCode);
+    if (!vertexShaderModule)
+    {
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo vertexShaderStageInfo{};
+    vertexShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertexShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertexShaderStageInfo.module = vertexShaderModule;
+    vertexShaderStageInfo.pName = "main";
+
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(TriangleVertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    VkVertexInputAttributeDescription worldPositionAttribute{};
+    worldPositionAttribute.binding = 0;
+    worldPositionAttribute.location = 4;
+    worldPositionAttribute.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    worldPositionAttribute.offset = offsetof(TriangleVertex, worldPosition);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = 1;
+    vertexInputInfo.pVertexAttributeDescriptions = &worldPositionAttribute;
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_TRUE;
+    rasterizer.depthBiasConstantFactor = 1.25f;
+    rasterizer.depthBiasSlopeFactor = 1.75f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 0;
+    colorBlending.pAttachments = nullptr;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    const std::array<VkDynamicState, 2> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(float) * 16;
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &shadowPipelineLayout) != VK_SUCCESS)
+    {
+        vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+        return false;
+    }
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 1;
+    pipelineInfo.pStages = &vertexShaderStageInfo;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = shadowPipelineLayout;
+    pipelineInfo.renderPass = shadowRenderPass;
+    pipelineInfo.subpass = 0;
+
+    const bool success = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &shadowPipeline) == VK_SUCCESS;
+    vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+    return success;
+}
+
 bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const Scene3D &scene)
 {
     const std::array<float, 4> ambientColor = colorToFloat4(scene.getAmbientLight().color);
@@ -1149,6 +1516,31 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     ambientUniform.cameraWorldPosition[1] = camera.transform.position.y;
     ambientUniform.cameraWorldPosition[2] = camera.transform.position.z;
     ambientUniform.cameraWorldPosition[3] = 1.0f;
+    currentShadowLightViewProjection = Matrix4::identity();
+    shadowMappingEnabled = false;
+    for (const DirectionalLight &light : scene.getDirectionalLights())
+    {
+        if (!light.enabled || light.intensity <= 0.0f)
+        {
+            continue;
+        }
+
+        currentShadowLightViewProjection = computeDirectionalShadowMatrix(scene, light);
+        shadowMappingEnabled = true;
+        break;
+    }
+
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int col = 0; col < 4; ++col)
+        {
+            ambientUniform.shadowLightMatrixRows[row][col] = currentShadowLightViewProjection.m[row * 4 + col];
+        }
+    }
+    ambientUniform.shadowParams[0] = shadowMappingEnabled ? 1.0f : 0.0f;
+    ambientUniform.shadowParams[1] = 0.0025f;
+    ambientUniform.shadowParams[2] = 1.0f;
+    ambientUniform.shadowParams[3] = 0.0f;
 
     const auto updateBufferData =
         [&](BufferHandle &bufferHandle,
@@ -1353,8 +1745,12 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     bufferInfos[3].buffer = spotLightStorageBuffer.buffer;
     bufferInfos[3].offset = 0;
     bufferInfos[3].range = static_cast<VkDeviceSize>(spotBytes.size());
+    VkDescriptorImageInfo shadowImageInfo{};
+    shadowImageInfo.sampler = shadowDepthSampler;
+    shadowImageInfo.imageView = shadowDepthImageView;
+    shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
+    std::array<VkWriteDescriptorSet, 5> descriptorWrites{};
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = lightingDescriptorSet;
     descriptorWrites[0].dstBinding = 0;
@@ -1382,6 +1778,12 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorWrites[3].descriptorCount = 1;
     descriptorWrites[3].pBufferInfo = &bufferInfos[3];
+    descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[4].dstSet = lightingDescriptorSet;
+    descriptorWrites[4].dstBinding = 4;
+    descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[4].descriptorCount = 1;
+    descriptorWrites[4].pImageInfo = &shadowImageInfo;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     return true;
@@ -1564,13 +1966,39 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
     };
 
+    const auto appendShadowCasterTriangles =
+        [&](const Entity3D &entity)
+    {
+        if (!entity.material.renderSolid)
+        {
+            return;
+        }
+
+        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        {
+            for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
+            {
+                const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
+                TriangleVertex vertex{};
+                vertex.worldPosition[0] = worldPosition.x;
+                vertex.worldPosition[1] = worldPosition.y;
+                vertex.worldPosition[2] = worldPosition.z;
+                vertex.worldPosition[3] = 1.0f;
+                shadowSceneVertices.push_back(vertex);
+            }
+        }
+    };
+
     for (const EntitySortItem &item : opaqueEntities)
     {
         appendEntityTriangles(*item.entity, opaqueSceneVertices);
+        appendShadowCasterTriangles(*item.entity);
     }
     for (const EntitySortItem &item : transparentEntities)
     {
         appendEntityTriangles(*item.entity, transparentSceneVertices);
+        appendShadowCasterTriangles(*item.entity);
     }
 
     for (const Entity3D &entity : scene.getEntities())
@@ -1697,15 +2125,17 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
     opaqueSceneVertexCount = static_cast<uint32_t>(opaqueSceneVertices.size());
     transparentSceneVertexCount = static_cast<uint32_t>(transparentSceneVertices.size());
     lineSceneVertexCount = static_cast<uint32_t>(lineSceneVertices.size());
+    shadowSceneVertexCount = static_cast<uint32_t>(shadowSceneVertices.size());
 
-    if (opaqueSceneVertexCount == 0 && transparentSceneVertexCount == 0 && lineSceneVertexCount == 0)
+    if (opaqueSceneVertexCount == 0 && transparentSceneVertexCount == 0 && lineSceneVertexCount == 0 && shadowSceneVertexCount == 0)
     {
         return true;
     }
 
     return uploadVertices(opaqueSceneVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
            uploadVertices(transparentSceneVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
-           uploadVertices(lineSceneVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize);
+           uploadVertices(lineSceneVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize) &&
+           uploadVertices(shadowSceneVertices, shadowSceneVertexBuffer, shadowSceneVertexBufferSize);
 }
 
 bool VulkanGraphicsDevice::createFramebuffers()
@@ -1884,6 +2314,14 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, lineSceneVertexBuffer.memory, nullptr);
         }
+        if (shadowSceneVertexBuffer.buffer)
+        {
+            vkDestroyBuffer(device, shadowSceneVertexBuffer.buffer, nullptr);
+        }
+        if (shadowSceneVertexBuffer.memory)
+        {
+            vkFreeMemory(device, shadowSceneVertexBuffer.memory, nullptr);
+        }
         if (ambientUniformBuffer.buffer)
         {
             vkDestroyBuffer(device, ambientUniformBuffer.buffer, nullptr);
@@ -1916,6 +2354,26 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, spotLightStorageBuffer.memory, nullptr);
         }
+        if (shadowFramebuffer)
+        {
+            vkDestroyFramebuffer(device, shadowFramebuffer, nullptr);
+        }
+        if (shadowDepthSampler)
+        {
+            vkDestroySampler(device, shadowDepthSampler, nullptr);
+        }
+        if (shadowDepthImageView)
+        {
+            vkDestroyImageView(device, shadowDepthImageView, nullptr);
+        }
+        if (shadowDepthImage)
+        {
+            vkDestroyImage(device, shadowDepthImage, nullptr);
+        }
+        if (shadowDepthImageMemory)
+        {
+            vkFreeMemory(device, shadowDepthImageMemory, nullptr);
+        }
         if (opaqueTrianglePipeline)
         {
             vkDestroyPipeline(device, opaqueTrianglePipeline, nullptr);
@@ -1928,6 +2386,10 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipeline(device, linePipeline, nullptr);
         }
+        if (shadowPipeline)
+        {
+            vkDestroyPipeline(device, shadowPipeline, nullptr);
+        }
         if (trianglePipelineLayout)
         {
             vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
@@ -1935,6 +2397,10 @@ void VulkanGraphicsDevice::destroyDevice()
         if (linePipelineLayout)
         {
             vkDestroyPipelineLayout(device, linePipelineLayout, nullptr);
+        }
+        if (shadowPipelineLayout)
+        {
+            vkDestroyPipelineLayout(device, shadowPipelineLayout, nullptr);
         }
         if (lightingDescriptorPool)
         {
@@ -1947,6 +2413,10 @@ void VulkanGraphicsDevice::destroyDevice()
         if (renderPass)
         {
             vkDestroyRenderPass(device, renderPass, nullptr);
+        }
+        if (shadowRenderPass)
+        {
+            vkDestroyRenderPass(device, shadowRenderPass, nullptr);
         }
 
         vkDestroyDevice(device, nullptr);
@@ -1971,6 +2441,52 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
     {
         std::fprintf(stderr, "vkBeginCommandBuffer failed.\n");
         return;
+    }
+
+    if (drawTriangle && shadowPipeline && shadowFramebuffer && shadowMappingEnabled &&
+        shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
+    {
+        VkClearValue shadowClearValue{};
+        shadowClearValue.depthStencil.depth = 1.0f;
+        shadowClearValue.depthStencil.stencil = 0;
+
+        VkRenderPassBeginInfo shadowRenderPassInfo{};
+        shadowRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        shadowRenderPassInfo.renderPass = shadowRenderPass;
+        shadowRenderPassInfo.framebuffer = shadowFramebuffer;
+        shadowRenderPassInfo.renderArea.offset = {0, 0};
+        shadowRenderPassInfo.renderArea.extent = shadowExtent;
+        shadowRenderPassInfo.clearValueCount = 1;
+        shadowRenderPassInfo.pClearValues = &shadowClearValue;
+
+        vkCmdBeginRenderPass(commandBuffer, &shadowRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        VkViewport shadowViewport{};
+        shadowViewport.x = 0.0f;
+        shadowViewport.y = 0.0f;
+        shadowViewport.width = static_cast<float>(shadowExtent.width);
+        shadowViewport.height = static_cast<float>(shadowExtent.height);
+        shadowViewport.minDepth = 0.0f;
+        shadowViewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &shadowViewport);
+
+        VkRect2D shadowScissor{};
+        shadowScissor.offset = {0, 0};
+        shadowScissor.extent = shadowExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &shadowScissor);
+
+        VkDeviceSize shadowOffsets[] = {0};
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
+        vkCmdPushConstants(
+            commandBuffer,
+            shadowPipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            sizeof(float) * 16,
+            currentShadowLightViewProjection.m.data());
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &shadowSceneVertexBuffer.buffer, shadowOffsets);
+        vkCmdDraw(commandBuffer, shadowSceneVertexCount, 1, 0, 0);
+        vkCmdEndRenderPass(commandBuffer);
     }
 
     const uint32_t vulkanColor = toVulkanColor(clearColor);

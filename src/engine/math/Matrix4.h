@@ -115,9 +115,37 @@ struct Matrix4
         const float tanHalfFov = std::tan(fovRadians * 0.5f);
         result.m[0] = 1.0f / (aspectRatio * tanHalfFov);
         result.m[5] = 1.0f / tanHalfFov;
-        result.m[10] = -(farPlane + nearPlane) / (farPlane - nearPlane);
-        result.m[11] = -(2.0f * farPlane * nearPlane) / (farPlane - nearPlane);
+        result.m[10] = -farPlane / (farPlane - nearPlane);
+        result.m[11] = -(farPlane * nearPlane) / (farPlane - nearPlane);
         result.m[14] = -1.0f;
+        return result;
+    }
+
+    static Matrix4 orthographic(float left, float right, float bottom, float top, float nearPlane, float farPlane)
+    {
+        Matrix4 result = {};
+        result.m.fill(0.0f);
+        result.m[0] = 2.0f / (right - left);
+        result.m[3] = -(right + left) / (right - left);
+        result.m[5] = 2.0f / (top - bottom);
+        result.m[7] = -(top + bottom) / (top - bottom);
+        result.m[10] = -2.0f / (farPlane - nearPlane);
+        result.m[11] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+        result.m[15] = 1.0f;
+        return result;
+    }
+
+    static Matrix4 orthographicVulkan(float left, float right, float bottom, float top, float nearPlane, float farPlane)
+    {
+        Matrix4 result = {};
+        result.m.fill(0.0f);
+        result.m[0] = 2.0f / (right - left);
+        result.m[3] = -(right + left) / (right - left);
+        result.m[5] = 2.0f / (top - bottom);
+        result.m[7] = -(top + bottom) / (top - bottom);
+        result.m[10] = -1.0f / (farPlane - nearPlane);
+        result.m[11] = -nearPlane / (farPlane - nearPlane);
+        result.m[15] = 1.0f;
         return result;
     }
 

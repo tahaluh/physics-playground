@@ -2,8 +2,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <csignal>
+#include <fstream>
+#include <sstream>
+#include <string>
 #include <thread>
 
 #include "engine/core/ApplicationLayer.h"
@@ -17,9 +21,109 @@ namespace
 {
 std::atomic<bool> gInterruptRequested = false;
 
+struct ProcessMetrics
+{
+    float cpuPercent = 0.0f;
+    float ramMegabytes = 0.0f;
+};
+
 void handleInterrupt(int)
 {
     gInterruptRequested.store(true);
+}
+
+long long readProcessCpuTicks()
+{
+#if defined(__linux__)
+    std::ifstream statFile("/proc/self/stat");
+    if (!statFile)
+    {
+        return -1;
+    }
+
+    std::string statLine;
+    std::getline(statFile, statLine);
+    const std::size_t closingParen = statLine.rfind(')');
+    if (closingParen == std::string::npos || closingParen + 2 >= statLine.size())
+    {
+        return -1;
+    }
+
+    std::istringstream fields(statLine.substr(closingParen + 2));
+    std::string field;
+    long long utime = 0;
+    long long stime = 0;
+    for (int index = 3; fields >> field; ++index)
+    {
+        if (index == 14)
+        {
+            utime = std::atoll(field.c_str());
+        }
+        else if (index == 15)
+        {
+            stime = std::atoll(field.c_str());
+            break;
+        }
+    }
+
+    return utime + stime;
+#else
+    return -1;
+#endif
+}
+
+float readProcessRamMegabytes()
+{
+#if defined(__linux__)
+    std::ifstream statmFile("/proc/self/statm");
+    if (!statmFile)
+    {
+        return 0.0f;
+    }
+
+    long long totalPages = 0;
+    long long residentPages = 0;
+    statmFile >> totalPages >> residentPages;
+    if (residentPages <= 0)
+    {
+        return 0.0f;
+    }
+
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize <= 0)
+    {
+        return 0.0f;
+    }
+
+    return static_cast<float>(residentPages * pageSize) / (1024.0f * 1024.0f);
+#else
+    return 0.0f;
+#endif
+}
+
+ProcessMetrics sampleProcessMetrics(long long &previousCpuTicks, const std::chrono::high_resolution_clock::time_point &previousSampleTime)
+{
+    ProcessMetrics metrics;
+#if defined(__linux__)
+    const long long currentCpuTicks = readProcessCpuTicks();
+    const auto currentTime = std::chrono::high_resolution_clock::now();
+    const float elapsedSeconds = std::chrono::duration<float>(currentTime - previousSampleTime).count();
+    const long clockTicksPerSecond = sysconf(_SC_CLK_TCK);
+
+    if (previousCpuTicks >= 0 && currentCpuTicks >= 0 && elapsedSeconds > 0.0f && clockTicksPerSecond > 0)
+    {
+        const float cpuSeconds =
+            static_cast<float>(currentCpuTicks - previousCpuTicks) / static_cast<float>(clockTicksPerSecond);
+        metrics.cpuPercent = (cpuSeconds / elapsedSeconds) * 100.0f;
+    }
+
+    previousCpuTicks = currentCpuTicks;
+    metrics.ramMegabytes = readProcessRamMegabytes();
+#else
+    (void)previousCpuTicks;
+    (void)previousSampleTime;
+#endif
+    return metrics;
 }
 }
 
@@ -80,6 +184,8 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
         ? std::chrono::duration<float>(1.0f / static_cast<float>(config.targetFrameRate))
         : std::chrono::duration<float>(0.0f);
     auto last = clock::now();
+    auto previousMetricsSampleTime = last;
+    long long previousCpuTicks = readProcessCpuTicks();
     float accumulator = 0.0f;
     float titleUpdateAccumulator = 0.0f;
     int framesSinceTitleUpdate = 0;
@@ -148,17 +254,21 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
         {
             const float averageFrameTime = titleUpdateAccumulator / static_cast<float>(framesSinceTitleUpdate);
             const float fps = static_cast<float>(framesSinceTitleUpdate) / titleUpdateAccumulator;
+            const ProcessMetrics metrics = sampleProcessMetrics(previousCpuTicks, previousMetricsSampleTime);
+            previousMetricsSampleTime = clock::now();
             char titleBuffer[256];
             std::snprintf(
                 titleBuffer,
                 sizeof(titleBuffer),
-                "%s | %s | %s | %d target | %.1f FPS | %.2f ms",
+                "%s | %s | %s | %d target | %.1f FPS | %.2f ms | CPU %.1f%% | RAM %.1f MB",
                 config.title,
                 graphicsDevice->getBackendName(),
                 config.vsyncEnabled ? "VSync On" : "VSync Off",
                 config.targetFrameRate,
                 fps,
-                averageFrameTime * 1000.0f);
+                averageFrameTime * 1000.0f,
+                metrics.cpuPercent,
+                metrics.ramMegabytes);
             window->setTitle(titleBuffer);
 
             titleUpdateAccumulator = 0.0f;

@@ -178,6 +178,41 @@ std::array<float, 4> applyAmbientLighting(
     result[3] = base[3];
     return result;
 }
+
+std::array<float, 4> applyDirectionalLighting(
+    const std::array<float, 4> &litColor,
+    const std::vector<DirectionalLight> &directionalLights,
+    const Vector3 &surfaceNormal,
+    float diffuseFactor)
+{
+    const float clampedDiffuseFactor = std::clamp(diffuseFactor, 0.0f, 1.0f);
+    std::array<float, 4> result = litColor;
+
+    for (const DirectionalLight &light : directionalLights)
+    {
+        if (!light.enabled || light.intensity <= 0.0f)
+        {
+            continue;
+        }
+
+        const Vector3 lightDirection = light.direction.lengthSquared() > 0.0f
+                                           ? light.direction.normalized()
+                                           : Vector3(0.0f, -1.0f, 0.0f);
+        const float ndotl = std::max(0.0f, surfaceNormal.dot(lightDirection * -1.0f));
+        if (ndotl <= 0.0f)
+        {
+            continue;
+        }
+
+        const std::array<float, 4> lightColor = colorToFloat4(light.color);
+        const float contribution = ndotl * light.intensity * clampedDiffuseFactor;
+        result[0] = std::clamp(result[0] + litColor[0] * lightColor[0] * contribution, 0.0f, 1.0f);
+        result[1] = std::clamp(result[1] + litColor[1] * lightColor[1] * contribution, 0.0f, 1.0f);
+        result[2] = std::clamp(result[2] + litColor[2] * lightColor[2] * contribution, 0.0f, 1.0f);
+    }
+
+    return result;
+}
 }
 
 VulkanGraphicsDevice::~VulkanGraphicsDevice()
@@ -1045,22 +1080,18 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
         const AmbientLight &ambientLight = scene.getAmbientLight();
+        const auto &directionalLights = scene.getDirectionalLights();
         for (const MeshTriangle3D &triangle : entity.mesh.triangles)
         {
             const uint32_t triangleColor = entity.material.solid.resolveColor(triangle.color);
-            const std::array<float, 4> rgba = applyAmbientLighting(
-                triangleColor,
-                entity.material.solid.resolveEmissiveColor(),
-                entity.material.solid.ambientFactor,
-                ambientLight.color,
-                ambientLight.intensity);
-
             bool triangleVisible = true;
+            std::array<Vector3, 3> worldVertices{};
             std::array<Vector3, 3> ndcVertices{};
             for (size_t i = 0; i < 3; ++i)
             {
                 const Vector3 modelPosition = entity.mesh.vertices[triangle.indices[i]];
                 const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
+                worldVertices[i] = worldPosition;
                 const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
                 if (-viewPosition.z < camera.nearPlane)
                 {
@@ -1075,6 +1106,20 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
             {
                 continue;
             }
+
+            Vector3 surfaceNormal = (worldVertices[1] - worldVertices[0]).cross(worldVertices[2] - worldVertices[0]).normalized();
+            if (surfaceNormal.lengthSquared() == 0.0f)
+            {
+                surfaceNormal = Vector3::up();
+            }
+
+            std::array<float, 4> rgba = applyAmbientLighting(
+                triangleColor,
+                entity.material.solid.resolveEmissiveColor(),
+                entity.material.solid.ambientFactor,
+                ambientLight.color,
+                ambientLight.intensity);
+            rgba = applyDirectionalLighting(rgba, directionalLights, surfaceNormal, entity.material.solid.diffuseFactor);
 
             for (const Vector3 &ndcPosition : ndcVertices)
             {

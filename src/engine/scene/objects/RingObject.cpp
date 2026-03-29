@@ -64,7 +64,8 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
         desc.ballStartPosition,
         desc.ballStartVelocity,
         desc.ballColor);
-    ballBody->getMaterial() = desc.physicsMaterial;
+    ballBody->getSurfaceMaterial() = desc.physicsSurfaceMaterial;
+    ballBody->getRigidBodySettings() = desc.rigidBodySettings;
     object->physicsScene->addBody(std::move(ballBody));
 
     Shape2DIn3DDesc borderDesc;

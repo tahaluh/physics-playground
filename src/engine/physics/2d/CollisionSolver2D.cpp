@@ -210,7 +210,7 @@ bool CollisionSolver2D::resolveDynamicCircleCollision(const Contact2D &contactA,
     if (velocityAlongNormal > 0.0f)
         return true;
 
-    const float combinedRestitution = std::min(bodyA->getMaterial().restitution, bodyB->getMaterial().restitution);
+    const float combinedRestitution = std::min(bodyA->getSurfaceMaterial().restitution, bodyB->getSurfaceMaterial().restitution);
     float impulseMagnitude = -(1.0f + combinedRestitution) * velocityAlongNormal;
     impulseMagnitude /= (1.0f / bodyA->getMass()) + (1.0f / bodyB->getMass());
 

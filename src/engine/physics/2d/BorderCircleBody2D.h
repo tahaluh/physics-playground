@@ -14,7 +14,8 @@ public:
               Vector2::zero(),
               0xFFFFFFFF,
               0.0f,
-              Material2D{0.0f, 1.0f, 0.0f, false}),
+              PhysicsSurfaceMaterial2D{1.0f, 0.05f, 0.0f},
+              RigidBodySettings2D{0.0f, 0.0f, false}),
           radius(radius) {}
 
     float getRadius() const { return radius; }

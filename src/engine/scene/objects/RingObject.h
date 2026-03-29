@@ -31,7 +31,8 @@ struct RingObjectDesc
     int ballSegments = 48;
     uint32_t borderColor = 0xFFFFFFFF;
     uint32_t ballColor = 0xFFFFFFFF;
-    Material2D physicsMaterial = Material2D{0.0f, 0.9f, 0.08f, true};
+    PhysicsSurfaceMaterial2D physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.9f, 0.03f, 0.012f};
+    RigidBodySettings2D rigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, true};
     Material3D borderMaterial = Material3D{};
     Material3D ballMaterial = Material3D{};
 };

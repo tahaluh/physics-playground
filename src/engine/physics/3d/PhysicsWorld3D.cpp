@@ -631,7 +631,6 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             {
                 steerSphereTowardRolling(*dynamicCandidate, *dynamicShape, normal, maxFrictionStrength);
             }
-
             if (stopThreshold > 0.0f &&
                 dynamicCandidate->getVelocity().length() < stopThreshold &&
                 dynamicCandidate->getAngularVelocity().length() < angularStopThreshold)

@@ -37,7 +37,7 @@ void PhysicsWorld2D::applyGlobalForces(Scene2D &scene) const
 {
     for (auto &body : scene.getBodies())
     {
-        if (body->isStatic() || !body->getMaterial().useGravity)
+        if (body->isStatic() || !body->getRigidBodySettings().useGravity)
             continue;
 
         body->applyForce(gravity * body->getMass());

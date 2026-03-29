@@ -26,7 +26,7 @@ bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float
     if (normal.lengthSquared() <= 0.0f)
         return false;
     position = borderCircle->getCenter() + normal * innerRadius;
-    velocity = velocity.reflect(normal) * material.restitution;
+    velocity = velocity.reflect(normal) * surfaceMaterial.restitution;
     applySurfaceFrictionAlongNormal(normal, normal * circle->getRadius());
 
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
@@ -59,7 +59,7 @@ bool PhysicsBody2D::resolveBorderBoxCollision(const Contact2D &contact, float st
     else if (normal.y < 0.0f)
         position.y = box->bottom() - radius;
 
-    velocity = velocity.reflect(normal) * material.restitution;
+    velocity = velocity.reflect(normal) * surfaceMaterial.restitution;
     applySurfaceFrictionAlongNormal(normal, normal * -radius);
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
@@ -71,7 +71,7 @@ bool PhysicsBody2D::resolveBorderBoxCollision(const Contact2D &contact, float st
 
 void PhysicsBody2D::applySurfaceFrictionAlongNormal(const Vector2 &normal, const Vector2 &contactOffset)
 {
-    if (material.surfaceFriction <= 0.0f)
+    if (surfaceMaterial.staticFriction <= 0.0f && surfaceMaterial.dynamicFriction <= 0.0f)
         return;
 
     const Vector2 contactVelocity =
@@ -93,8 +93,14 @@ void PhysicsBody2D::applySurfaceFrictionAlongNormal(const Vector2 &normal, const
         return;
     }
 
-    const float frictionStrength = Vector2::clamp(material.surfaceFriction, 0.0f, 1.0f);
-    const float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
+    const float targetImpulseMagnitude = tangentialSpeed / denominator;
+    const float referenceSpeed = std::max(std::abs(normalSpeed), tangentialSpeed);
+    float frictionLimit = Vector2::clamp(surfaceMaterial.dynamicFriction, 0.0f, 1.0f) * referenceSpeed;
+    if (targetImpulseMagnitude <= Vector2::clamp(surfaceMaterial.staticFriction, 0.0f, 1.0f) * referenceSpeed)
+    {
+        frictionLimit = targetImpulseMagnitude;
+    }
+    const float impulseMagnitude = -std::min(targetImpulseMagnitude, frictionLimit);
     const Vector2 impulse = tangent * impulseMagnitude;
     velocity += impulse * inverseMass;
     angularVelocity += Vector2::cross(contactOffset, impulse) * inverseMomentOfInertia;
@@ -115,11 +121,11 @@ bool PhysicsBody2D::resolveBorderCircleAxisInvertCollision(const Contact2D &cont
 
     if (std::abs(normal.x) > std::abs(normal.y))
     {
-        velocity.x = -velocity.x * material.restitution;
+        velocity.x = -velocity.x * surfaceMaterial.restitution;
     }
     else
     {
-        velocity.y = -velocity.y * material.restitution;
+        velocity.y = -velocity.y * surfaceMaterial.restitution;
     }
 
     return true;

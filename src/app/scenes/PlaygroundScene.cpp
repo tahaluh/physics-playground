@@ -34,7 +34,8 @@ RingObjectDesc makeRingObjectDesc()
     desc.ballSegments = 48;
     desc.borderColor = 0xFFFFFFFF;
     desc.ballColor = 0xFFFFFFFF;
-    desc.physicsMaterial = Material2D{0.0f, 0.92f, 0.01f, true};
+    desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.92f, 0.03f, 0.012f};
+    desc.rigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, true};
     desc.borderMaterial.solid.baseColor = desc.borderColor;
     desc.borderMaterial.wireframe.baseColor = desc.borderColor;
     desc.borderMaterial.renderSolid = true;

@@ -11,6 +11,7 @@
 #include "engine/scene/3d/Scene3D.h"
 #include "engine/scene/objects/ComposedObject3D.h"
 #include "engine/scene/objects/RingObject.h"
+#include "engine/scene/objects/SquareObject.h"
 #include "engine/scene/objects/SphereArenaObject.h"
 #include "engine/scene/objects/SphereObject.h"
 
@@ -36,6 +37,8 @@ private:
     std::unique_ptr<Camera3D> camera3D;
     std::unique_ptr<Scene3D> combinedScene;
     std::vector<std::unique_ptr<RingObject>> ringObjects;
+    std::vector<std::unique_ptr<SquareObject>> squareObjects;
+    std::vector<std::size_t> squareObjectRingIndices;
     std::vector<std::unique_ptr<SphereArenaObject>> sphereArenaObjects;
     std::vector<std::unique_ptr<SphereObject>> sphereObjects;
     std::vector<std::unique_ptr<ComposedObject3D>> composedObjects;

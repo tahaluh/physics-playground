@@ -48,6 +48,20 @@ Vector2 getFarthestRectCorner(const RectShape &rect, const Vector2 &position, co
     return farthestCorner;
 }
 
+std::array<Vector2, 4> getRotatedRectCorners(const RectShape &rect, const Vector2 &position, const Vector2 &rotation)
+{
+    const Vector2 center = position + Vector2(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
+    const Vector2 axisX = rotation.lengthSquared() > 0.0f ? rotation.normalized() : Vector2(1.0f, 0.0f);
+    const Vector2 axisY = Vector2::perpendicularLeft(axisX);
+    const Vector2 halfExtents(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
+
+    return {
+        center - axisX * halfExtents.x - axisY * halfExtents.y,
+        center + axisX * halfExtents.x - axisY * halfExtents.y,
+        center + axisX * halfExtents.x + axisY * halfExtents.y,
+        center - axisX * halfExtents.x + axisY * halfExtents.y};
+}
+
 struct BorderCircleRectContact2D
 {
     bool intersects = false;
@@ -59,31 +73,39 @@ struct BorderCircleRectContact2D
 BorderCircleRectContact2D buildBorderCircleRectContact(
     const BorderCircleBody2D &borderCircle,
     const RectShape &rect,
-    const Vector2 &rectPosition)
+    const Vector2 &rectPosition,
+    const Vector2 &rectRotation)
 {
     BorderCircleRectContact2D result;
-    const Vector2 rectCenter = rectPosition + Vector2(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
-    Vector2 delta = rectCenter - borderCircle.getCenter();
-    float centerDistanceSquared = delta.lengthSquared();
-    Vector2 radialNormal = centerDistanceSquared > 0.0001f
-                               ? delta / std::sqrt(centerDistanceSquared)
-                               : Vector2(1.0f, 0.0f);
+    const auto corners = getRotatedRectCorners(rect, rectPosition, rectRotation);
+    const Vector2 circleCenter = borderCircle.getCenter();
 
-    const Vector2 halfExtents(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
-    const float supportRadius =
-        std::abs(radialNormal.x) * halfExtents.x +
-        std::abs(radialNormal.y) * halfExtents.y;
-    const float centerDistance = std::sqrt(std::max(centerDistanceSquared, 0.0001f));
-    const float outermostDistance = centerDistance + supportRadius;
-    if (outermostDistance <= borderCircle.getRadius())
+    Vector2 farthestCorner = corners[0];
+    float farthestDistanceSquared = (corners[0] - circleCenter).lengthSquared();
+    for (int i = 1; i < 4; ++i)
+    {
+        const float distanceSquared = (corners[i] - circleCenter).lengthSquared();
+        if (distanceSquared > farthestDistanceSquared)
+        {
+            farthestDistanceSquared = distanceSquared;
+            farthestCorner = corners[i];
+        }
+    }
+
+    const float borderRadius = borderCircle.getRadius();
+    if (farthestDistanceSquared <= borderRadius * borderRadius)
     {
         return result;
     }
 
+    const float farthestDistance = std::sqrt(std::max(farthestDistanceSquared, 0.0001f));
+    const Vector2 radialNormal =
+        farthestDistance > 0.0f ? (farthestCorner - circleCenter) / farthestDistance : Vector2(1.0f, 0.0f);
+
     result.intersects = true;
     result.normal = radialNormal;
-    result.penetration = outermostDistance - borderCircle.getRadius();
-    result.contactPoint = rectCenter + radialNormal * supportRadius;
+    result.penetration = farthestDistance - borderRadius;
+    result.contactPoint = farthestCorner;
     return result;
 }
 
@@ -372,7 +394,7 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
 
     if (borderCircleA && rectB)
     {
-        const BorderCircleRectContact2D contact = buildBorderCircleRectContact(*borderCircleA, *rectB, bodyB.getPosition());
+        const BorderCircleRectContact2D contact = buildBorderCircleRectContact(*borderCircleA, *rectB, bodyB.getPosition(), bodyB.getRotation());
         if (!contact.intersects)
             return false;
 
@@ -387,7 +409,7 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
 
     if (rectA && borderCircleB)
     {
-        const BorderCircleRectContact2D contact = buildBorderCircleRectContact(*borderCircleB, *rectA, bodyA.getPosition());
+        const BorderCircleRectContact2D contact = buildBorderCircleRectContact(*borderCircleB, *rectA, bodyA.getPosition(), bodyA.getRotation());
         if (!contact.intersects)
             return false;
 

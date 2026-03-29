@@ -9,6 +9,7 @@
 #include "engine/scene/3d/DirectionalLight.h"
 #include "engine/scene/objects/ComposedObject3D.h"
 #include "engine/scene/objects/RingObject.h"
+#include "engine/scene/objects/SquareObject.h"
 #include "engine/scene/objects/SphereArenaObject.h"
 #include "engine/scene/objects/SphereObject.h"
 #include "engine/scene/3d/PointLight.h"
@@ -22,6 +23,7 @@ struct PlaygroundSceneDesc
     Vector3 cameraPosition = Vector3::zero();
     Vector3 cameraRotation = Vector3::zero();
     std::vector<RingObjectDesc> ringObjects;
+    std::vector<SquareObjectDesc> squareObjects;
     std::vector<SphereArenaObjectDesc> sphereArenaObjects;
     std::vector<SphereObjectDesc> sphereObjects;
     std::vector<ComposedObject3DDesc> composedObjects;

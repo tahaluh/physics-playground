@@ -35,10 +35,6 @@ struct RingObjectDesc
     float borderRadiusPixels = 200.0f;
     float borderThicknessPixels = 12.0f;
     float ballRadiusPixels = 10.0f;
-    bool showCenterSquare = true;
-    Vector2 centerSquareStartPosition = Vector2(400.0f, 300.0f);
-    Vector2 centerSquareStartVelocity = Vector2::zero();
-    float centerSquareSizePixels = 44.0f;
     float ballOutlineThicknessWorld = 0.02f;
     float planeThicknessWorld = 0.04f;
     float planeZ = 0.0f;
@@ -48,12 +44,10 @@ struct RingObjectDesc
     uint32_t rotationIndicatorColor = 0xFFFFD166;
     uint32_t borderColor = 0xFFFFFFFF;
     uint32_t ballColor = 0xFFFFFFFF;
-    uint32_t centerSquareColor = 0xFFFF8A5B;
     PhysicsSurfaceMaterial2D physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.9f, 0.03f, 0.012f};
     RigidBodySettings2D rigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, true};
     Material3D borderMaterial = Material3D{};
     Material3D ballMaterial = Material3D{};
-    Material3D centerSquareMaterial = Material3D{};
 };
 
 class RingObject
@@ -71,6 +65,7 @@ public:
     const Scene2D &getPhysicsScene() const;
     Scene3D &getRenderScene();
     const Scene3D &getRenderScene() const;
+    const RingObjectDesc &getConfig() const;
     PhysicsBody2D *getControlledBody();
     const PhysicsBody2D *getControlledBody() const;
     void setWorldOffset(const Vector3 &offset);

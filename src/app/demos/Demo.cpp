@@ -61,6 +61,22 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
         ringObjects.push_back(RingObject::create(ringDesc));
     }
 
+    squareObjects.clear();
+    squareObjectRingIndices.clear();
+    for (const SquareObjectDesc &squareDesc : sceneDesc.squareObjects)
+    {
+        if (squareDesc.ringObjectIndex >= ringObjects.size() || !ringObjects[squareDesc.ringObjectIndex])
+        {
+            continue;
+        }
+
+        squareObjects.push_back(SquareObject::create(
+            squareDesc,
+            ringObjects[squareDesc.ringObjectIndex]->getPhysicsScene(),
+            ringObjects[squareDesc.ringObjectIndex]->getConfig()));
+        squareObjectRingIndices.push_back(squareDesc.ringObjectIndex);
+    }
+
     sphereArenaObjects.clear();
     for (const SphereArenaObjectDesc &arenaDesc : sceneDesc.sphereArenaObjects)
     {
@@ -197,6 +213,24 @@ void Demo::onFixedUpdate(float dt)
                 ringObject->step(*physicsWorld2D, dt);
             }
         }
+
+        for (std::size_t i = 0; i < squareObjects.size(); ++i)
+        {
+            if (!squareObjects[i] || i >= squareObjectRingIndices.size())
+            {
+                continue;
+            }
+
+            const std::size_t ringIndex = squareObjectRingIndices[i];
+            if (ringIndex >= ringObjects.size() || !ringObjects[ringIndex])
+            {
+                continue;
+            }
+
+            squareObjects[i]->syncRenderScene(
+                ringObjects[ringIndex]->getPhysicsScene(),
+                ringObjects[ringIndex]->getConfig());
+        }
     }
 
     if (physicsWorld3D)
@@ -258,6 +292,13 @@ void Demo::rebuildCombinedScene()
         if (ringObject)
         {
             combinedScene->appendEntitiesFrom(ringObject->getRenderScene());
+        }
+    }
+    for (const auto &squareObject : squareObjects)
+    {
+        if (squareObject)
+        {
+            combinedScene->appendEntitiesFrom(squareObject->getRenderScene());
         }
     }
     for (const auto &sphereObject : sphereObjects)

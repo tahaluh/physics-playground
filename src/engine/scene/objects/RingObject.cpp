@@ -6,7 +6,6 @@
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 #include "engine/physics/2d/BallBody2D.h"
-#include "engine/physics/2d/BoxBody2D.h"
 #include "engine/physics/2d/BorderCircleBody2D.h"
 #include "engine/physics/2d/PhysicsBody2D.h"
 #include "engine/physics/2d/PhysicsWorld2D.h"
@@ -65,10 +64,6 @@ RingObjectDesc RingObject::makeDefaultDesc()
     desc.ballMaterial.wireframe.baseColor = desc.ballColor;
     desc.ballMaterial.renderSolid = true;
     desc.ballMaterial.renderWireframe = false;
-    desc.centerSquareMaterial.solid.baseColor = desc.centerSquareColor;
-    desc.centerSquareMaterial.wireframe.baseColor = desc.centerSquareColor;
-    desc.centerSquareMaterial.renderSolid = true;
-    desc.centerSquareMaterial.renderWireframe = false;
     return desc;
 }
 
@@ -97,20 +92,6 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
     ballBody->getRigidBodySettings() = desc.rigidBodySettings;
     object->physicsScene->addBody(std::move(ballBody));
 
-    if (desc.showCenterSquare)
-    {
-        auto squareBody = std::make_unique<BoxBody2D>(
-            desc.centerSquareSizePixels,
-            desc.centerSquareSizePixels,
-            desc.centerSquareStartPosition,
-            desc.centerSquareStartVelocity,
-            desc.centerSquareColor);
-        squareBody->getSurfaceMaterial() = desc.physicsSurfaceMaterial;
-        squareBody->getRigidBodySettings() = desc.rigidBodySettings;
-        squareBody->setCollisionEnabled(false);
-        object->physicsScene->addBody(std::move(squareBody));
-    }
-
     Shape2DIn3DDesc borderDesc;
     borderDesc.kind = Shape2DIn3DKind::Ring;
     borderDesc.name = "PhysicsBorder";
@@ -136,8 +117,7 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
         }
 
         const auto *circle = dynamic_cast<const CircleShape *>(body->getShape());
-        const auto *rect = dynamic_cast<const RectShape *>(body->getShape());
-        if (!circle && !rect)
+        if (!circle)
         {
             continue;
         }
@@ -165,28 +145,7 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
             binding.rotationIndicatorOffset = 0.0f;
             binding.rotationIndicatorScale = Vector3(ballDesc.radius, 1.0f, 1.0f);
         }
-        else if (rect)
-        {
-            Shape2DIn3DDesc squareDesc;
-            squareDesc.kind = Shape2DIn3DKind::Rectangle;
-            squareDesc.name = "CenterSquare";
-            squareDesc.position = Vector2(
-                toWorldPosition(desc, body->getPosition(), desc.planeZ).x,
-                toWorldPosition(desc, body->getPosition(), desc.planeZ).y);
-            squareDesc.planeZ = desc.planeZ + 0.0003f;
-            squareDesc.size = Vector2(
-                rect->getWidth() / desc.simulationScale,
-                rect->getHeight() / desc.simulationScale);
-            squareDesc.color = body->getColor();
-            squareDesc.material = desc.centerSquareMaterial;
-            squareDesc.material.solid.baseColor = body->getColor();
-            squareDesc.material.wireframe.baseColor = body->getColor();
-            binding.entityIndex = object->renderScene->getEntities().size();
-            object->renderScene->createEntity(makeShape2DIn3D(squareDesc));
-            binding.rotationIndicatorOffset = squareDesc.size.x * 0.5f;
-            binding.rotationIndicatorScale = Vector3(squareDesc.size.x * 0.5f, 1.0f, 1.0f);
-        }
-        if (desc.showRotationIndicators && (circle || rect))
+        if (desc.showRotationIndicators && circle)
         {
             Entity3D indicator;
             indicator.name = "RotationIndicator";
@@ -231,6 +190,7 @@ Scene2D &RingObject::getPhysicsScene() { return *physicsScene; }
 const Scene2D &RingObject::getPhysicsScene() const { return *physicsScene; }
 Scene3D &RingObject::getRenderScene() { return *renderScene; }
 const Scene3D &RingObject::getRenderScene() const { return *renderScene; }
+const RingObjectDesc &RingObject::getConfig() const { return config; }
 
 PhysicsBody2D *RingObject::getControlledBody()
 {

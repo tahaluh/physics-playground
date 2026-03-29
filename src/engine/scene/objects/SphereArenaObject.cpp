@@ -1,4 +1,4 @@
-#include "app/objects/SphereArenaObject.h"
+#include "engine/scene/objects/SphereArenaObject.h"
 
 #include <memory>
 

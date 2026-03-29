@@ -2,15 +2,15 @@
 
 #include <vector>
 
-#include "app/objects/ComposedObject3D.h"
-#include "app/objects/RingObject.h"
-#include "app/objects/SphereArenaObject.h"
-#include "app/objects/SphereObject.h"
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 #include "engine/render/3d/Camera3D.h"
 #include "engine/scene/3d/AmbientLight.h"
 #include "engine/scene/3d/DirectionalLight.h"
+#include "engine/scene/objects/ComposedObject3D.h"
+#include "engine/scene/objects/RingObject.h"
+#include "engine/scene/objects/SphereArenaObject.h"
+#include "engine/scene/objects/SphereObject.h"
 #include "engine/scene/3d/PointLight.h"
 #include "engine/scene/3d/SpotLight.h"
 

@@ -1,4 +1,4 @@
-#include "app/objects/ComposedObject3D.h"
+#include "engine/scene/objects/ComposedObject3D.h"
 
 #include <memory>
 #include <utility>

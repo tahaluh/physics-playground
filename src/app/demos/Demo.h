@@ -3,16 +3,16 @@
 #include <memory>
 #include <vector>
 
-#include "app/objects/ComposedObject3D.h"
-#include "app/objects/SphereArenaObject.h"
 #include "engine/core/ApplicationLayer.h"
 #include "engine/graphics/IGraphicsDevice.h"
 #include "engine/physics/2d/PhysicsWorld2D.h"
 #include "engine/physics/3d/PhysicsWorld3D.h"
 #include "engine/render/3d/Camera3D.h"
 #include "engine/scene/3d/Scene3D.h"
-#include "app/objects/RingObject.h"
-#include "app/objects/SphereObject.h"
+#include "engine/scene/objects/ComposedObject3D.h"
+#include "engine/scene/objects/RingObject.h"
+#include "engine/scene/objects/SphereArenaObject.h"
+#include "engine/scene/objects/SphereObject.h"
 
 class Demo : public ApplicationLayer
 {

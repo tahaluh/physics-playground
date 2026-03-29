@@ -1433,7 +1433,43 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        std::vector<const MeshTriangle3D *> sortedTriangles;
+        if (entity.material.solid.isTransparent())
+        {
+            struct TriangleSortItem
+            {
+                const MeshTriangle3D *triangle = nullptr;
+                float distanceSquared = 0.0f;
+            };
+
+            std::vector<TriangleSortItem> triangleItems;
+            triangleItems.reserve(entity.mesh.triangles.size());
+            for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+            {
+                const Vector3 a = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[0]]);
+                const Vector3 b = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[1]]);
+                const Vector3 c = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[2]]);
+                const Vector3 center = (a + b + c) / 3.0f;
+                triangleItems.push_back({&triangle, (center - camera.transform.position).lengthSquared()});
+            }
+
+            std::sort(
+                triangleItems.begin(),
+                triangleItems.end(),
+                [](const TriangleSortItem &a, const TriangleSortItem &b)
+                {
+                    return a.distanceSquared > b.distanceSquared;
+                });
+
+            sortedTriangles.reserve(triangleItems.size());
+            for (const TriangleSortItem &item : triangleItems)
+            {
+                sortedTriangles.push_back(item.triangle);
+            }
+        }
+
+        const auto emitTriangle =
+            [&](const MeshTriangle3D &triangle)
         {
             const uint32_t triangleColor = entity.material.solid.resolveColor(triangle.color);
             const std::array<float, 4> baseColor = colorToFloat4(triangleColor);
@@ -1458,7 +1494,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
             if (!triangleVisible)
             {
-                continue;
+                return;
             }
 
             Vector3 surfaceNormal = (worldVertices[1] - worldVertices[0]).cross(worldVertices[2] - worldVertices[0]).normalized();
@@ -1482,9 +1518,20 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.emissive[1] = emissiveColor[1];
                 vertex.emissive[2] = emissiveColor[2];
                 vertex.emissive[3] = 0.0f;
-                vertex.normal[0] = surfaceNormal.x;
-                vertex.normal[1] = surfaceNormal.y;
-                vertex.normal[2] = surfaceNormal.z;
+                Vector3 finalNormal = surfaceNormal;
+                const int meshVertexIndex = triangle.indices[vertexIndex];
+                if (meshVertexIndex >= 0 && static_cast<size_t>(meshVertexIndex) < entity.mesh.vertexNormals.size())
+                {
+                    finalNormal = modelMatrix.transformVector(entity.mesh.vertexNormals[meshVertexIndex]).normalized();
+                    if (finalNormal.lengthSquared() == 0.0f)
+                    {
+                        finalNormal = surfaceNormal;
+                    }
+                }
+
+                vertex.normal[0] = finalNormal.x;
+                vertex.normal[1] = finalNormal.y;
+                vertex.normal[2] = finalNormal.z;
                 vertex.normal[3] = 0.0f;
                 vertex.worldPosition[0] = worldVertices[vertexIndex].x;
                 vertex.worldPosition[1] = worldVertices[vertexIndex].y;
@@ -1500,6 +1547,20 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.lighting[3] = 0.0f;
                 vertices.push_back(vertex);
             }
+        };
+
+        if (!sortedTriangles.empty())
+        {
+            for (const MeshTriangle3D *triangle : sortedTriangles)
+            {
+                emitTriangle(*triangle);
+            }
+            return;
+        }
+
+        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        {
+            emitTriangle(triangle);
         }
     };
 

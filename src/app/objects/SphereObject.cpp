@@ -26,8 +26,8 @@ SphereObjectDesc SphereObject::makeDefaultDesc()
     desc.borderMaterial.wireframe.opacity = 0.55f;
     desc.borderMaterial.renderSolid = true;
     desc.borderMaterial.renderWireframe = true;
-    desc.borderMaterial.solid.specularStrength = 0.12f;
-    desc.borderMaterial.solid.shininess = 24.0f;
+    desc.borderMaterial.solid.specularStrength = 0.05f;
+    desc.borderMaterial.solid.shininess = 14.0f;
     desc.ballMaterial.solid.color = 0xFFFF9F1C;
     desc.ballMaterial.solid.opacity = 1.0f;
     desc.ballMaterial.solid.emissiveColor = 0x00000000;

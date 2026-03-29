@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
+#include <unordered_map>
 
 #include "engine/render/3d/mesh/Mesh3D.h"
 
@@ -10,13 +12,16 @@ inline Mesh3D makeDisc(float radius, int segments = 48, uint32_t color = 0xFFFFF
 {
     Mesh3D mesh;
     mesh.vertices.reserve(static_cast<size_t>(segments) + 1);
+    mesh.vertexNormals.reserve(static_cast<size_t>(segments) + 1);
     mesh.vertices.push_back(Vector3(0.0f, 0.0f, 0.0f));
+    mesh.vertexNormals.push_back(Vector3(0.0f, 0.0f, 1.0f));
 
     const float step = 2.0f * 3.14159265f / static_cast<float>(segments);
     for (int i = 0; i < segments; ++i)
     {
         const float angle = step * static_cast<float>(i);
         mesh.vertices.push_back(Vector3(std::cos(angle) * radius, std::sin(angle) * radius, 0.0f));
+        mesh.vertexNormals.push_back(Vector3(0.0f, 0.0f, 1.0f));
     }
 
     for (int i = 0; i < segments; ++i)
@@ -34,6 +39,7 @@ inline Mesh3D makeRing(float innerRadius, float outerRadius, int segments = 64, 
 {
     Mesh3D mesh;
     mesh.vertices.reserve(static_cast<size_t>(segments) * 2);
+    mesh.vertexNormals.reserve(static_cast<size_t>(segments) * 2);
 
     const float step = 2.0f * 3.14159265f / static_cast<float>(segments);
     for (int i = 0; i < segments; ++i)
@@ -43,6 +49,8 @@ inline Mesh3D makeRing(float innerRadius, float outerRadius, int segments = 64, 
         const float s = std::sin(angle);
         mesh.vertices.push_back(Vector3(c * outerRadius, s * outerRadius, 0.0f));
         mesh.vertices.push_back(Vector3(c * innerRadius, s * innerRadius, 0.0f));
+        mesh.vertexNormals.push_back(Vector3(0.0f, 0.0f, 1.0f));
+        mesh.vertexNormals.push_back(Vector3(0.0f, 0.0f, 1.0f));
     }
 
     for (int i = 0; i < segments; ++i)
@@ -192,6 +200,7 @@ inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeS
 {
     Mesh3D mesh;
     mesh.vertices.reserve(static_cast<size_t>(latitudeSegments + 1) * static_cast<size_t>(longitudeSegments + 1));
+    mesh.vertexNormals.reserve(static_cast<size_t>(latitudeSegments + 1) * static_cast<size_t>(longitudeSegments + 1));
 
     const float pi = 3.14159265f;
     for (int lat = 0; lat <= latitudeSegments; ++lat)
@@ -209,6 +218,7 @@ inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeS
                 std::cos(theta) * ringRadius,
                 y,
                 std::sin(theta) * ringRadius));
+            mesh.vertexNormals.push_back(mesh.vertices.back().normalized());
         }
     }
 
@@ -226,6 +236,102 @@ inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeS
             mesh.edges.push_back({current, next});
             mesh.triangles.push_back({{current, currentNext, next}, color});
             mesh.triangles.push_back({{currentNext, nextNext, next}, color});
+        }
+    }
+
+    return mesh;
+}
+
+inline Mesh3D makeIcoSphere(float radius, int subdivisions = 2, uint32_t color = 0xFFFFFFFF)
+{
+    Mesh3D mesh;
+
+    const float t = (1.0f + std::sqrt(5.0f)) * 0.5f;
+    mesh.vertices = {
+        Vector3(-1.0f, t, 0.0f), Vector3(1.0f, t, 0.0f), Vector3(-1.0f, -t, 0.0f), Vector3(1.0f, -t, 0.0f),
+        Vector3(0.0f, -1.0f, t), Vector3(0.0f, 1.0f, t), Vector3(0.0f, -1.0f, -t), Vector3(0.0f, 1.0f, -t),
+        Vector3(t, 0.0f, -1.0f), Vector3(t, 0.0f, 1.0f), Vector3(-t, 0.0f, -1.0f), Vector3(-t, 0.0f, 1.0f),
+    };
+
+    for (Vector3 &vertex : mesh.vertices)
+    {
+        vertex = vertex.normalized() * radius;
+    }
+
+    std::vector<MeshTriangle3D> triangles = {
+        {{0, 11, 5}, color}, {{0, 5, 1}, color}, {{0, 1, 7}, color}, {{0, 7, 10}, color}, {{0, 10, 11}, color},
+        {{1, 5, 9}, color}, {{5, 11, 4}, color}, {{11, 10, 2}, color}, {{10, 7, 6}, color}, {{7, 1, 8}, color},
+        {{3, 9, 4}, color}, {{3, 4, 2}, color}, {{3, 2, 6}, color}, {{3, 6, 8}, color}, {{3, 8, 9}, color},
+        {{4, 9, 5}, color}, {{2, 4, 11}, color}, {{6, 2, 10}, color}, {{8, 6, 7}, color}, {{9, 8, 1}, color},
+    };
+
+    const auto midpointKey = [](int a, int b) -> uint64_t
+    {
+        const uint32_t low = static_cast<uint32_t>(std::min(a, b));
+        const uint32_t high = static_cast<uint32_t>(std::max(a, b));
+        return (static_cast<uint64_t>(low) << 32) | static_cast<uint64_t>(high);
+    };
+
+    for (int subdivision = 0; subdivision < subdivisions; ++subdivision)
+    {
+        std::unordered_map<uint64_t, int> midpointCache;
+        std::vector<MeshTriangle3D> subdividedTriangles;
+        subdividedTriangles.reserve(triangles.size() * 4);
+
+        const auto getMidpointIndex = [&](int a, int b) -> int
+        {
+            const uint64_t key = midpointKey(a, b);
+            const auto found = midpointCache.find(key);
+            if (found != midpointCache.end())
+            {
+                return found->second;
+            }
+
+            const Vector3 midpoint = (mesh.vertices[a] + mesh.vertices[b]) * 0.5f;
+            const int index = static_cast<int>(mesh.vertices.size());
+            mesh.vertices.push_back(midpoint.normalized() * radius);
+            midpointCache.emplace(key, index);
+            return index;
+        };
+
+        for (const MeshTriangle3D &triangle : triangles)
+        {
+            const int a = triangle.indices[0];
+            const int b = triangle.indices[1];
+            const int c = triangle.indices[2];
+            const int ab = getMidpointIndex(a, b);
+            const int bc = getMidpointIndex(b, c);
+            const int ca = getMidpointIndex(c, a);
+
+            subdividedTriangles.push_back({{a, ab, ca}, triangle.color});
+            subdividedTriangles.push_back({{b, bc, ab}, triangle.color});
+            subdividedTriangles.push_back({{c, ca, bc}, triangle.color});
+            subdividedTriangles.push_back({{ab, bc, ca}, triangle.color});
+        }
+
+        triangles = std::move(subdividedTriangles);
+    }
+
+    mesh.vertexNormals.reserve(mesh.vertices.size());
+    for (const Vector3 &vertex : mesh.vertices)
+    {
+        mesh.vertexNormals.push_back(vertex.normalized());
+    }
+
+    mesh.triangles = triangles;
+
+    std::unordered_map<uint64_t, bool> uniqueEdges;
+    for (const MeshTriangle3D &triangle : mesh.triangles)
+    {
+        for (int edgeIndex = 0; edgeIndex < 3; ++edgeIndex)
+        {
+            const int start = triangle.indices[edgeIndex];
+            const int end = triangle.indices[(edgeIndex + 1) % 3];
+            const uint64_t key = midpointKey(start, end);
+            if (uniqueEdges.emplace(key, true).second)
+            {
+                mesh.edges.push_back({start, end});
+            }
         }
     }
 

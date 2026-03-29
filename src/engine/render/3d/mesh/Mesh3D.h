@@ -21,6 +21,7 @@ struct MeshTriangle3D
 struct Mesh3D
 {
     std::vector<Vector3> vertices;
+    std::vector<Vector3> vertexNormals;
     std::vector<MeshEdge3D> edges;
     std::vector<MeshTriangle3D> triangles;
 };

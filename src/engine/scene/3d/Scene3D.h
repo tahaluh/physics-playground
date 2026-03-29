@@ -6,6 +6,7 @@
 #include "engine/scene/3d/AmbientLight.h"
 #include "engine/scene/3d/DirectionalLight.h"
 #include "engine/scene/3d/Entity3D.h"
+#include "engine/scene/3d/PointLight.h"
 
 class Scene3D
 {
@@ -21,9 +22,14 @@ public:
     void destroyDirectionalLight(DirectionalLightHandle handle);
     std::vector<DirectionalLight> &getDirectionalLights();
     const std::vector<DirectionalLight> &getDirectionalLights() const;
+    PointLightHandle createPointLight(const PointLightDesc &desc);
+    void destroyPointLight(PointLightHandle handle);
+    std::vector<PointLight> &getPointLights();
+    const std::vector<PointLight> &getPointLights() const;
 
 private:
     std::vector<Entity3D> entities;
     AmbientLight ambientLight;
     std::vector<DirectionalLight> directionalLights;
+    std::vector<PointLight> pointLights;
 };

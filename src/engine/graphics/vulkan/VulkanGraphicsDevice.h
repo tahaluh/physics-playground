@@ -9,10 +9,38 @@
 class VulkanGraphicsDevice : public IGraphicsDevice
 {
 public:
+    static constexpr uint32_t kMaxDirectionalLights = 4;
+    static constexpr uint32_t kMaxPointLights = 8;
+
     struct TriangleVertex
     {
         float position[3];
         float color[4];
+        float emissive[4];
+        float normal[4];
+        float worldPosition[4];
+        float material[4];
+    };
+
+    struct GpuDirectionalLight
+    {
+        float direction[4];
+        float colorIntensity[4];
+    };
+
+    struct GpuPointLight
+    {
+        float positionRange[4];
+        float colorIntensity[4];
+    };
+
+    struct LightingUniform
+    {
+        float ambientColorIntensity[4];
+        float directionalLightMeta[4];
+        GpuDirectionalLight directionalLights[kMaxDirectionalLights];
+        float pointLightMeta[4];
+        GpuPointLight pointLights[kMaxPointLights];
     };
 
     struct BufferHandle
@@ -50,9 +78,11 @@ private:
     bool createImageViews();
     bool createRenderPass();
     bool createDepthResources();
+    bool createLightingResources();
     bool createTrianglePipeline();
     bool createLinePipeline();
     void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
+    void updateLightingUniform(const Scene3D &scene);
     bool uploadSceneVertexBuffers();
     bool createFramebuffers();
     bool createCommandPool();
@@ -111,6 +141,9 @@ private:
     VkImageView depthImageView = VK_NULL_HANDLE;
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkDescriptorSetLayout lightingDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorPool lightingDescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet lightingDescriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
@@ -121,6 +154,7 @@ private:
     BufferHandle opaqueSceneVertexBuffer;
     BufferHandle transparentSceneVertexBuffer;
     BufferHandle lineSceneVertexBuffer;
+    BufferHandle lightingUniformBuffer;
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;
@@ -130,6 +164,7 @@ private:
     std::vector<TriangleVertex> opaqueSceneVertices;
     std::vector<TriangleVertex> transparentSceneVertices;
     std::vector<TriangleVertex> lineSceneVertices;
+    LightingUniform lightingUniform = {};
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

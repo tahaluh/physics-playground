@@ -158,60 +158,14 @@ std::array<float, 4> colorToFloat4(uint32_t argb)
     return {r, g, b, a};
 }
 
-std::array<float, 4> applyAmbientLighting(
-    uint32_t baseColor,
-    uint32_t emissiveColor,
-    float ambientFactor,
-    uint32_t ambientLightColor,
-    float ambientLightIntensity)
+Vector3 safeNormalized(const Vector3 &value, const Vector3 &fallback)
 {
-    const std::array<float, 4> base = colorToFloat4(baseColor);
-    const std::array<float, 4> emissive = colorToFloat4(emissiveColor);
-    const std::array<float, 4> ambient = colorToFloat4(ambientLightColor);
-    const float clampedAmbientFactor = std::clamp(ambientFactor, 0.0f, 1.0f);
-    const float clampedAmbientIntensity = std::max(ambientLightIntensity, 0.0f);
-
-    std::array<float, 4> result{};
-    result[0] = std::clamp(base[0] * ambient[0] * clampedAmbientFactor * clampedAmbientIntensity + emissive[0], 0.0f, 1.0f);
-    result[1] = std::clamp(base[1] * ambient[1] * clampedAmbientFactor * clampedAmbientIntensity + emissive[1], 0.0f, 1.0f);
-    result[2] = std::clamp(base[2] * ambient[2] * clampedAmbientFactor * clampedAmbientIntensity + emissive[2], 0.0f, 1.0f);
-    result[3] = base[3];
-    return result;
-}
-
-std::array<float, 4> applyDirectionalLighting(
-    const std::array<float, 4> &litColor,
-    const std::vector<DirectionalLight> &directionalLights,
-    const Vector3 &surfaceNormal,
-    float diffuseFactor)
-{
-    const float clampedDiffuseFactor = std::clamp(diffuseFactor, 0.0f, 1.0f);
-    std::array<float, 4> result = litColor;
-
-    for (const DirectionalLight &light : directionalLights)
+    if (value.lengthSquared() == 0.0f)
     {
-        if (!light.enabled || light.intensity <= 0.0f)
-        {
-            continue;
-        }
-
-        const Vector3 lightDirection = light.direction.lengthSquared() > 0.0f
-                                           ? light.direction.normalized()
-                                           : Vector3(0.0f, -1.0f, 0.0f);
-        const float ndotl = std::max(0.0f, surfaceNormal.dot(lightDirection * -1.0f));
-        if (ndotl <= 0.0f)
-        {
-            continue;
-        }
-
-        const std::array<float, 4> lightColor = colorToFloat4(light.color);
-        const float contribution = ndotl * light.intensity * clampedDiffuseFactor;
-        result[0] = std::clamp(result[0] + litColor[0] * lightColor[0] * contribution, 0.0f, 1.0f);
-        result[1] = std::clamp(result[1] + litColor[1] * lightColor[1] * contribution, 0.0f, 1.0f);
-        result[2] = std::clamp(result[2] + litColor[2] * lightColor[2] * contribution, 0.0f, 1.0f);
+        return fallback;
     }
 
-    return result;
+    return value.normalized();
 }
 }
 
@@ -251,6 +205,8 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
     if (!createRenderPass())
         return false;
     if (!createDepthResources())
+        return false;
+    if (!createLightingResources())
         return false;
     if (!createFramebuffers())
         return false;
@@ -334,6 +290,8 @@ void VulkanGraphicsDevice::beginFrame(uint32_t clearColor)
     opaqueSceneVertexCount = 0;
     transparentSceneVertexCount = 0;
     lineSceneVertexCount = 0;
+    lightingUniform = {};
+    lightingUniform.ambientColorIntensity[3] = 0.0f;
     frameBegun = true;
     commandBufferRecorded = false;
 }
@@ -345,6 +303,7 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
+    updateLightingUniform(scene);
     appendSceneVertices(camera, scene);
 }
 
@@ -355,6 +314,16 @@ void VulkanGraphicsDevice::endFrame()
 
     if (!commandBufferRecorded)
     {
+        if (lightingUniformBuffer.buffer)
+        {
+            void *lightingData = nullptr;
+            if (vkMapMemory(device, lightingUniformBuffer.memory, 0, sizeof(LightingUniform), 0, &lightingData) == VK_SUCCESS)
+            {
+                std::memcpy(lightingData, &lightingUniform, sizeof(LightingUniform));
+                vkUnmapMemory(device, lightingUniformBuffer.memory);
+            }
+        }
+
         if (!uploadSceneVertexBuffers())
         {
             return;
@@ -714,6 +683,73 @@ bool VulkanGraphicsDevice::createDepthResources()
     return vkCreateImageView(device, &viewInfo, nullptr, &depthImageView) == VK_SUCCESS;
 }
 
+bool VulkanGraphicsDevice::createLightingResources()
+{
+    VkDescriptorSetLayoutBinding lightingBinding{};
+    lightingBinding.binding = 0;
+    lightingBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    lightingBinding.descriptorCount = 1;
+    lightingBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &lightingBinding;
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &lightingDescriptorSetLayout) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    if (!createBuffer(
+            sizeof(LightingUniform),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            lightingUniformBuffer))
+    {
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+    if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &lightingDescriptorPool) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = lightingDescriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &lightingDescriptorSetLayout;
+    if (vkAllocateDescriptorSets(device, &allocInfo, &lightingDescriptorSet) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = lightingUniformBuffer.buffer;
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(LightingUniform);
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = lightingDescriptorSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &bufferInfo;
+    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+
+    return true;
+}
+
 bool VulkanGraphicsDevice::createTrianglePipeline()
 {
     const std::vector<char> vertexShaderCode = readFirstExistingBinary({
@@ -760,7 +796,7 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     bindingDescription.stride = sizeof(TriangleVertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 6> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -769,6 +805,22 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(TriangleVertex, color);
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(TriangleVertex, emissive);
+    attributeDescriptions[3].binding = 0;
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[3].offset = offsetof(TriangleVertex, normal);
+    attributeDescriptions[4].binding = 0;
+    attributeDescriptions[4].location = 4;
+    attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[4].offset = offsetof(TriangleVertex, worldPosition);
+    attributeDescriptions[5].binding = 0;
+    attributeDescriptions[5].location = 5;
+    attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[5].offset = offsetof(TriangleVertex, material);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -811,6 +863,8 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &lightingDescriptorSetLayout;
 
     if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &trianglePipelineLayout) != VK_SUCCESS)
     {
@@ -924,7 +978,7 @@ bool VulkanGraphicsDevice::createLinePipeline()
     bindingDescription.stride = sizeof(TriangleVertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 6> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -933,6 +987,22 @@ bool VulkanGraphicsDevice::createLinePipeline()
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[1].offset = offsetof(TriangleVertex, color);
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(TriangleVertex, emissive);
+    attributeDescriptions[3].binding = 0;
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[3].offset = offsetof(TriangleVertex, normal);
+    attributeDescriptions[4].binding = 0;
+    attributeDescriptions[4].location = 4;
+    attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[4].offset = offsetof(TriangleVertex, worldPosition);
+    attributeDescriptions[5].binding = 0;
+    attributeDescriptions[5].location = 5;
+    attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[5].offset = offsetof(TriangleVertex, material);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1003,6 +1073,8 @@ bool VulkanGraphicsDevice::createLinePipeline()
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &lightingDescriptorSetLayout;
 
     if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &linePipelineLayout) != VK_SUCCESS)
     {
@@ -1031,6 +1103,88 @@ bool VulkanGraphicsDevice::createLinePipeline()
     vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
     vkDestroyShaderModule(device, vertexShaderModule, nullptr);
     return success;
+}
+
+void VulkanGraphicsDevice::updateLightingUniform(const Scene3D &scene)
+{
+    const std::array<float, 4> ambientColor = colorToFloat4(scene.getAmbientLight().color);
+    lightingUniform.ambientColorIntensity[0] = ambientColor[0];
+    lightingUniform.ambientColorIntensity[1] = ambientColor[1];
+    lightingUniform.ambientColorIntensity[2] = ambientColor[2];
+    lightingUniform.ambientColorIntensity[3] = std::max(scene.getAmbientLight().intensity, 0.0f);
+
+    uint32_t directionalLightCount = 0;
+    for (const DirectionalLight &light : scene.getDirectionalLights())
+    {
+        if (!light.enabled || light.intensity <= 0.0f)
+        {
+            continue;
+        }
+
+        if (directionalLightCount >= kMaxDirectionalLights)
+        {
+            break;
+        }
+
+        const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
+        const std::array<float, 4> lightColor = colorToFloat4(light.color);
+        GpuDirectionalLight &gpuLight = lightingUniform.directionalLights[directionalLightCount];
+        gpuLight.direction[0] = lightDirection.x;
+        gpuLight.direction[1] = lightDirection.y;
+        gpuLight.direction[2] = lightDirection.z;
+        gpuLight.direction[3] = 0.0f;
+        gpuLight.colorIntensity[0] = lightColor[0];
+        gpuLight.colorIntensity[1] = lightColor[1];
+        gpuLight.colorIntensity[2] = lightColor[2];
+        gpuLight.colorIntensity[3] = std::max(light.intensity, 0.0f);
+        ++directionalLightCount;
+    }
+
+    for (uint32_t i = directionalLightCount; i < kMaxDirectionalLights; ++i)
+    {
+        std::memset(&lightingUniform.directionalLights[i], 0, sizeof(GpuDirectionalLight));
+    }
+
+    lightingUniform.directionalLightMeta[0] = static_cast<float>(directionalLightCount);
+    lightingUniform.directionalLightMeta[1] = 0.0f;
+    lightingUniform.directionalLightMeta[2] = 0.0f;
+    lightingUniform.directionalLightMeta[3] = 0.0f;
+
+    uint32_t pointLightCount = 0;
+    for (const PointLight &light : scene.getPointLights())
+    {
+        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
+        {
+            continue;
+        }
+
+        if (pointLightCount >= kMaxPointLights)
+        {
+            break;
+        }
+
+        const std::array<float, 4> lightColor = colorToFloat4(light.color);
+        GpuPointLight &gpuLight = lightingUniform.pointLights[pointLightCount];
+        gpuLight.positionRange[0] = light.position.x;
+        gpuLight.positionRange[1] = light.position.y;
+        gpuLight.positionRange[2] = light.position.z;
+        gpuLight.positionRange[3] = light.range;
+        gpuLight.colorIntensity[0] = lightColor[0];
+        gpuLight.colorIntensity[1] = lightColor[1];
+        gpuLight.colorIntensity[2] = lightColor[2];
+        gpuLight.colorIntensity[3] = light.intensity;
+        ++pointLightCount;
+    }
+
+    for (uint32_t i = pointLightCount; i < kMaxPointLights; ++i)
+    {
+        std::memset(&lightingUniform.pointLights[i], 0, sizeof(GpuPointLight));
+    }
+
+    lightingUniform.pointLightMeta[0] = static_cast<float>(pointLightCount);
+    lightingUniform.pointLightMeta[1] = 0.0f;
+    lightingUniform.pointLightMeta[2] = 0.0f;
+    lightingUniform.pointLightMeta[3] = 0.0f;
 }
 
 void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Scene3D &scene)
@@ -1079,11 +1233,11 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        const AmbientLight &ambientLight = scene.getAmbientLight();
-        const auto &directionalLights = scene.getDirectionalLights();
         for (const MeshTriangle3D &triangle : entity.mesh.triangles)
         {
             const uint32_t triangleColor = entity.material.solid.resolveColor(triangle.color);
+            const std::array<float, 4> baseColor = colorToFloat4(triangleColor);
+            const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
             bool triangleVisible = true;
             std::array<Vector3, 3> worldVertices{};
             std::array<Vector3, 3> ndcVertices{};
@@ -1113,24 +1267,33 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 surfaceNormal = Vector3::up();
             }
 
-            std::array<float, 4> rgba = applyAmbientLighting(
-                triangleColor,
-                entity.material.solid.resolveEmissiveColor(),
-                entity.material.solid.ambientFactor,
-                ambientLight.color,
-                ambientLight.intensity);
-            rgba = applyDirectionalLighting(rgba, directionalLights, surfaceNormal, entity.material.solid.diffuseFactor);
-
-            for (const Vector3 &ndcPosition : ndcVertices)
+            for (size_t vertexIndex = 0; vertexIndex < ndcVertices.size(); ++vertexIndex)
             {
+                const Vector3 &ndcPosition = ndcVertices[vertexIndex];
                 TriangleVertex vertex{};
                 vertex.position[0] = ndcPosition.x;
                 vertex.position[1] = ndcPosition.y;
                 vertex.position[2] = ndcPosition.z;
-                vertex.color[0] = rgba[0];
-                vertex.color[1] = rgba[1];
-                vertex.color[2] = rgba[2];
-                vertex.color[3] = rgba[3];
+                vertex.color[0] = baseColor[0];
+                vertex.color[1] = baseColor[1];
+                vertex.color[2] = baseColor[2];
+                vertex.color[3] = baseColor[3];
+                vertex.emissive[0] = emissiveColor[0];
+                vertex.emissive[1] = emissiveColor[1];
+                vertex.emissive[2] = emissiveColor[2];
+                vertex.emissive[3] = 0.0f;
+                vertex.normal[0] = surfaceNormal.x;
+                vertex.normal[1] = surfaceNormal.y;
+                vertex.normal[2] = surfaceNormal.z;
+                vertex.normal[3] = 0.0f;
+                vertex.worldPosition[0] = worldVertices[vertexIndex].x;
+                vertex.worldPosition[1] = worldVertices[vertexIndex].y;
+                vertex.worldPosition[2] = worldVertices[vertexIndex].z;
+                vertex.worldPosition[3] = 1.0f;
+                vertex.material[0] = Vector3::clamp(entity.material.solid.ambientFactor, 0.0f, 1.0f);
+                vertex.material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
+                vertex.material[2] = 0.0f;
+                vertex.material[3] = 0.0f;
                 vertices.push_back(vertex);
             }
         }
@@ -1153,14 +1316,9 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        const AmbientLight &ambientLight = scene.getAmbientLight();
         const uint32_t lineColor = entity.material.wireframe.resolveColor();
-        const std::array<float, 4> rgba = applyAmbientLighting(
-            lineColor,
-            entity.material.wireframe.resolveEmissiveColor(),
-            entity.material.wireframe.ambientFactor,
-            ambientLight.color,
-            ambientLight.intensity);
+        const std::array<float, 4> rgba = colorToFloat4(lineColor);
+        const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.wireframe.resolveEmissiveColor());
 
         for (const MeshEdge3D &edge : entity.mesh.edges)
         {
@@ -1196,6 +1354,22 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.color[1] = rgba[1];
                 vertex.color[2] = rgba[2];
                 vertex.color[3] = rgba[3];
+                vertex.emissive[0] = emissiveColor[0];
+                vertex.emissive[1] = emissiveColor[1];
+                vertex.emissive[2] = emissiveColor[2];
+                vertex.emissive[3] = 0.0f;
+                vertex.normal[0] = 0.0f;
+                vertex.normal[1] = 0.0f;
+                vertex.normal[2] = 0.0f;
+                vertex.normal[3] = 0.0f;
+                vertex.worldPosition[0] = 0.0f;
+                vertex.worldPosition[1] = 0.0f;
+                vertex.worldPosition[2] = 0.0f;
+                vertex.worldPosition[3] = 1.0f;
+                vertex.material[0] = Vector3::clamp(entity.material.wireframe.ambientFactor, 0.0f, 1.0f);
+                vertex.material[1] = 0.0f;
+                vertex.material[2] = 0.0f;
+                vertex.material[3] = 0.0f;
                 lineVertices.push_back(vertex);
             }
         }
@@ -1441,6 +1615,14 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, lineSceneVertexBuffer.memory, nullptr);
         }
+        if (lightingUniformBuffer.buffer)
+        {
+            vkDestroyBuffer(device, lightingUniformBuffer.buffer, nullptr);
+        }
+        if (lightingUniformBuffer.memory)
+        {
+            vkFreeMemory(device, lightingUniformBuffer.memory, nullptr);
+        }
         if (opaqueTrianglePipeline)
         {
             vkDestroyPipeline(device, opaqueTrianglePipeline, nullptr);
@@ -1460,6 +1642,14 @@ void VulkanGraphicsDevice::destroyDevice()
         if (linePipelineLayout)
         {
             vkDestroyPipelineLayout(device, linePipelineLayout, nullptr);
+        }
+        if (lightingDescriptorPool)
+        {
+            vkDestroyDescriptorPool(device, lightingDescriptorPool, nullptr);
+        }
+        if (lightingDescriptorSetLayout)
+        {
+            vkDestroyDescriptorSetLayout(device, lightingDescriptorSetLayout, nullptr);
         }
         if (renderPass)
         {
@@ -1531,18 +1721,30 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
         if (opaqueTrianglePipeline && opaqueSceneVertexBuffer.buffer && opaqueSceneVertexCount > 0)
         {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueTrianglePipeline);
+            if (lightingDescriptorSet)
+            {
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);
+            }
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, &opaqueSceneVertexBuffer.buffer, offsets);
             vkCmdDraw(commandBuffer, opaqueSceneVertexCount, 1, 0, 0);
         }
         if (transparentTrianglePipeline && transparentSceneVertexBuffer.buffer && transparentSceneVertexCount > 0)
         {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentTrianglePipeline);
+            if (lightingDescriptorSet)
+            {
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);
+            }
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, &transparentSceneVertexBuffer.buffer, offsets);
             vkCmdDraw(commandBuffer, transparentSceneVertexCount, 1, 0, 0);
         }
         if (linePipeline && lineSceneVertexBuffer.buffer && lineSceneVertexCount > 0)
         {
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline);
+            if (lightingDescriptorSet)
+            {
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);
+            }
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, &lineSceneVertexBuffer.buffer, offsets);
             vkCmdDraw(commandBuffer, lineSceneVertexCount, 1, 0, 0);
         }

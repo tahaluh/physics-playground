@@ -60,6 +60,15 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
         Vector3(-0.4f, -1.0f, -0.25f),
         0xFFFFFFFF,
         0.55f});
+    combinedScene->createDirectionalLight({
+        Vector3(0.45f, -0.35f, 0.8f),
+        0xFF9FD3FF,
+        0.18f});
+    combinedScene->createPointLight({
+        kSphereWorldOffset + Vector3(0.0f, 0.5f, 0.0f),
+        0xFFFFD6A5,
+        0.75f,
+        8.0f});
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }
@@ -149,12 +158,10 @@ void Demo::rebuildCombinedScene()
     if (sphereObject)
     {
         combinedScene->getAmbientLight() = sphereObject->getRenderScene().getAmbientLight();
-        combinedScene->getDirectionalLights() = sphereObject->getRenderScene().getDirectionalLights();
     }
     else if (ringObject)
     {
         combinedScene->getAmbientLight() = ringObject->getRenderScene().getAmbientLight();
-        combinedScene->getDirectionalLights() = ringObject->getRenderScene().getDirectionalLights();
     }
 
     if (ringObject)

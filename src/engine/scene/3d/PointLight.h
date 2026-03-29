@@ -5,22 +5,24 @@
 
 #include "engine/math/Vector3.h"
 
-struct DirectionalLightDesc
+struct PointLightDesc
 {
-    Vector3 direction = Vector3(-0.3f, -1.0f, -0.2f).normalized();
+    Vector3 position = Vector3::zero();
     uint32_t color = 0xFFFFFFFF;
     float intensity = 1.0f;
+    float range = 12.0f;
 };
 
-struct DirectionalLight
+struct PointLight
 {
-    Vector3 direction = Vector3(-0.3f, -1.0f, -0.2f).normalized();
+    Vector3 position = Vector3::zero();
     uint32_t color = 0xFFFFFFFF;
     float intensity = 1.0f;
+    float range = 12.0f;
     bool enabled = true;
 };
 
-struct DirectionalLightHandle
+struct PointLightHandle
 {
     std::size_t id = static_cast<std::size_t>(-1);
 

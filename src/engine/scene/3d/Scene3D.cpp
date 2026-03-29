@@ -66,3 +66,35 @@ const std::vector<DirectionalLight> &Scene3D::getDirectionalLights() const
 {
     return directionalLights;
 }
+
+PointLightHandle Scene3D::createPointLight(const PointLightDesc &desc)
+{
+    PointLight light;
+    light.position = desc.position;
+    light.color = desc.color;
+    light.intensity = desc.intensity;
+    light.range = desc.range > 0.0f ? desc.range : 0.001f;
+    pointLights.push_back(light);
+    return PointLightHandle{pointLights.size() - 1};
+}
+
+void Scene3D::destroyPointLight(PointLightHandle handle)
+{
+    if (!handle.isValid() || handle.id >= pointLights.size())
+    {
+        return;
+    }
+
+    pointLights[handle.id].enabled = false;
+    pointLights[handle.id].intensity = 0.0f;
+}
+
+std::vector<PointLight> &Scene3D::getPointLights()
+{
+    return pointLights;
+}
+
+const std::vector<PointLight> &Scene3D::getPointLights() const
+{
+    return pointLights;
+}

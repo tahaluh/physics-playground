@@ -65,6 +65,8 @@ public:
 
     uint32_t getColor() const { return color; }
     void setColor(uint32_t newColor) { color = newColor; }
+    bool isCollisionEnabled() const { return collisionEnabled; }
+    void setCollisionEnabled(bool enabled) { collisionEnabled = enabled; }
 
     virtual bool isStatic() const
     {
@@ -136,4 +138,5 @@ private:
     float momentOfInertia = 0.0f;
     float inverseMomentOfInertia = 0.0f;
     uint32_t color = 0xFFFFFFFF; // cor padrão: branco
+    bool collisionEnabled = true;
 };

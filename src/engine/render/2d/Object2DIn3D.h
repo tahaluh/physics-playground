@@ -9,7 +9,8 @@
 enum class Shape2DIn3DKind
 {
     Disc,
-    Ring
+    Ring,
+    Rectangle
 };
 
 struct Shape2DIn3DDesc
@@ -21,6 +22,7 @@ struct Shape2DIn3DDesc
     float planeZ = 0.0f;
     float radius = 1.0f;
     float innerRadius = 0.5f;
+    Vector2 size = Vector2(1.0f, 1.0f);
     int segments = 48;
     uint32_t color = 0xFFFFFFFF;
     Material3D material = Material3D{};
@@ -38,6 +40,26 @@ inline Entity3D makeShape2DIn3D(const Shape2DIn3DDesc &desc)
 
     switch (desc.kind)
     {
+    case Shape2DIn3DKind::Rectangle:
+        entity.mesh.vertices = {
+            Vector3(-desc.size.x * 0.5f, -desc.size.y * 0.5f, 0.0f),
+            Vector3(desc.size.x * 0.5f, -desc.size.y * 0.5f, 0.0f),
+            Vector3(desc.size.x * 0.5f, desc.size.y * 0.5f, 0.0f),
+            Vector3(-desc.size.x * 0.5f, desc.size.y * 0.5f, 0.0f)};
+        entity.mesh.vertexNormals = {
+            Vector3(0.0f, 0.0f, 1.0f),
+            Vector3(0.0f, 0.0f, 1.0f),
+            Vector3(0.0f, 0.0f, 1.0f),
+            Vector3(0.0f, 0.0f, 1.0f)};
+        entity.mesh.edges = {
+            {0, 1},
+            {1, 2},
+            {2, 3},
+            {3, 0}};
+        entity.mesh.triangles = {
+            {{0, 1, 2}, desc.color},
+            {{0, 2, 3}, desc.color}};
+        break;
     case Shape2DIn3DKind::Ring:
         entity.mesh = MeshFactory3D::makeRing(desc.innerRadius, desc.radius, desc.segments, desc.color);
         break;

@@ -215,7 +215,7 @@ void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds
         {
             Shape *shapeA = bodies[i]->getShape();
             Shape *shapeB = bodies[j]->getShape();
-            if (!shapeA || !shapeB)
+            if (!shapeA || !shapeB || !bodies[i]->isCollisionEnabled() || !bodies[j]->isCollisionEnabled())
                 continue;
 
             if (!shapeA->collidesWith(*shapeB, bodies[i]->getPosition(), bodies[j]->getPosition()))

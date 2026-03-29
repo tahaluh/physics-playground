@@ -27,6 +27,10 @@ RingObjectDesc makeRingObjectDesc()
     desc.borderRadiusPixels = 200.0f;
     desc.borderThicknessPixels = 12.0f;
     desc.ballRadiusPixels = 10.0f;
+    desc.showCenterSquare = true;
+    desc.centerSquareStartPosition = desc.center;
+    desc.centerSquareStartVelocity = Vector2::zero();
+    desc.centerSquareSizePixels = 44.0f;
     desc.ballOutlineThicknessWorld = 0.02f;
     desc.planeThicknessWorld = 0.04f;
     desc.planeZ = 0.0f;
@@ -34,6 +38,7 @@ RingObjectDesc makeRingObjectDesc()
     desc.ballSegments = 48;
     desc.borderColor = 0xFFFFFFFF;
     desc.ballColor = 0xFFFFFFFF;
+    desc.centerSquareColor = 0xFFFF8A5B;
     desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
     desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
     desc.borderMaterial.solid.baseColor = desc.borderColor;
@@ -44,6 +49,10 @@ RingObjectDesc makeRingObjectDesc()
     desc.ballMaterial.wireframe.baseColor = desc.ballColor;
     desc.ballMaterial.renderSolid = true;
     desc.ballMaterial.renderWireframe = false;
+    desc.centerSquareMaterial.solid.baseColor = desc.centerSquareColor;
+    desc.centerSquareMaterial.wireframe.baseColor = desc.centerSquareColor;
+    desc.centerSquareMaterial.renderSolid = true;
+    desc.centerSquareMaterial.renderWireframe = false;
     return desc;
 }
 

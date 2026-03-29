@@ -51,7 +51,8 @@ void applyFrictionImpulse3D(
     PhysicsBody3D &bodyB,
     const Vector3 &normal,
     const Vector3 &contactOffsetA,
-    const Vector3 &contactOffsetB)
+    const Vector3 &contactOffsetB,
+    float staticFrictionScale = 1.0f)
 {
     const Vector3 contactVelocityA = bodyA.getVelocity() + bodyA.getAngularVelocity().cross(contactOffsetA);
     const Vector3 contactVelocityB = bodyB.getVelocity() + bodyB.getAngularVelocity().cross(contactOffsetB);
@@ -86,8 +87,20 @@ void applyFrictionImpulse3D(
         return;
     }
 
-    const float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
+    const float staticFrictionSpeedThreshold = 0.12f * staticFrictionScale;
+    float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
+    if (tangentialSpeed < staticFrictionSpeedThreshold)
+    {
+        impulseMagnitude = -(tangentialSpeed / denominator);
+    }
     const Vector3 impulse = tangent * impulseMagnitude;
+    if (impulse.lengthSquared() <= 0.0f)
+    {
+        return;
+    }
+
+    bodyA.wakeUp();
+    bodyB.wakeUp();
     bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
     bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
     bodyA.setAngularVelocity(bodyA.getAngularVelocity() - contactOffsetA.cross(impulse) * bodyA.getInverseMomentOfInertia());
@@ -113,7 +126,7 @@ void steerSphereTowardRolling(PhysicsBody3D &body, const SphereShape3D &sphere, 
     body.setAngularVelocity(body.getAngularVelocity() * (1.0f - blend) + desiredAngularVelocity * blend);
 }
 
-void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sphere, PhysicsBody3D &boxBody, const BoxCollider3D &box)
+void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sphere, PhysicsBody3D &boxBody, const BoxCollider3D &box, float restitutionThreshold)
 {
     const Vector3 closestPoint = getClosestPointOnBox(boxBody, box, sphereBody.getPosition());
     Vector3 normal = closestPoint - sphereBody.getPosition();
@@ -160,7 +173,11 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
         return;
     }
 
-    const float restitution = (sphereBody.getSurfaceMaterial().restitution + boxBody.getSurfaceMaterial().restitution) * 0.5f;
+    float restitution = (sphereBody.getSurfaceMaterial().restitution + boxBody.getSurfaceMaterial().restitution) * 0.5f;
+    if (-normalSpeed < restitutionThreshold)
+    {
+        restitution = 0.0f;
+    }
     const Vector3 radiusCrossNormalSphere = contactOffsetSphere.cross(normal);
     const Vector3 radiusCrossNormalBox = contactOffsetBox.cross(normal);
     const float denominator =
@@ -174,6 +191,11 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
 
     const float impulseMagnitude = -(1.0f + restitution) * normalSpeed / denominator;
     const Vector3 impulse = normal * impulseMagnitude;
+    if (impulse.lengthSquared() > 0.0f)
+    {
+        sphereBody.wakeUp();
+        boxBody.wakeUp();
+    }
     sphereBody.setVelocity(sphereBody.getVelocity() - impulse * sphereBody.getInverseMass());
     boxBody.setVelocity(boxBody.getVelocity() + impulse * boxBody.getInverseMass());
     sphereBody.setAngularVelocity(sphereBody.getAngularVelocity() - contactOffsetSphere.cross(impulse) * sphereBody.getInverseMomentOfInertia());
@@ -181,10 +203,10 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
         boxBody.getAngularVelocity() +
         contactOffsetBox.cross(impulse) * boxBody.getInverseMomentOfInertia() * kBoxAngularImpulseScale);
 
-    applyFrictionImpulse3D(sphereBody, boxBody, normal, contactOffsetSphere, contactOffsetBox);
+    applyFrictionImpulse3D(sphereBody, boxBody, normal, contactOffsetSphere, contactOffsetBox, 1.0f);
 }
 
-void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene)
+void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitutionThreshold)
 {
     auto &bodies = scene.getBodies();
     for (std::size_t i = 0; i < bodies.size(); ++i)
@@ -247,7 +269,11 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene)
                 continue;
             }
 
-            const float restitution = (bodyA->getSurfaceMaterial().restitution + bodyB->getSurfaceMaterial().restitution) * 0.5f;
+            float restitution = (bodyA->getSurfaceMaterial().restitution + bodyB->getSurfaceMaterial().restitution) * 0.5f;
+            if (-normalSpeed < restitutionThreshold)
+            {
+                restitution = 0.0f;
+            }
             const Vector3 radiusCrossNormalA = contactOffsetA.cross(normal);
             const Vector3 radiusCrossNormalB = contactOffsetB.cross(normal);
             const float denominator =
@@ -261,17 +287,22 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene)
 
             const float impulseMagnitude = -(1.0f + restitution) * normalSpeed / denominator;
             const Vector3 impulse = normal * impulseMagnitude;
+            if (impulse.lengthSquared() > 0.0f)
+            {
+                bodyA->wakeUp();
+                bodyB->wakeUp();
+            }
             bodyA->setVelocity(bodyA->getVelocity() - impulse * bodyA->getInverseMass());
             bodyB->setVelocity(bodyB->getVelocity() + impulse * bodyB->getInverseMass());
             bodyA->setAngularVelocity(bodyA->getAngularVelocity() - contactOffsetA.cross(impulse) * bodyA->getInverseMomentOfInertia());
             bodyB->setAngularVelocity(bodyB->getAngularVelocity() + contactOffsetB.cross(impulse) * bodyB->getInverseMomentOfInertia());
 
-            applyFrictionImpulse3D(*bodyA, *bodyB, normal, contactOffsetA, contactOffsetB);
+            applyFrictionImpulse3D(*bodyA, *bodyB, normal, contactOffsetA, contactOffsetB, 1.0f);
         }
     }
 }
 
-void solveDynamicSphereBoxCollisions(PhysicsScene3D &scene)
+void solveDynamicSphereBoxCollisions(PhysicsScene3D &scene, float restitutionThreshold)
 {
     auto &bodies = scene.getBodies();
     for (std::size_t i = 0; i < bodies.size(); ++i)
@@ -297,11 +328,11 @@ void solveDynamicSphereBoxCollisions(PhysicsScene3D &scene)
 
             if (sphereA && boxB)
             {
-                solveSphereBoxCollision(*bodyA, *sphereA, *bodyB, *boxB);
+                solveSphereBoxCollision(*bodyA, *sphereA, *bodyB, *boxB, restitutionThreshold);
             }
             else if (boxA && sphereB)
             {
-                solveSphereBoxCollision(*bodyB, *sphereB, *bodyA, *boxA);
+                solveSphereBoxCollision(*bodyB, *sphereB, *bodyA, *boxA, restitutionThreshold);
             }
         }
     }
@@ -338,13 +369,34 @@ float PhysicsWorld3D::getAngularStopThreshold() const
     return angularStopThreshold;
 }
 
+void PhysicsWorld3D::setRestitutionThreshold(float newRestitutionThreshold)
+{
+    restitutionThreshold = newRestitutionThreshold;
+}
+
+float PhysicsWorld3D::getRestitutionThreshold() const
+{
+    return restitutionThreshold;
+}
+
+void PhysicsWorld3D::setSleepDelay(float newSleepDelay)
+{
+    sleepDelay = newSleepDelay;
+}
+
+float PhysicsWorld3D::getSleepDelay() const
+{
+    return sleepDelay;
+}
+
 void PhysicsWorld3D::step(PhysicsScene3D &scene, float dt) const
 {
     applyGlobalForces(scene);
     integrateBodies(scene, dt);
-    solveDynamicSphereSphereCollisions(scene);
-    solveDynamicSphereBoxCollisions(scene);
+    solveDynamicSphereSphereCollisions(scene, restitutionThreshold);
+    solveDynamicSphereBoxCollisions(scene, restitutionThreshold);
     solveBoundaryCollisions(scene);
+    updateSleeping(scene, dt);
 }
 
 void PhysicsWorld3D::applyGlobalForces(PhysicsScene3D &scene) const
@@ -352,6 +404,11 @@ void PhysicsWorld3D::applyGlobalForces(PhysicsScene3D &scene) const
     for (auto &body : scene.getBodies())
     {
         if (body->isStatic() || !body->getRigidBodySettings().useGravity)
+        {
+            continue;
+        }
+
+        if (body->isSleeping())
         {
             continue;
         }
@@ -439,7 +496,12 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             const float outwardSpeed = contactVelocity.dot(normal);
             if (outwardSpeed > 0.0f)
             {
-                const float restitution = dynamicCandidate->getSurfaceMaterial().restitution;
+                float restitution = dynamicCandidate->getSurfaceMaterial().restitution;
+                if (outwardSpeed < restitutionThreshold)
+                {
+                    restitution = 0.0f;
+                }
+                dynamicCandidate->wakeUp();
                 dynamicCandidate->setVelocity(
                     dynamicCandidate->getVelocity() - normal * ((1.0f + restitution) * outwardSpeed));
             }
@@ -460,6 +522,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
                 {
                     const float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
                     const Vector3 impulse = tangent * impulseMagnitude;
+                    dynamicCandidate->wakeUp();
                     dynamicCandidate->setVelocity(
                         dynamicCandidate->getVelocity() + impulse * dynamicCandidate->getInverseMass());
                     const float angularScale = dynamicBox ? kBoxAngularImpulseScale : 1.0f;
@@ -482,6 +545,38 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
                 dynamicCandidate->setAngularVelocity(Vector3::zero());
             }
 
+        }
+    }
+}
+
+void PhysicsWorld3D::updateSleeping(PhysicsScene3D &scene, float dt) const
+{
+    if (sleepDelay <= 0.0f)
+    {
+        return;
+    }
+
+    for (auto &body : scene.getBodies())
+    {
+        if (!body || body->isStatic())
+        {
+            continue;
+        }
+
+        const bool lowLinear = stopThreshold > 0.0f && body->getVelocity().length() < stopThreshold;
+        const bool lowAngular = angularStopThreshold > 0.0f && body->getAngularVelocity().length() < angularStopThreshold;
+        if (lowLinear && lowAngular)
+        {
+            body->setSleepTime(body->getSleepTime() + dt);
+            if (body->getSleepTime() >= sleepDelay)
+            {
+                body->setSleeping(true);
+            }
+        }
+        else
+        {
+            body->setSleepTime(0.0f);
+            body->setSleeping(false);
         }
     }
 }

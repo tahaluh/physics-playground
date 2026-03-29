@@ -76,6 +76,25 @@ public:
     void setAngularVelocity(const Vector3 &newAngularVelocity) { angularVelocity = newAngularVelocity; }
     const Vector3 &getTorque() const { return torque; }
     void setTorque(const Vector3 &newTorque) { torque = newTorque; }
+    bool isSleeping() const { return sleeping; }
+    void setSleeping(bool shouldSleep)
+    {
+        sleeping = shouldSleep;
+        if (sleeping)
+        {
+            velocity = Vector3::zero();
+            angularVelocity = Vector3::zero();
+            acceleration = Vector3::zero();
+            torque = Vector3::zero();
+        }
+    }
+    void wakeUp()
+    {
+        sleeping = false;
+        sleepTime = 0.0f;
+    }
+    float getSleepTime() const { return sleepTime; }
+    void setSleepTime(float newSleepTime) { sleepTime = newSleepTime; }
 
     virtual bool isStatic() const
     {
@@ -87,6 +106,7 @@ public:
         if (isStatic())
             return;
 
+        wakeUp();
         acceleration += force * inverseMass;
     }
 
@@ -95,6 +115,7 @@ public:
         if (isStatic())
             return;
 
+        wakeUp();
         applyForce(force);
         torque += (point - getCenterOfMassWorldPosition()).cross(force);
     }
@@ -102,6 +123,9 @@ public:
     virtual void integrate(float dt)
     {
         if (isStatic())
+            return;
+
+        if (sleeping)
             return;
 
         velocity += acceleration * dt;
@@ -164,4 +188,6 @@ private:
     float momentOfInertia = 0.0f;
     float inverseMomentOfInertia = 0.0f;
     Quaternion orientation = Quaternion::identity();
+    bool sleeping = false;
+    float sleepTime = 0.0f;
 };

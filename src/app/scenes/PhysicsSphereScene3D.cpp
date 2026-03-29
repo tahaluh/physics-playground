@@ -12,8 +12,20 @@
 
 namespace
 {
-constexpr float kBoundaryRadius = 4.0f;
-constexpr float kBallRadius = 0.45f;
+    constexpr float kBoundaryRadius = 4.0f;
+    constexpr float kBallRadius = 0.45f;
+
+    const Vector3 kBallStartPosition(0.9f, 1.4f, -0.6f);
+    const Vector3 kBallStartVelocity(1.8f, -0.4f, 1.2f);
+
+    constexpr float kBallLinearDamping = 0.03f;
+    constexpr float kBallRestitution = 0.68f;
+    constexpr float kBallSurfaceFriction = 0.48f;
+
+    constexpr int kBoundarySphereRings = 20;
+    constexpr int kBoundarySphereSegments = 32;
+    constexpr int kBallSphereRings = 16;
+    constexpr int kBallSphereSegments = 24;
 }
 
 PhysicsSphereScene3D::~PhysicsSphereScene3D() = default;
@@ -28,15 +40,15 @@ std::unique_ptr<PhysicsSphereScene3D> PhysicsSphereScene3D::createDefault()
     loadedScene->getPhysicsScene().addBody(std::make_unique<BorderSphereBody3D>(Vector3::zero(), kBoundaryRadius));
 
     loadedScene->ballBodyIndex = loadedScene->getPhysicsScene().getBodies().size();
-    loadedScene->getPhysicsScene().addBody(
-        std::make_unique<BallBody3D>(
-            kBallRadius,
-            Vector3(0.9f, 1.4f, -0.6f),
-            Vector3(1.8f, -0.4f, 1.2f)));
+    auto ballBody = std::make_unique<BallBody3D>(kBallRadius, kBallStartPosition, kBallStartVelocity);
+    ballBody->getMaterial().linearDamping = kBallLinearDamping;
+    ballBody->getMaterial().restitution = kBallRestitution;
+    ballBody->getMaterial().surfaceFriction = kBallSurfaceFriction;
+    loadedScene->getPhysicsScene().addBody(std::move(ballBody));
 
     Entity3D border;
     border.name = "BoundarySphere";
-    border.mesh = MeshFactory3D::makeSphere(kBoundaryRadius, 10, 16, 0);
+    border.mesh = MeshFactory3D::makeSphere(kBoundaryRadius, kBoundarySphereRings, kBoundarySphereSegments, 0);
     border.material.solid.color = 0xFF9AD1FF;
     border.material.solid.opacity = 0.18f;
     border.material.wireframe.color = 0xFFBFE6FF;
@@ -48,13 +60,13 @@ std::unique_ptr<PhysicsSphereScene3D> PhysicsSphereScene3D::createDefault()
 
     Entity3D ball;
     ball.name = "InnerBall";
-    ball.mesh = MeshFactory3D::makeSphere(kBallRadius, 8, 12, 0);
+    ball.mesh = MeshFactory3D::makeSphere(kBallRadius, kBallSphereRings, kBallSphereSegments, 0);
     ball.material.solid.color = 0xFFFF9F1C;
     ball.material.solid.opacity = 1.0f;
     ball.material.wireframe.color = 0xFFFFD166;
     ball.material.wireframe.opacity = 1.0f;
     ball.material.renderSolid = true;
-    ball.material.renderWireframe = false;
+    ball.material.renderWireframe = true;
     loadedScene->ballEntityIndex = loadedScene->getRenderScene().getEntities().size();
     loadedScene->getRenderScene().createEntity(ball);
 
@@ -125,7 +137,8 @@ void PhysicsSphereScene3D::syncRenderScene()
     if (borderBodyIndex < bodies.size() && borderEntityIndex < entities.size())
     {
         entities[borderEntityIndex].transform.position = bodies[borderBodyIndex]->getPosition() + worldOffset;
-        entities[borderEntityIndex].transform.rotation = Vector3::zero();
+        entities[borderEntityIndex].transform.rotation = bodies[borderBodyIndex]->getRotation();
+        entities[borderEntityIndex].transform.clearCustomRotationMatrix();
         entities[borderEntityIndex].transform.scale = Vector3::one();
     }
 
@@ -133,6 +146,7 @@ void PhysicsSphereScene3D::syncRenderScene()
     {
         entities[ballEntityIndex].transform.position = bodies[ballBodyIndex]->getPosition() + worldOffset;
         entities[ballEntityIndex].transform.rotation = Vector3::zero();
+        entities[ballEntityIndex].transform.setCustomRotationMatrix(bodies[ballBodyIndex]->getRotationMatrix());
         entities[ballEntityIndex].transform.scale = Vector3::one();
     }
 }

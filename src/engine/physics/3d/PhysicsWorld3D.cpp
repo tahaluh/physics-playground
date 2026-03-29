@@ -82,6 +82,10 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             const Vector3 normal = distance > 0.0f ? relative / distance : Vector3::up();
             dynamicCandidate->setPosition(borderCandidate->getPosition() + normal * maximumDistance);
 
+            const float dynamicRadius = dynamicShape->getRadius();
+            const Vector3 contactOffset = normal * dynamicRadius;
+            const Vector3 contactVelocity =
+                dynamicCandidate->getVelocity() + dynamicCandidate->getAngularVelocity().cross(contactOffset);
             const float outwardSpeed = dynamicCandidate->getVelocity().dot(normal);
             if (outwardSpeed > 0.0f)
             {
@@ -89,6 +93,31 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
                 dynamicCandidate->setVelocity(
                     dynamicCandidate->getVelocity() - normal * ((1.0f + restitution) * outwardSpeed));
             }
+
+            const float contactNormalSpeed = contactVelocity.dot(normal);
+            const Vector3 tangentialVelocity = contactVelocity - normal * contactNormalSpeed;
+            const float tangentialSpeed = tangentialVelocity.length();
+            const float surfaceFriction = dynamicCandidate->getMaterial().surfaceFriction;
+            const float frictionStrength = Vector3::clamp(surfaceFriction, 0.0f, 1.0f);
+            if (surfaceFriction > 0.0f && tangentialSpeed > 0.0f)
+            {
+                const Vector3 tangent = tangentialVelocity / tangentialSpeed;
+                const Vector3 radiusCrossTangent = contactOffset.cross(tangent);
+                const float denominator =
+                    dynamicCandidate->getInverseMass() +
+                    radiusCrossTangent.lengthSquared() * dynamicCandidate->getInverseMomentOfInertia();
+                if (denominator > 0.0f)
+                {
+                    const float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
+                    const Vector3 impulse = tangent * impulseMagnitude;
+                    dynamicCandidate->setVelocity(
+                        dynamicCandidate->getVelocity() + impulse * dynamicCandidate->getInverseMass());
+                    dynamicCandidate->setAngularVelocity(
+                        dynamicCandidate->getAngularVelocity() +
+                        contactOffset.cross(impulse) * dynamicCandidate->getInverseMomentOfInertia());
+                }
+            }
+
         }
     }
 }

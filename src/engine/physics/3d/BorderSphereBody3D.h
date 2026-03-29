@@ -11,8 +11,9 @@ public:
               std::make_unique<SphereShape3D>(radius),
               position,
               Vector3::zero(),
+              Vector3::zero(),
               0.0f,
-              PhysicsMaterial3D{0.0f, 1.0f, false}),
+              PhysicsMaterial3D{0.0f, 1.0f, 0.0f, false}),
           radius(radius)
     {
     }

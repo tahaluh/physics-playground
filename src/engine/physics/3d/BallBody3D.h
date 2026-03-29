@@ -10,9 +10,10 @@ public:
         : PhysicsBody3D(
               std::make_unique<SphereShape3D>(radius),
               position,
+              Vector3::zero(),
               velocity,
               1.0f,
-              PhysicsMaterial3D{0.02f, 0.88f, true})
+              PhysicsMaterial3D{0.02f, 0.82f, 0.55f, true})
     {
     }
 };

@@ -72,6 +72,36 @@ struct Matrix4
         return result;
     }
 
+    static Matrix4 axisAngle(const Vector3 &axis, float radians)
+    {
+        const Vector3 normalizedAxis = axis.normalized();
+        if (normalizedAxis.lengthSquared() == 0.0f)
+        {
+            return identity();
+        }
+
+        const float x = normalizedAxis.x;
+        const float y = normalizedAxis.y;
+        const float z = normalizedAxis.z;
+        const float c = std::cos(radians);
+        const float s = std::sin(radians);
+        const float oneMinusC = 1.0f - c;
+
+        Matrix4 result = identity();
+        result.m[0] = c + x * x * oneMinusC;
+        result.m[1] = x * y * oneMinusC - z * s;
+        result.m[2] = x * z * oneMinusC + y * s;
+
+        result.m[4] = y * x * oneMinusC + z * s;
+        result.m[5] = c + y * y * oneMinusC;
+        result.m[6] = y * z * oneMinusC - x * s;
+
+        result.m[8] = z * x * oneMinusC - y * s;
+        result.m[9] = z * y * oneMinusC + x * s;
+        result.m[10] = c + z * z * oneMinusC;
+        return result;
+    }
+
     static Matrix4 rotationXYZ(const Vector3 &rotationRadians)
     {
         return rotationZ(rotationRadians.z) * rotationY(rotationRadians.y) * rotationX(rotationRadians.x);

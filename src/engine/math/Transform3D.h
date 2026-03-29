@@ -8,6 +8,8 @@ struct Transform3D
     Vector3 position = Vector3::zero();
     Vector3 rotation = Vector3::zero();
     Vector3 scale = Vector3::one();
+    Matrix4 customRotationMatrix = Matrix4::identity();
+    bool useCustomRotationMatrix = false;
 
     Matrix4 getTranslationMatrix() const
     {
@@ -16,7 +18,23 @@ struct Transform3D
 
     Matrix4 getRotationMatrix() const
     {
+        if (useCustomRotationMatrix)
+        {
+            return customRotationMatrix;
+        }
         return Matrix4::rotationXYZ(rotation);
+    }
+
+    void setCustomRotationMatrix(const Matrix4 &rotationMatrix)
+    {
+        customRotationMatrix = rotationMatrix;
+        useCustomRotationMatrix = true;
+    }
+
+    void clearCustomRotationMatrix()
+    {
+        customRotationMatrix = Matrix4::identity();
+        useCustomRotationMatrix = false;
     }
 
     Matrix4 getScaleMatrix() const

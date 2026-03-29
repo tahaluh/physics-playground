@@ -41,6 +41,8 @@ struct Vector2
     float lengthSquared() const { return x * x + y * y; }
     float length() const { return std::sqrt(x * x + y * y); }
     float dot(const Vector2 &other) const { return x * other.x + y * other.y; }
+    static float cross(const Vector2 &a, const Vector2 &b) { return a.x * b.y - a.y * b.x; }
+    static Vector2 perpendicularLeft(const Vector2 &value) { return Vector2(-value.y, value.x); }
 
     Vector2 normalized() const
     {

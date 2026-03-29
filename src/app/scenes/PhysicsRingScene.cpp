@@ -1,5 +1,6 @@
 #include "app/scenes/PhysicsRingScene.h"
 
+#include <cmath>
 #include <memory>
 
 #include "engine/math/Vector3.h"
@@ -197,7 +198,7 @@ void PhysicsRingScene::syncRenderScene()
     {
         entities[borderEntityIndex].transform.position =
             toWorldPlanePosition(bodies[borderBodyIndex]->getPosition(), kSimulationPlaneZ) + worldOffset;
-        entities[borderEntityIndex].transform.rotation = Vector3::zero();
+        entities[borderEntityIndex].transform.rotation = Vector3(0.0f, 0.0f, bodies[borderBodyIndex]->getRotationAngle());
         entities[borderEntityIndex].transform.scale = Vector3::one();
     }
 
@@ -213,7 +214,7 @@ void PhysicsRingScene::syncRenderScene()
 
         entities[entityIndex].transform.position =
             toWorldPlanePosition(bodies[bodyIndex]->getPosition(), kSimulationPlaneZ) + worldOffset;
-        entities[entityIndex].transform.rotation = Vector3::zero();
+        entities[entityIndex].transform.rotation = Vector3(0.0f, 0.0f, bodies[bodyIndex]->getRotationAngle());
         entities[entityIndex].transform.scale = Vector3::one();
     }
 }

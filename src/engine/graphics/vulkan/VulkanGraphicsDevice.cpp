@@ -257,6 +257,49 @@ Matrix4 computeDirectionalShadowMatrix(const Scene3D &scene, const DirectionalLi
         farPlane);
     return lightProjection * lightView;
 }
+
+Matrix4 computeSpotShadowMatrix(const SpotLight &light)
+{
+    const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
+    const Vector3 upHint = std::abs(lightDirection.dot(Vector3::up())) > 0.98f ? Vector3::right() : Vector3::up();
+    const float outerConeCos = Vector3::clamp(light.outerConeCos, -0.9999f, 0.9999f);
+    const float fovRadians = Vector3::clamp(std::acos(outerConeCos) * 2.1f, 0.2f, 3.04159265f);
+    const float nearPlane = 0.05f;
+    const float farPlane = std::max(light.range, nearPlane + 0.05f);
+    const Matrix4 lightView = Matrix4::lookAt(light.position, light.position + lightDirection, upHint);
+    const Matrix4 lightProjection = Matrix4::perspective(fovRadians, 1.0f, nearPlane, farPlane);
+    return lightProjection * lightView;
+}
+
+std::array<Matrix4, 6> computePointShadowMatrices(const PointLight &light)
+{
+    const float nearPlane = 0.05f;
+    const float farPlane = std::max(light.range, nearPlane + 0.05f);
+    const Matrix4 projection = Matrix4::perspective(3.14159265f * 0.5f, 1.0f, nearPlane, farPlane);
+
+    const std::array<Vector3, 6> directions = {
+        Vector3(1.0f, 0.0f, 0.0f),
+        Vector3(-1.0f, 0.0f, 0.0f),
+        Vector3(0.0f, 1.0f, 0.0f),
+        Vector3(0.0f, -1.0f, 0.0f),
+        Vector3(0.0f, 0.0f, 1.0f),
+        Vector3(0.0f, 0.0f, -1.0f)};
+    const std::array<Vector3, 6> ups = {
+        Vector3(0.0f, 1.0f, 0.0f),
+        Vector3(0.0f, 1.0f, 0.0f),
+        Vector3(0.0f, 0.0f, -1.0f),
+        Vector3(0.0f, 0.0f, 1.0f),
+        Vector3(0.0f, 1.0f, 0.0f),
+        Vector3(0.0f, 1.0f, 0.0f)};
+
+    std::array<Matrix4, 6> matrices{};
+    for (size_t i = 0; i < matrices.size(); ++i)
+    {
+        matrices[i] = projection * Matrix4::lookAt(light.position, light.position + directions[i], ups[i]);
+    }
+
+    return matrices;
+}
 }
 
 VulkanGraphicsDevice::~VulkanGraphicsDevice()
@@ -820,62 +863,86 @@ bool VulkanGraphicsDevice::createDepthResources()
 
 bool VulkanGraphicsDevice::createShadowResources()
 {
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = shadowExtent.width;
-    imageInfo.extent.height = shadowExtent.height;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = depthFormat;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    const auto createShadowImage =
+        [&](uint32_t layers, VkImageCreateFlags flags, VkImage &image, VkDeviceMemory &memory) -> bool
+    {
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.flags = flags;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width = shadowExtent.width;
+        imageInfo.extent.height = shadowExtent.height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = layers;
+        imageInfo.format = depthFormat;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(device, &imageInfo, nullptr, &shadowDepthImage) != VK_SUCCESS)
+        if (vkCreateImage(device, &imageInfo, nullptr, &image) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        VkMemoryRequirements memoryRequirements{};
+        vkGetImageMemoryRequirements(device, image, &memoryRequirements);
+
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.allocationSize = memoryRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (allocInfo.memoryTypeIndex == UINT32_MAX)
+        {
+            return false;
+        }
+
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &memory) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        return vkBindImageMemory(device, image, memory, 0) == VK_SUCCESS;
+    };
+
+    const auto createDepthView =
+        [&](VkImage image, VkImageViewType viewType, uint32_t baseLayer, uint32_t layerCount, VkImageView &view) -> bool
+    {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = viewType;
+        viewInfo.format = depthFormat;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = baseLayer;
+        viewInfo.subresourceRange.layerCount = layerCount;
+        return vkCreateImageView(device, &viewInfo, nullptr, &view) == VK_SUCCESS;
+    };
+
+    if (!createShadowImage(1, 0, shadowDepthImage, shadowDepthImageMemory) ||
+        !createShadowImage(1, 0, spotShadowDepthImage, spotShadowDepthImageMemory) ||
+        !createShadowImage(6, 0, pointShadowDepthImage, pointShadowDepthImageMemory))
     {
         return false;
     }
 
-    VkMemoryRequirements memoryRequirements{};
-    vkGetImageMemoryRequirements(device, shadowDepthImage, &memoryRequirements);
-
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memoryRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (allocInfo.memoryTypeIndex == UINT32_MAX)
+    if (!createDepthView(shadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, shadowDepthImageView) ||
+        !createDepthView(spotShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, spotShadowDepthImageView) ||
+        !createDepthView(pointShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, 6, pointShadowDepthImageView))
     {
         return false;
     }
 
-    if (vkAllocateMemory(device, &allocInfo, nullptr, &shadowDepthImageMemory) != VK_SUCCESS)
+    for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex)
     {
-        return false;
-    }
-
-    if (vkBindImageMemory(device, shadowDepthImage, shadowDepthImageMemory, 0) != VK_SUCCESS)
-    {
-        return false;
-    }
-
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = shadowDepthImage;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = depthFormat;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
-    viewInfo.subresourceRange.baseArrayLayer = 0;
-    viewInfo.subresourceRange.layerCount = 1;
-
-    if (vkCreateImageView(device, &viewInfo, nullptr, &shadowDepthImageView) != VK_SUCCESS)
-    {
-        return false;
+        if (!createDepthView(pointShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, faceIndex, 1, pointShadowFaceImageViews[faceIndex]))
+        {
+            return false;
+        }
     }
 
     VkSamplerCreateInfo samplerInfo{};
@@ -897,20 +964,40 @@ bool VulkanGraphicsDevice::createShadowResources()
         return false;
     }
 
-    VkFramebufferCreateInfo framebufferInfo{};
-    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    framebufferInfo.renderPass = shadowRenderPass;
-    framebufferInfo.attachmentCount = 1;
-    framebufferInfo.pAttachments = &shadowDepthImageView;
-    framebufferInfo.width = shadowExtent.width;
-    framebufferInfo.height = shadowExtent.height;
-    framebufferInfo.layers = 1;
-    return vkCreateFramebuffer(device, &framebufferInfo, nullptr, &shadowFramebuffer) == VK_SUCCESS;
+    const auto createShadowFramebuffer =
+        [&](VkImageView attachment, VkFramebuffer &framebuffer) -> bool
+    {
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = shadowRenderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = &attachment;
+        framebufferInfo.width = shadowExtent.width;
+        framebufferInfo.height = shadowExtent.height;
+        framebufferInfo.layers = 1;
+        return vkCreateFramebuffer(device, &framebufferInfo, nullptr, &framebuffer) == VK_SUCCESS;
+    };
+
+    if (!createShadowFramebuffer(shadowDepthImageView, shadowFramebuffer) ||
+        !createShadowFramebuffer(spotShadowDepthImageView, spotShadowFramebuffer))
+    {
+        return false;
+    }
+
+    for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex)
+    {
+        if (!createShadowFramebuffer(pointShadowFaceImageViews[faceIndex], pointShadowFramebuffers[faceIndex]))
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 bool VulkanGraphicsDevice::createLightingResources()
 {
-    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -931,6 +1018,14 @@ bool VulkanGraphicsDevice::createLightingResources()
     bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[4].descriptorCount = 1;
     bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[5].binding = 5;
+    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[5].descriptorCount = 1;
+    bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[6].binding = 6;
+    bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[6].descriptorCount = 1;
+    bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -987,7 +1082,7 @@ bool VulkanGraphicsDevice::createLightingResources()
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     poolSizes[1].descriptorCount = 3;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[2].descriptorCount = 1;
+    poolSizes[2].descriptorCount = 3;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1516,8 +1611,18 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     ambientUniform.cameraWorldPosition[1] = camera.transform.position.y;
     ambientUniform.cameraWorldPosition[2] = camera.transform.position.z;
     ambientUniform.cameraWorldPosition[3] = 1.0f;
-    currentShadowLightViewProjection = Matrix4::identity();
-    shadowMappingEnabled = false;
+    currentDirectionalShadowViewProjection = Matrix4::identity();
+    currentSpotShadowViewProjection = Matrix4::identity();
+    currentPointShadowViewProjections = {
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity()};
+    directionalShadowEnabled = false;
+    pointShadowEnabled = false;
+    spotShadowEnabled = false;
     for (const DirectionalLight &light : scene.getDirectionalLights())
     {
         if (!light.enabled || light.intensity <= 0.0f)
@@ -1525,8 +1630,41 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
             continue;
         }
 
-        currentShadowLightViewProjection = computeDirectionalShadowMatrix(scene, light);
-        shadowMappingEnabled = true;
+        currentDirectionalShadowViewProjection = computeDirectionalShadowMatrix(scene, light);
+        directionalShadowEnabled = true;
+        break;
+    }
+    for (const PointLight &light : scene.getPointLights())
+    {
+        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
+        {
+            continue;
+        }
+
+        currentPointShadowViewProjections = computePointShadowMatrices(light);
+        ambientUniform.pointShadowPositionRange[0] = light.position.x;
+        ambientUniform.pointShadowPositionRange[1] = light.position.y;
+        ambientUniform.pointShadowPositionRange[2] = light.position.z;
+        ambientUniform.pointShadowPositionRange[3] = light.range;
+        pointShadowEnabled = true;
+        break;
+    }
+    if (!pointShadowEnabled)
+    {
+        ambientUniform.pointShadowPositionRange[0] = 0.0f;
+        ambientUniform.pointShadowPositionRange[1] = 0.0f;
+        ambientUniform.pointShadowPositionRange[2] = 0.0f;
+        ambientUniform.pointShadowPositionRange[3] = 0.0f;
+    }
+    for (const SpotLight &light : scene.getSpotLights())
+    {
+        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
+        {
+            continue;
+        }
+
+        currentSpotShadowViewProjection = computeSpotShadowMatrix(light);
+        spotShadowEnabled = true;
         break;
     }
 
@@ -1534,13 +1672,29 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     {
         for (int col = 0; col < 4; ++col)
         {
-            ambientUniform.shadowLightMatrixRows[row][col] = currentShadowLightViewProjection.m[row * 4 + col];
+            ambientUniform.directionalShadowMatrixRows[row][col] = currentDirectionalShadowViewProjection.m[row * 4 + col];
+            ambientUniform.spotShadowMatrixRows[row][col] = currentSpotShadowViewProjection.m[row * 4 + col];
         }
     }
-    ambientUniform.shadowParams[0] = shadowMappingEnabled ? 1.0f : 0.0f;
-    ambientUniform.shadowParams[1] = 0.0025f;
-    ambientUniform.shadowParams[2] = 1.0f;
-    ambientUniform.shadowParams[3] = 0.0f;
+    for (int faceIndex = 0; faceIndex < 6; ++faceIndex)
+    {
+        for (int row = 0; row < 4; ++row)
+        {
+            for (int col = 0; col < 4; ++col)
+            {
+                ambientUniform.pointShadowMatrixRows[faceIndex * 4 + row][col] =
+                    currentPointShadowViewProjections[faceIndex].m[row * 4 + col];
+            }
+        }
+    }
+    ambientUniform.shadowFlags[0] = directionalShadowEnabled ? 1.0f : 0.0f;
+    ambientUniform.shadowFlags[1] = pointShadowEnabled ? 1.0f : 0.0f;
+    ambientUniform.shadowFlags[2] = spotShadowEnabled ? 1.0f : 0.0f;
+    ambientUniform.shadowFlags[3] = 0.0f;
+    ambientUniform.shadowBiases[0] = 0.0025f;
+    ambientUniform.shadowBiases[1] = 0.01f;
+    ambientUniform.shadowBiases[2] = 0.0035f;
+    ambientUniform.shadowBiases[3] = 0.0f;
 
     const auto updateBufferData =
         [&](BufferHandle &bufferHandle,
@@ -1745,12 +1899,20 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     bufferInfos[3].buffer = spotLightStorageBuffer.buffer;
     bufferInfos[3].offset = 0;
     bufferInfos[3].range = static_cast<VkDeviceSize>(spotBytes.size());
-    VkDescriptorImageInfo shadowImageInfo{};
-    shadowImageInfo.sampler = shadowDepthSampler;
-    shadowImageInfo.imageView = shadowDepthImageView;
-    shadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo directionalShadowImageInfo{};
+    directionalShadowImageInfo.sampler = shadowDepthSampler;
+    directionalShadowImageInfo.imageView = shadowDepthImageView;
+    directionalShadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo spotShadowImageInfo{};
+    spotShadowImageInfo.sampler = shadowDepthSampler;
+    spotShadowImageInfo.imageView = spotShadowDepthImageView;
+    spotShadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorImageInfo pointShadowImageInfo{};
+    pointShadowImageInfo.sampler = shadowDepthSampler;
+    pointShadowImageInfo.imageView = pointShadowDepthImageView;
+    pointShadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    std::array<VkWriteDescriptorSet, 5> descriptorWrites{};
+    std::array<VkWriteDescriptorSet, 7> descriptorWrites{};
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = lightingDescriptorSet;
     descriptorWrites[0].dstBinding = 0;
@@ -1783,7 +1945,19 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     descriptorWrites[4].dstBinding = 4;
     descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     descriptorWrites[4].descriptorCount = 1;
-    descriptorWrites[4].pImageInfo = &shadowImageInfo;
+    descriptorWrites[4].pImageInfo = &directionalShadowImageInfo;
+    descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[5].dstSet = lightingDescriptorSet;
+    descriptorWrites[5].dstBinding = 5;
+    descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[5].descriptorCount = 1;
+    descriptorWrites[5].pImageInfo = &spotShadowImageInfo;
+    descriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[6].dstSet = lightingDescriptorSet;
+    descriptorWrites[6].dstBinding = 6;
+    descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[6].descriptorCount = 1;
+    descriptorWrites[6].pImageInfo = &pointShadowImageInfo;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     return true;
@@ -2358,6 +2532,17 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyFramebuffer(device, shadowFramebuffer, nullptr);
         }
+        if (spotShadowFramebuffer)
+        {
+            vkDestroyFramebuffer(device, spotShadowFramebuffer, nullptr);
+        }
+        for (VkFramebuffer framebuffer : pointShadowFramebuffers)
+        {
+            if (framebuffer)
+            {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+        }
         if (shadowDepthSampler)
         {
             vkDestroySampler(device, shadowDepthSampler, nullptr);
@@ -2366,13 +2551,44 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyImageView(device, shadowDepthImageView, nullptr);
         }
+        if (spotShadowDepthImageView)
+        {
+            vkDestroyImageView(device, spotShadowDepthImageView, nullptr);
+        }
+        if (pointShadowDepthImageView)
+        {
+            vkDestroyImageView(device, pointShadowDepthImageView, nullptr);
+        }
+        for (VkImageView imageView : pointShadowFaceImageViews)
+        {
+            if (imageView)
+            {
+                vkDestroyImageView(device, imageView, nullptr);
+            }
+        }
         if (shadowDepthImage)
         {
             vkDestroyImage(device, shadowDepthImage, nullptr);
         }
+        if (spotShadowDepthImage)
+        {
+            vkDestroyImage(device, spotShadowDepthImage, nullptr);
+        }
+        if (pointShadowDepthImage)
+        {
+            vkDestroyImage(device, pointShadowDepthImage, nullptr);
+        }
         if (shadowDepthImageMemory)
         {
             vkFreeMemory(device, shadowDepthImageMemory, nullptr);
+        }
+        if (spotShadowDepthImageMemory)
+        {
+            vkFreeMemory(device, spotShadowDepthImageMemory, nullptr);
+        }
+        if (pointShadowDepthImageMemory)
+        {
+            vkFreeMemory(device, pointShadowDepthImageMemory, nullptr);
         }
         if (opaqueTrianglePipeline)
         {
@@ -2443,50 +2659,73 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
         return;
     }
 
-    if (drawTriangle && shadowPipeline && shadowFramebuffer && shadowMappingEnabled &&
-        shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
+    if (drawTriangle && shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
     {
-        VkClearValue shadowClearValue{};
-        shadowClearValue.depthStencil.depth = 1.0f;
-        shadowClearValue.depthStencil.stencil = 0;
+        const auto renderShadowPass = [&](VkFramebuffer framebuffer, const Matrix4 &shadowMatrix)
+        {
+            if (!framebuffer)
+            {
+                return;
+            }
 
-        VkRenderPassBeginInfo shadowRenderPassInfo{};
-        shadowRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        shadowRenderPassInfo.renderPass = shadowRenderPass;
-        shadowRenderPassInfo.framebuffer = shadowFramebuffer;
-        shadowRenderPassInfo.renderArea.offset = {0, 0};
-        shadowRenderPassInfo.renderArea.extent = shadowExtent;
-        shadowRenderPassInfo.clearValueCount = 1;
-        shadowRenderPassInfo.pClearValues = &shadowClearValue;
+            VkClearValue shadowClearValue{};
+            shadowClearValue.depthStencil.depth = 1.0f;
+            shadowClearValue.depthStencil.stencil = 0;
 
-        vkCmdBeginRenderPass(commandBuffer, &shadowRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+            VkRenderPassBeginInfo shadowRenderPassInfo{};
+            shadowRenderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+            shadowRenderPassInfo.renderPass = shadowRenderPass;
+            shadowRenderPassInfo.framebuffer = framebuffer;
+            shadowRenderPassInfo.renderArea.offset = {0, 0};
+            shadowRenderPassInfo.renderArea.extent = shadowExtent;
+            shadowRenderPassInfo.clearValueCount = 1;
+            shadowRenderPassInfo.pClearValues = &shadowClearValue;
 
-        VkViewport shadowViewport{};
-        shadowViewport.x = 0.0f;
-        shadowViewport.y = 0.0f;
-        shadowViewport.width = static_cast<float>(shadowExtent.width);
-        shadowViewport.height = static_cast<float>(shadowExtent.height);
-        shadowViewport.minDepth = 0.0f;
-        shadowViewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &shadowViewport);
+            vkCmdBeginRenderPass(commandBuffer, &shadowRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        VkRect2D shadowScissor{};
-        shadowScissor.offset = {0, 0};
-        shadowScissor.extent = shadowExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &shadowScissor);
+            VkViewport shadowViewport{};
+            shadowViewport.x = 0.0f;
+            shadowViewport.y = 0.0f;
+            shadowViewport.width = static_cast<float>(shadowExtent.width);
+            shadowViewport.height = static_cast<float>(shadowExtent.height);
+            shadowViewport.minDepth = 0.0f;
+            shadowViewport.maxDepth = 1.0f;
+            vkCmdSetViewport(commandBuffer, 0, 1, &shadowViewport);
 
-        VkDeviceSize shadowOffsets[] = {0};
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
-        vkCmdPushConstants(
-            commandBuffer,
-            shadowPipelineLayout,
-            VK_SHADER_STAGE_VERTEX_BIT,
-            0,
-            sizeof(float) * 16,
-            currentShadowLightViewProjection.m.data());
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &shadowSceneVertexBuffer.buffer, shadowOffsets);
-        vkCmdDraw(commandBuffer, shadowSceneVertexCount, 1, 0, 0);
-        vkCmdEndRenderPass(commandBuffer);
+            VkRect2D shadowScissor{};
+            shadowScissor.offset = {0, 0};
+            shadowScissor.extent = shadowExtent;
+            vkCmdSetScissor(commandBuffer, 0, 1, &shadowScissor);
+
+            VkDeviceSize shadowOffsets[] = {0};
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
+            vkCmdPushConstants(
+                commandBuffer,
+                shadowPipelineLayout,
+                VK_SHADER_STAGE_VERTEX_BIT,
+                0,
+                sizeof(float) * 16,
+                shadowMatrix.m.data());
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &shadowSceneVertexBuffer.buffer, shadowOffsets);
+            vkCmdDraw(commandBuffer, shadowSceneVertexCount, 1, 0, 0);
+            vkCmdEndRenderPass(commandBuffer);
+        };
+
+        if (directionalShadowEnabled)
+        {
+            renderShadowPass(shadowFramebuffer, currentDirectionalShadowViewProjection);
+        }
+        if (spotShadowEnabled)
+        {
+            renderShadowPass(spotShadowFramebuffer, currentSpotShadowViewProjection);
+        }
+        if (pointShadowEnabled)
+        {
+            for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex)
+            {
+                renderShadowPass(pointShadowFramebuffers[faceIndex], currentPointShadowViewProjections[faceIndex]);
+            }
+        }
     }
 
     const uint32_t vulkanColor = toVulkanColor(clearColor);

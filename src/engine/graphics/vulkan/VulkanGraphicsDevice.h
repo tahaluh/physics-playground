@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -45,8 +46,12 @@ public:
     {
         float ambientColorIntensity[4];
         float cameraWorldPosition[4];
-        float shadowLightMatrixRows[4][4];
-        float shadowParams[4];
+        float directionalShadowMatrixRows[4][4];
+        float spotShadowMatrixRows[4][4];
+        float pointShadowMatrixRows[24][4];
+        float shadowFlags[4];
+        float shadowBiases[4];
+        float pointShadowPositionRange[4];
     };
 
     struct LightStorageHeader
@@ -161,6 +166,15 @@ private:
     VkImageView shadowDepthImageView = VK_NULL_HANDLE;
     VkSampler shadowDepthSampler = VK_NULL_HANDLE;
     VkFramebuffer shadowFramebuffer = VK_NULL_HANDLE;
+    VkImage spotShadowDepthImage = VK_NULL_HANDLE;
+    VkDeviceMemory spotShadowDepthImageMemory = VK_NULL_HANDLE;
+    VkImageView spotShadowDepthImageView = VK_NULL_HANDLE;
+    VkFramebuffer spotShadowFramebuffer = VK_NULL_HANDLE;
+    VkImage pointShadowDepthImage = VK_NULL_HANDLE;
+    VkDeviceMemory pointShadowDepthImageMemory = VK_NULL_HANDLE;
+    VkImageView pointShadowDepthImageView = VK_NULL_HANDLE;
+    VkImageView pointShadowFaceImageViews[6] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
+    VkFramebuffer pointShadowFramebuffers[6] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
     VkExtent2D shadowExtent = {2048, 2048};
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
@@ -202,8 +216,18 @@ private:
     std::vector<TriangleVertex> lineSceneVertices;
     std::vector<TriangleVertex> shadowSceneVertices;
     AmbientUniform ambientUniform = {};
-    Matrix4 currentShadowLightViewProjection = Matrix4::identity();
-    bool shadowMappingEnabled = false;
+    Matrix4 currentDirectionalShadowViewProjection = Matrix4::identity();
+    Matrix4 currentSpotShadowViewProjection = Matrix4::identity();
+    std::array<Matrix4, 6> currentPointShadowViewProjections = {
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity(),
+        Matrix4::identity()};
+    bool directionalShadowEnabled = false;
+    bool spotShadowEnabled = false;
+    bool pointShadowEnabled = false;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

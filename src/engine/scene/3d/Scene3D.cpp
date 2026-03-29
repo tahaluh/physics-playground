@@ -18,6 +18,20 @@ void Scene3D::appendEntitiesFrom(const Scene3D &other)
     entities.insert(entities.end(), other.entities.begin(), other.entities.end());
 }
 
+void Scene3D::replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources)
+{
+    clearEntities();
+    for (const Scene3D *source : sources)
+    {
+        if (!source)
+        {
+            continue;
+        }
+
+        appendEntitiesFrom(*source);
+    }
+}
+
 std::vector<Entity3D> &Scene3D::getEntities()
 {
     return entities;
@@ -36,6 +50,35 @@ AmbientLight &Scene3D::getAmbientLight()
 const AmbientLight &Scene3D::getAmbientLight() const
 {
     return ambientLight;
+}
+
+bool Scene3D::copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene3D *> sources)
+{
+    for (const Scene3D *source : sources)
+    {
+        if (!source)
+        {
+            continue;
+        }
+
+        ambientLight = source->getAmbientLight();
+        return true;
+    }
+
+    return false;
+}
+
+void Scene3D::applyWireframeVisibilityOverride(bool visible)
+{
+    if (visible)
+    {
+        return;
+    }
+
+    for (Entity3D &entity : entities)
+    {
+        entity.material.renderWireframe = false;
+    }
 }
 
 DirectionalLightHandle Scene3D::createDirectionalLight(const DirectionalLightDesc &desc)

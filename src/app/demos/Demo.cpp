@@ -9,8 +9,6 @@
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 #include "engine/render/debug/LightDebug3D.h"
-#include "engine/render/3d/mesh/MeshFactory3D.h"
-#include "engine/scene/3d/Entity3D.h"
 
 namespace
 {
@@ -200,33 +198,16 @@ void Demo::rebuildCombinedScene()
         return;
     }
 
-    combinedScene->clearEntities();
-
-    if (sphereObject)
-    {
-        combinedScene->getAmbientLight() = sphereObject->getRenderScene().getAmbientLight();
-    }
-    else if (ringObject)
-    {
-        combinedScene->getAmbientLight() = ringObject->getRenderScene().getAmbientLight();
-    }
-
-    if (ringObject)
-    {
-        combinedScene->appendEntitiesFrom(ringObject->getRenderScene());
-    }
-
-    if (sphereObject)
-    {
-        combinedScene->appendEntitiesFrom(sphereObject->getRenderScene());
-    }
+    combinedScene->copyAmbientLightFromFirstAvailable({
+        sphereObject ? &sphereObject->getRenderScene() : nullptr,
+        ringObject ? &ringObject->getRenderScene() : nullptr});
+    combinedScene->replaceEntitiesFrom({
+        ringObject ? &ringObject->getRenderScene() : nullptr,
+        sphereObject ? &sphereObject->getRenderScene() : nullptr});
 
     if (!showWireframes)
     {
-        for (Entity3D &entity : combinedScene->getEntities())
-        {
-            entity.material.renderWireframe = false;
-        }
+        combinedScene->applyWireframeVisibilityOverride(false);
     }
 
     if (showLightDebugMarkers)

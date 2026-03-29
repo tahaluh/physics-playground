@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <initializer_list>
 #include <vector>
 
 #include "engine/scene/3d/AmbientLight.h"
@@ -15,10 +16,13 @@ public:
     Entity3D &createEntity(const Entity3D &entity);
     void clearEntities();
     void appendEntitiesFrom(const Scene3D &other);
+    void replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources);
     std::vector<Entity3D> &getEntities();
     const std::vector<Entity3D> &getEntities() const;
     AmbientLight &getAmbientLight();
     const AmbientLight &getAmbientLight() const;
+    bool copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene3D *> sources);
+    void applyWireframeVisibilityOverride(bool visible);
     DirectionalLightHandle createDirectionalLight(const DirectionalLightDesc &desc);
     void destroyDirectionalLight(DirectionalLightHandle handle);
     std::vector<DirectionalLight> &getDirectionalLights();

@@ -17,6 +17,7 @@ public:
         float normal[4];
         float worldPosition[4];
         float material[4];
+        float lighting[4];
     };
 
     struct GpuDirectionalLight
@@ -31,9 +32,18 @@ public:
         float colorIntensity[4];
     };
 
+    struct GpuSpotLight
+    {
+        float positionRange[4];
+        float directionInnerCone[4];
+        float colorIntensity[4];
+        float outerConeCos[4];
+    };
+
     struct AmbientUniform
     {
         float ambientColorIntensity[4];
+        float cameraWorldPosition[4];
     };
 
     struct LightStorageHeader
@@ -83,7 +93,7 @@ private:
     bool createTrianglePipeline();
     bool createLinePipeline();
     void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
-    bool updateLightingBuffers(const Scene3D &scene);
+    bool updateLightingBuffers(const Camera3D &camera, const Scene3D &scene);
     bool uploadSceneVertexBuffers();
     bool createFramebuffers();
     bool createCommandPool();
@@ -158,9 +168,11 @@ private:
     BufferHandle ambientUniformBuffer;
     BufferHandle directionalLightStorageBuffer;
     BufferHandle pointLightStorageBuffer;
+    BufferHandle spotLightStorageBuffer;
     VkDeviceSize ambientUniformBufferSize = 0;
     VkDeviceSize directionalLightStorageBufferSize = 0;
     VkDeviceSize pointLightStorageBufferSize = 0;
+    VkDeviceSize spotLightStorageBufferSize = 0;
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;

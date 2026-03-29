@@ -18,6 +18,7 @@ const float kMouseLookSensitivity = 0.0025f;
 const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
 const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
 const Vector3 kPointLightPosition = kSphereWorldOffset + Vector3(2.8f, 0.5f, 0.0f);
+const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-2.2f, 2.6f, 2.2f);
 
 Vector3 getPlanarForward(const Camera3D &camera)
 {
@@ -49,6 +50,8 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     sphereDesc.ballMaterial.solid.color = 0xFFFFFFFF;
     sphereDesc.ballMaterial.wireframe.color = 0xFF707070;
     sphereDesc.ballMaterial.solid.emissiveColor = 0x00000000;
+    sphereDesc.ballMaterial.solid.specularStrength = 1.0f;
+    sphereDesc.ballMaterial.solid.shininess = 96.0f;
     sphereObject = SphereObject::create(sphereDesc);
 
     physicsWorld2D = std::make_unique<PhysicsWorld2D>();
@@ -60,10 +63,11 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     camera3D = std::make_unique<Camera3D>();
     camera3D->transform.position = Vector3(0.0f, 3.5f, 22.0f);
     camera3D->transform.rotation = Vector3(-0.12f, 0.0f, 0.0f);
+    const Vector3 initialCameraForward = camera3D->getForward();
 
     combinedScene = std::make_unique<Scene3D>();
     combinedScene->createDirectionalLight({
-        Vector3(-0.4f, -1.0f, -0.25f),
+        initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
         0xFFFFFFFF,
         0.55f});
     combinedScene->createPointLight({
@@ -71,6 +75,14 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
         0xFFFF4040,
         0.75f,
         8.0f});
+    combinedScene->createSpotLight({
+        kSpotLightPosition,
+        (kSphereWorldOffset - kSpotLightPosition).normalized(),
+        0xFFFFFFFF,
+        1.1f,
+        10.0f,
+        0.96f,
+        0.86f});
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }

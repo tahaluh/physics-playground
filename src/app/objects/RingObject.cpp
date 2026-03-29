@@ -10,9 +10,8 @@
 #include "engine/physics/2d/PhysicsBody2D.h"
 #include "engine/physics/2d/PhysicsWorld2D.h"
 #include "engine/physics/2d/shapes/CircleShape.h"
-#include "engine/render/3d/mesh/MeshFactory3D.h"
+#include "engine/render/2d/Object2DIn3D.h"
 #include "engine/scene/2d/Scene2D.h"
-#include "engine/scene/3d/Entity3D.h"
 #include "engine/scene/3d/Scene3D.h"
 
 namespace
@@ -68,18 +67,20 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
     ballBody->getMaterial() = desc.physicsMaterial;
     object->physicsScene->addBody(std::move(ballBody));
 
-    Entity3D border;
-    border.name = "PhysicsBorder";
-    border.mesh = MeshFactory3D::makeDoubleSidedRing(
-        toWorldRadius(desc, desc.borderRadiusPixels) - desc.borderThicknessWorld,
-        toWorldRadius(desc, desc.borderRadiusPixels),
-        desc.planeThicknessWorld,
-        desc.borderSegments,
-        desc.borderColor);
-    border.material = desc.borderMaterial;
-    border.transform.position = toWorldPosition(desc, desc.center, desc.planeZ);
+    Shape2DIn3DDesc borderDesc;
+    borderDesc.kind = Shape2DIn3DKind::Ring;
+    borderDesc.name = "PhysicsBorder";
+    borderDesc.position = Vector2(
+        toWorldPosition(desc, desc.center, desc.planeZ).x,
+        toWorldPosition(desc, desc.center, desc.planeZ).y);
+    borderDesc.planeZ = desc.planeZ;
+    borderDesc.radius = toWorldRadius(desc, desc.borderRadiusPixels);
+    borderDesc.innerRadius = borderDesc.radius - desc.borderThicknessWorld;
+    borderDesc.segments = desc.borderSegments;
+    borderDesc.color = desc.borderColor;
+    borderDesc.material = desc.borderMaterial;
     object->borderEntityIndex = object->renderScene->getEntities().size();
-    object->renderScene->createEntity(border);
+    object->renderScene->createEntity(makeShape2DIn3D(borderDesc));
 
     const auto &bodies = object->physicsScene->getBodies();
     for (std::size_t bodyIndex = 0; bodyIndex < bodies.size(); ++bodyIndex)
@@ -98,25 +99,22 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
 
         object->dynamicBodyIndices.push_back(bodyIndex);
 
-        Entity3D ball;
-        ball.name = "PhysicsBall";
-        const float ballOuterRadius = circle->getRadius() / desc.simulationScale;
-        const float ballInnerRadius = ballOuterRadius > desc.ballOutlineThicknessWorld
-                                          ? ballOuterRadius - desc.ballOutlineThicknessWorld
-                                          : ballOuterRadius * 0.5f;
-        ball.mesh = MeshFactory3D::makeDoubleSidedRing(
-            ballInnerRadius,
-            ballOuterRadius,
-            desc.planeThicknessWorld,
-            desc.ballSegments,
-            body->getColor());
-        ball.material = desc.ballMaterial;
-        ball.material.solid.color = body->getColor();
-        ball.material.wireframe.color = body->getColor();
-        ball.transform.position = toWorldPosition(desc, body->getPosition(), desc.planeZ);
+        Shape2DIn3DDesc ballDesc;
+        ballDesc.kind = Shape2DIn3DKind::Disc;
+        ballDesc.name = "PhysicsBall";
+        ballDesc.position = Vector2(
+            toWorldPosition(desc, body->getPosition(), desc.planeZ).x,
+            toWorldPosition(desc, body->getPosition(), desc.planeZ).y);
+        ballDesc.planeZ = desc.planeZ;
+        ballDesc.radius = circle->getRadius() / desc.simulationScale;
+        ballDesc.segments = desc.ballSegments;
+        ballDesc.color = body->getColor();
+        ballDesc.material = desc.ballMaterial;
+        ballDesc.material.solid.color = body->getColor();
+        ballDesc.material.wireframe.color = body->getColor();
 
         object->dynamicEntityIndices.push_back(object->renderScene->getEntities().size());
-        object->renderScene->createEntity(ball);
+        object->renderScene->createEntity(makeShape2DIn3D(ballDesc));
     }
 
     object->syncRenderScene();

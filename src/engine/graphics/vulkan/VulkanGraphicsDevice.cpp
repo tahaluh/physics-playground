@@ -304,7 +304,7 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
-    if (!updateLightingBuffers(scene))
+    if (!updateLightingBuffers(camera, scene))
     {
         return;
     }
@@ -679,7 +679,7 @@ bool VulkanGraphicsDevice::createDepthResources()
 
 bool VulkanGraphicsDevice::createLightingResources()
 {
-    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -692,6 +692,10 @@ bool VulkanGraphicsDevice::createLightingResources()
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[2].descriptorCount = 1;
     bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[3].binding = 3;
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -732,11 +736,21 @@ bool VulkanGraphicsDevice::createLightingResources()
     }
     pointLightStorageBufferSize = sizeof(LightStorageHeader);
 
+    if (!createBuffer(
+            sizeof(LightStorageHeader),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            spotLightStorageBuffer))
+    {
+        return false;
+    }
+    spotLightStorageBufferSize = sizeof(LightStorageHeader);
+
     std::array<VkDescriptorPoolSize, 2> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 2;
+    poolSizes[1].descriptorCount = 3;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -807,7 +821,7 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     bindingDescription.stride = sizeof(TriangleVertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 6> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 7> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -832,6 +846,10 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     attributeDescriptions[5].location = 5;
     attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[5].offset = offsetof(TriangleVertex, material);
+    attributeDescriptions[6].binding = 0;
+    attributeDescriptions[6].location = 6;
+    attributeDescriptions[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[6].offset = offsetof(TriangleVertex, lighting);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -989,7 +1007,7 @@ bool VulkanGraphicsDevice::createLinePipeline()
     bindingDescription.stride = sizeof(TriangleVertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 6> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 7> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -1014,6 +1032,10 @@ bool VulkanGraphicsDevice::createLinePipeline()
     attributeDescriptions[5].location = 5;
     attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
     attributeDescriptions[5].offset = offsetof(TriangleVertex, material);
+    attributeDescriptions[6].binding = 0;
+    attributeDescriptions[6].location = 6;
+    attributeDescriptions[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[6].offset = offsetof(TriangleVertex, lighting);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1116,13 +1138,17 @@ bool VulkanGraphicsDevice::createLinePipeline()
     return success;
 }
 
-bool VulkanGraphicsDevice::updateLightingBuffers(const Scene3D &scene)
+bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const Scene3D &scene)
 {
     const std::array<float, 4> ambientColor = colorToFloat4(scene.getAmbientLight().color);
     ambientUniform.ambientColorIntensity[0] = ambientColor[0];
     ambientUniform.ambientColorIntensity[1] = ambientColor[1];
     ambientUniform.ambientColorIntensity[2] = ambientColor[2];
     ambientUniform.ambientColorIntensity[3] = std::max(scene.getAmbientLight().intensity, 0.0f);
+    ambientUniform.cameraWorldPosition[0] = camera.transform.position.x;
+    ambientUniform.cameraWorldPosition[1] = camera.transform.position.y;
+    ambientUniform.cameraWorldPosition[2] = camera.transform.position.z;
+    ambientUniform.cameraWorldPosition[3] = 1.0f;
 
     const auto updateBufferData =
         [&](BufferHandle &bufferHandle,
@@ -1232,6 +1258,48 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Scene3D &scene)
             pointLights.size() * sizeof(GpuPointLight));
     }
 
+    std::vector<GpuSpotLight> spotLights;
+    spotLights.reserve(scene.getSpotLights().size());
+    for (const SpotLight &light : scene.getSpotLights())
+    {
+        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
+        {
+            continue;
+        }
+
+        const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
+        const std::array<float, 4> lightColor = colorToFloat4(light.color);
+        GpuSpotLight gpuLight{};
+        gpuLight.positionRange[0] = light.position.x;
+        gpuLight.positionRange[1] = light.position.y;
+        gpuLight.positionRange[2] = light.position.z;
+        gpuLight.positionRange[3] = light.range;
+        gpuLight.directionInnerCone[0] = lightDirection.x;
+        gpuLight.directionInnerCone[1] = lightDirection.y;
+        gpuLight.directionInnerCone[2] = lightDirection.z;
+        gpuLight.directionInnerCone[3] = light.innerConeCos;
+        gpuLight.colorIntensity[0] = lightColor[0];
+        gpuLight.colorIntensity[1] = lightColor[1];
+        gpuLight.colorIntensity[2] = lightColor[2];
+        gpuLight.colorIntensity[3] = light.intensity;
+        gpuLight.outerConeCos[0] = light.outerConeCos;
+        gpuLight.outerConeCos[1] = 0.0f;
+        gpuLight.outerConeCos[2] = 0.0f;
+        gpuLight.outerConeCos[3] = 0.0f;
+        spotLights.push_back(gpuLight);
+    }
+
+    std::vector<char> spotBytes(sizeof(LightStorageHeader) + spotLights.size() * sizeof(GpuSpotLight));
+    auto *spotHeader = reinterpret_cast<LightStorageHeader *>(spotBytes.data());
+    spotHeader->count = static_cast<uint32_t>(spotLights.size());
+    if (!spotLights.empty())
+    {
+        std::memcpy(
+            spotBytes.data() + sizeof(LightStorageHeader),
+            spotLights.data(),
+            spotLights.size() * sizeof(GpuSpotLight));
+    }
+
     if (!updateBufferData(
             ambientUniformBuffer,
             ambientUniformBufferSize,
@@ -1262,7 +1330,17 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Scene3D &scene)
         return false;
     }
 
-    std::array<VkDescriptorBufferInfo, 3> bufferInfos{};
+    if (!updateBufferData(
+            spotLightStorageBuffer,
+            spotLightStorageBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            spotBytes.data(),
+            static_cast<VkDeviceSize>(spotBytes.size())))
+    {
+        return false;
+    }
+
+    std::array<VkDescriptorBufferInfo, 4> bufferInfos{};
     bufferInfos[0].buffer = ambientUniformBuffer.buffer;
     bufferInfos[0].offset = 0;
     bufferInfos[0].range = sizeof(AmbientUniform);
@@ -1272,8 +1350,11 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Scene3D &scene)
     bufferInfos[2].buffer = pointLightStorageBuffer.buffer;
     bufferInfos[2].offset = 0;
     bufferInfos[2].range = static_cast<VkDeviceSize>(pointBytes.size());
+    bufferInfos[3].buffer = spotLightStorageBuffer.buffer;
+    bufferInfos[3].offset = 0;
+    bufferInfos[3].range = static_cast<VkDeviceSize>(spotBytes.size());
 
-    std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
+    std::array<VkWriteDescriptorSet, 4> descriptorWrites{};
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = lightingDescriptorSet;
     descriptorWrites[0].dstBinding = 0;
@@ -1294,6 +1375,13 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Scene3D &scene)
     descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorWrites[2].descriptorCount = 1;
     descriptorWrites[2].pBufferInfo = &bufferInfos[2];
+
+    descriptorWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[3].dstSet = lightingDescriptorSet;
+    descriptorWrites[3].dstBinding = 3;
+    descriptorWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[3].descriptorCount = 1;
+    descriptorWrites[3].pBufferInfo = &bufferInfos[3];
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     return true;
@@ -1405,7 +1493,11 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.material[0] = Vector3::clamp(entity.material.solid.ambientFactor, 0.0f, 1.0f);
                 vertex.material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
                 vertex.material[2] = entity.material.solid.unlit ? 1.0f : 0.0f;
-                vertex.material[3] = 0.0f;
+                vertex.material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
+                vertex.lighting[0] = Vector3::clamp(entity.material.solid.specularStrength, 0.0f, 1.0f);
+                vertex.lighting[1] = std::max(entity.material.solid.shininess, 1.0f);
+                vertex.lighting[2] = 0.0f;
+                vertex.lighting[3] = 0.0f;
                 vertices.push_back(vertex);
             }
         }
@@ -1481,7 +1573,11 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.material[0] = Vector3::clamp(entity.material.wireframe.ambientFactor, 0.0f, 1.0f);
                 vertex.material[1] = 0.0f;
                 vertex.material[2] = entity.material.wireframe.unlit ? 1.0f : 0.0f;
-                vertex.material[3] = 0.0f;
+                vertex.material[3] = entity.material.wireframe.doubleSidedLighting ? 1.0f : 0.0f;
+                vertex.lighting[0] = Vector3::clamp(entity.material.wireframe.specularStrength, 0.0f, 1.0f);
+                vertex.lighting[1] = std::max(entity.material.wireframe.shininess, 1.0f);
+                vertex.lighting[2] = 0.0f;
+                vertex.lighting[3] = 0.0f;
                 lineVertices.push_back(vertex);
             }
         }
@@ -1750,6 +1846,14 @@ void VulkanGraphicsDevice::destroyDevice()
         if (pointLightStorageBuffer.memory)
         {
             vkFreeMemory(device, pointLightStorageBuffer.memory, nullptr);
+        }
+        if (spotLightStorageBuffer.buffer)
+        {
+            vkDestroyBuffer(device, spotLightStorageBuffer.buffer, nullptr);
+        }
+        if (spotLightStorageBuffer.memory)
+        {
+            vkFreeMemory(device, spotLightStorageBuffer.memory, nullptr);
         }
         if (opaqueTrianglePipeline)
         {

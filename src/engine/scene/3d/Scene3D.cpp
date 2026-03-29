@@ -1,5 +1,7 @@
 #include "engine/scene/3d/Scene3D.h"
 
+#include <algorithm>
+
 Entity3D &Scene3D::createEntity(const Entity3D &entity)
 {
     entities.push_back(entity);
@@ -97,4 +99,43 @@ std::vector<PointLight> &Scene3D::getPointLights()
 const std::vector<PointLight> &Scene3D::getPointLights() const
 {
     return pointLights;
+}
+
+SpotLightHandle Scene3D::createSpotLight(const SpotLightDesc &desc)
+{
+    SpotLight light;
+    light.position = desc.position;
+    light.direction = desc.direction.lengthSquared() > 0.0f ? desc.direction.normalized() : Vector3(0.0f, -1.0f, 0.0f);
+    light.color = desc.color;
+    light.intensity = desc.intensity;
+    light.range = desc.range > 0.0f ? desc.range : 0.001f;
+    light.innerConeCos = desc.innerConeCos;
+    light.outerConeCos = desc.outerConeCos;
+    if (light.innerConeCos < light.outerConeCos)
+    {
+        std::swap(light.innerConeCos, light.outerConeCos);
+    }
+    spotLights.push_back(light);
+    return SpotLightHandle{spotLights.size() - 1};
+}
+
+void Scene3D::destroySpotLight(SpotLightHandle handle)
+{
+    if (!handle.isValid() || handle.id >= spotLights.size())
+    {
+        return;
+    }
+
+    spotLights[handle.id].enabled = false;
+    spotLights[handle.id].intensity = 0.0f;
+}
+
+std::vector<SpotLight> &Scene3D::getSpotLights()
+{
+    return spotLights;
+}
+
+const std::vector<SpotLight> &Scene3D::getSpotLights() const
+{
+    return spotLights;
 }

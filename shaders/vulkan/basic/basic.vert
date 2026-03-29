@@ -6,12 +6,14 @@ layout(location = 2) in vec4 inEmissive;
 layout(location = 3) in vec4 inNormal;
 layout(location = 4) in vec4 inWorldPosition;
 layout(location = 5) in vec4 inMaterial;
+layout(location = 6) in vec4 inLighting;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec3 fragEmissive;
 layout(location = 2) out vec3 fragNormal;
 layout(location = 3) out vec3 fragWorldPosition;
 layout(location = 4) out vec4 fragMaterial;
+layout(location = 5) out vec4 fragLighting;
 
 void main()
 {
@@ -21,4 +23,5 @@ void main()
     fragNormal = inNormal.xyz;
     fragWorldPosition = inWorldPosition.xyz;
     fragMaterial = inMaterial;
+    fragLighting = inLighting;
 }

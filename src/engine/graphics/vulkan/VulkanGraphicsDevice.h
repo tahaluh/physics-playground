@@ -11,6 +11,8 @@
 class VulkanGraphicsDevice : public IGraphicsDevice
 {
 public:
+    static constexpr uint32_t kPointShadowFaceCount = 6;
+
     struct TriangleVertex
     {
         float position[3];
@@ -46,12 +48,8 @@ public:
     {
         float ambientColorIntensity[4];
         float cameraWorldPosition[4];
-        float directionalShadowMatrixRows[4][4];
-        float spotShadowMatrixRows[4][4];
-        float pointShadowMatrixRows[24][4];
-        float shadowFlags[4];
         float shadowBiases[4];
-        float pointShadowPositionRange[4];
+        float shadowCounts[4];
     };
 
     struct LightStorageHeader
@@ -161,20 +159,22 @@ private:
     VkImage depthImage = VK_NULL_HANDLE;
     VkDeviceMemory depthImageMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
-    VkImage shadowDepthImage = VK_NULL_HANDLE;
-    VkDeviceMemory shadowDepthImageMemory = VK_NULL_HANDLE;
-    VkImageView shadowDepthImageView = VK_NULL_HANDLE;
+    VkImage directionalShadowDepthImage = VK_NULL_HANDLE;
+    VkDeviceMemory directionalShadowDepthImageMemory = VK_NULL_HANDLE;
+    VkImageView directionalShadowDepthImageView = VK_NULL_HANDLE;
     VkSampler shadowDepthSampler = VK_NULL_HANDLE;
-    VkFramebuffer shadowFramebuffer = VK_NULL_HANDLE;
+    std::vector<VkImageView> directionalShadowLayerImageViews;
+    std::vector<VkFramebuffer> directionalShadowFramebuffers;
     VkImage spotShadowDepthImage = VK_NULL_HANDLE;
     VkDeviceMemory spotShadowDepthImageMemory = VK_NULL_HANDLE;
     VkImageView spotShadowDepthImageView = VK_NULL_HANDLE;
-    VkFramebuffer spotShadowFramebuffer = VK_NULL_HANDLE;
+    std::vector<VkImageView> spotShadowLayerImageViews;
+    std::vector<VkFramebuffer> spotShadowFramebuffers;
     VkImage pointShadowDepthImage = VK_NULL_HANDLE;
     VkDeviceMemory pointShadowDepthImageMemory = VK_NULL_HANDLE;
     VkImageView pointShadowDepthImageView = VK_NULL_HANDLE;
-    VkImageView pointShadowFaceImageViews[6] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
-    VkFramebuffer pointShadowFramebuffers[6] = {VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE, VK_NULL_HANDLE};
+    std::vector<VkImageView> pointShadowFaceImageViews;
+    std::vector<VkFramebuffer> pointShadowFramebuffers;
     VkExtent2D shadowExtent = {2048, 2048};
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
@@ -199,10 +199,16 @@ private:
     BufferHandle directionalLightStorageBuffer;
     BufferHandle pointLightStorageBuffer;
     BufferHandle spotLightStorageBuffer;
+    BufferHandle directionalShadowMatrixStorageBuffer;
+    BufferHandle spotShadowMatrixStorageBuffer;
+    BufferHandle pointShadowMatrixStorageBuffer;
     VkDeviceSize ambientUniformBufferSize = 0;
     VkDeviceSize directionalLightStorageBufferSize = 0;
     VkDeviceSize pointLightStorageBufferSize = 0;
     VkDeviceSize spotLightStorageBufferSize = 0;
+    VkDeviceSize directionalShadowMatrixStorageBufferSize = 0;
+    VkDeviceSize spotShadowMatrixStorageBufferSize = 0;
+    VkDeviceSize pointShadowMatrixStorageBufferSize = 0;
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;
@@ -216,18 +222,12 @@ private:
     std::vector<TriangleVertex> lineSceneVertices;
     std::vector<TriangleVertex> shadowSceneVertices;
     AmbientUniform ambientUniform = {};
-    Matrix4 currentDirectionalShadowViewProjection = Matrix4::identity();
-    Matrix4 currentSpotShadowViewProjection = Matrix4::identity();
-    std::array<Matrix4, 6> currentPointShadowViewProjections = {
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity()};
-    bool directionalShadowEnabled = false;
-    bool spotShadowEnabled = false;
-    bool pointShadowEnabled = false;
+    std::vector<Matrix4> currentDirectionalShadowViewProjections;
+    std::vector<Matrix4> currentSpotShadowViewProjections;
+    std::vector<Matrix4> currentPointShadowViewProjections;
+    uint32_t directionalShadowCount = 0;
+    uint32_t spotShadowCount = 0;
+    uint32_t pointShadowCount = 0;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

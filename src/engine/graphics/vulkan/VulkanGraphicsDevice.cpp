@@ -863,6 +863,10 @@ bool VulkanGraphicsDevice::createDepthResources()
 
 bool VulkanGraphicsDevice::createShadowResources()
 {
+    const uint32_t directionalLayerCount = std::max(1u, directionalShadowCount);
+    const uint32_t spotLayerCount = std::max(1u, spotShadowCount);
+    const uint32_t pointLayerCount = std::max(1u, pointShadowCount * VulkanGraphicsDevice::kPointShadowFaceCount);
+
     const auto createShadowImage =
         [&](uint32_t layers, VkImageCreateFlags flags, VkImage &image, VkDeviceMemory &memory) -> bool
     {
@@ -923,21 +927,43 @@ bool VulkanGraphicsDevice::createShadowResources()
         return vkCreateImageView(device, &viewInfo, nullptr, &view) == VK_SUCCESS;
     };
 
-    if (!createShadowImage(1, 0, shadowDepthImage, shadowDepthImageMemory) ||
-        !createShadowImage(1, 0, spotShadowDepthImage, spotShadowDepthImageMemory) ||
-        !createShadowImage(6, 0, pointShadowDepthImage, pointShadowDepthImageMemory))
+    if (!createShadowImage(directionalLayerCount, 0, directionalShadowDepthImage, directionalShadowDepthImageMemory) ||
+        !createShadowImage(spotLayerCount, 0, spotShadowDepthImage, spotShadowDepthImageMemory) ||
+        !createShadowImage(pointLayerCount, 0, pointShadowDepthImage, pointShadowDepthImageMemory))
     {
         return false;
     }
 
-    if (!createDepthView(shadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, shadowDepthImageView) ||
-        !createDepthView(spotShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, spotShadowDepthImageView) ||
-        !createDepthView(pointShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, 6, pointShadowDepthImageView))
+    if (!createDepthView(directionalShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, directionalLayerCount, directionalShadowDepthImageView) ||
+        !createDepthView(spotShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, spotLayerCount, spotShadowDepthImageView) ||
+        !createDepthView(pointShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D_ARRAY, 0, pointLayerCount, pointShadowDepthImageView))
     {
         return false;
     }
 
-    for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex)
+    directionalShadowLayerImageViews.assign(directionalLayerCount, VK_NULL_HANDLE);
+    directionalShadowFramebuffers.assign(directionalLayerCount, VK_NULL_HANDLE);
+    for (uint32_t layerIndex = 0; layerIndex < directionalLayerCount; ++layerIndex)
+    {
+        if (!createDepthView(directionalShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, layerIndex, 1, directionalShadowLayerImageViews[layerIndex]))
+        {
+            return false;
+        }
+    }
+
+    spotShadowLayerImageViews.assign(spotLayerCount, VK_NULL_HANDLE);
+    spotShadowFramebuffers.assign(spotLayerCount, VK_NULL_HANDLE);
+    for (uint32_t layerIndex = 0; layerIndex < spotLayerCount; ++layerIndex)
+    {
+        if (!createDepthView(spotShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, layerIndex, 1, spotShadowLayerImageViews[layerIndex]))
+        {
+            return false;
+        }
+    }
+
+    pointShadowFaceImageViews.assign(pointLayerCount, VK_NULL_HANDLE);
+    pointShadowFramebuffers.assign(pointLayerCount, VK_NULL_HANDLE);
+    for (uint32_t faceIndex = 0; faceIndex < pointLayerCount; ++faceIndex)
     {
         if (!createDepthView(pointShadowDepthImage, VK_IMAGE_VIEW_TYPE_2D, faceIndex, 1, pointShadowFaceImageViews[faceIndex]))
         {
@@ -978,13 +1004,23 @@ bool VulkanGraphicsDevice::createShadowResources()
         return vkCreateFramebuffer(device, &framebufferInfo, nullptr, &framebuffer) == VK_SUCCESS;
     };
 
-    if (!createShadowFramebuffer(shadowDepthImageView, shadowFramebuffer) ||
-        !createShadowFramebuffer(spotShadowDepthImageView, spotShadowFramebuffer))
+    for (uint32_t layerIndex = 0; layerIndex < directionalLayerCount; ++layerIndex)
     {
-        return false;
+        if (!createShadowFramebuffer(directionalShadowLayerImageViews[layerIndex], directionalShadowFramebuffers[layerIndex]))
+        {
+            return false;
+        }
     }
 
-    for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex)
+    for (uint32_t layerIndex = 0; layerIndex < spotLayerCount; ++layerIndex)
+    {
+        if (!createShadowFramebuffer(spotShadowLayerImageViews[layerIndex], spotShadowFramebuffers[layerIndex]))
+        {
+            return false;
+        }
+    }
+
+    for (uint32_t faceIndex = 0; faceIndex < pointLayerCount; ++faceIndex)
     {
         if (!createShadowFramebuffer(pointShadowFaceImageViews[faceIndex], pointShadowFramebuffers[faceIndex]))
         {
@@ -997,7 +1033,7 @@ bool VulkanGraphicsDevice::createShadowResources()
 
 bool VulkanGraphicsDevice::createLightingResources()
 {
-    std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 10> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -1015,17 +1051,29 @@ bool VulkanGraphicsDevice::createLightingResources()
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[4].binding = 4;
-    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[4].descriptorCount = 1;
     bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[5].binding = 5;
-    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[5].descriptorCount = 1;
     bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[6].binding = 6;
-    bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[6].descriptorCount = 1;
     bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[7].binding = 7;
+    bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[7].descriptorCount = 1;
+    bindings[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[8].binding = 8;
+    bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[8].descriptorCount = 1;
+    bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[9].binding = 9;
+    bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[9].descriptorCount = 1;
+    bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1076,11 +1124,41 @@ bool VulkanGraphicsDevice::createLightingResources()
     }
     spotLightStorageBufferSize = sizeof(LightStorageHeader);
 
+    if (!createBuffer(
+            sizeof(float) * 4,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            directionalShadowMatrixStorageBuffer))
+    {
+        return false;
+    }
+    directionalShadowMatrixStorageBufferSize = sizeof(float) * 4;
+
+    if (!createBuffer(
+            sizeof(float) * 4,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            spotShadowMatrixStorageBuffer))
+    {
+        return false;
+    }
+    spotShadowMatrixStorageBufferSize = sizeof(float) * 4;
+
+    if (!createBuffer(
+            sizeof(float) * 4,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            pointShadowMatrixStorageBuffer))
+    {
+        return false;
+    }
+    pointShadowMatrixStorageBufferSize = sizeof(float) * 4;
+
     std::array<VkDescriptorPoolSize, 3> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 3;
+    poolSizes[1].descriptorCount = 6;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[2].descriptorCount = 3;
 
@@ -1611,18 +1689,12 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     ambientUniform.cameraWorldPosition[1] = camera.transform.position.y;
     ambientUniform.cameraWorldPosition[2] = camera.transform.position.z;
     ambientUniform.cameraWorldPosition[3] = 1.0f;
-    currentDirectionalShadowViewProjection = Matrix4::identity();
-    currentSpotShadowViewProjection = Matrix4::identity();
-    currentPointShadowViewProjections = {
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity(),
-        Matrix4::identity()};
-    directionalShadowEnabled = false;
-    pointShadowEnabled = false;
-    spotShadowEnabled = false;
+    currentDirectionalShadowViewProjections.clear();
+    currentSpotShadowViewProjections.clear();
+    currentPointShadowViewProjections.clear();
+    directionalShadowCount = 0;
+    pointShadowCount = 0;
+    spotShadowCount = 0;
     for (const DirectionalLight &light : scene.getDirectionalLights())
     {
         if (!light.enabled || light.intensity <= 0.0f)
@@ -1630,9 +1702,8 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
             continue;
         }
 
-        currentDirectionalShadowViewProjection = computeDirectionalShadowMatrix(scene, light);
-        directionalShadowEnabled = true;
-        break;
+        currentDirectionalShadowViewProjections.push_back(computeDirectionalShadowMatrix(scene, light));
+        ++directionalShadowCount;
     }
     for (const PointLight &light : scene.getPointLights())
     {
@@ -1641,20 +1712,12 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
             continue;
         }
 
-        currentPointShadowViewProjections = computePointShadowMatrices(light);
-        ambientUniform.pointShadowPositionRange[0] = light.position.x;
-        ambientUniform.pointShadowPositionRange[1] = light.position.y;
-        ambientUniform.pointShadowPositionRange[2] = light.position.z;
-        ambientUniform.pointShadowPositionRange[3] = light.range;
-        pointShadowEnabled = true;
-        break;
-    }
-    if (!pointShadowEnabled)
-    {
-        ambientUniform.pointShadowPositionRange[0] = 0.0f;
-        ambientUniform.pointShadowPositionRange[1] = 0.0f;
-        ambientUniform.pointShadowPositionRange[2] = 0.0f;
-        ambientUniform.pointShadowPositionRange[3] = 0.0f;
+        const std::array<Matrix4, 6> pointMatrices = computePointShadowMatrices(light);
+        for (uint32_t faceIndex = 0; faceIndex < VulkanGraphicsDevice::kPointShadowFaceCount; ++faceIndex)
+        {
+            currentPointShadowViewProjections.push_back(pointMatrices[faceIndex]);
+        }
+        ++pointShadowCount;
     }
     for (const SpotLight &light : scene.getSpotLights())
     {
@@ -1663,38 +1726,127 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
             continue;
         }
 
-        currentSpotShadowViewProjection = computeSpotShadowMatrix(light);
-        spotShadowEnabled = true;
-        break;
+        currentSpotShadowViewProjections.push_back(computeSpotShadowMatrix(light));
+        ++spotShadowCount;
     }
-
-    for (int row = 0; row < 4; ++row)
-    {
-        for (int col = 0; col < 4; ++col)
-        {
-            ambientUniform.directionalShadowMatrixRows[row][col] = currentDirectionalShadowViewProjection.m[row * 4 + col];
-            ambientUniform.spotShadowMatrixRows[row][col] = currentSpotShadowViewProjection.m[row * 4 + col];
-        }
-    }
-    for (int faceIndex = 0; faceIndex < 6; ++faceIndex)
-    {
-        for (int row = 0; row < 4; ++row)
-        {
-            for (int col = 0; col < 4; ++col)
-            {
-                ambientUniform.pointShadowMatrixRows[faceIndex * 4 + row][col] =
-                    currentPointShadowViewProjections[faceIndex].m[row * 4 + col];
-            }
-        }
-    }
-    ambientUniform.shadowFlags[0] = directionalShadowEnabled ? 1.0f : 0.0f;
-    ambientUniform.shadowFlags[1] = pointShadowEnabled ? 1.0f : 0.0f;
-    ambientUniform.shadowFlags[2] = spotShadowEnabled ? 1.0f : 0.0f;
-    ambientUniform.shadowFlags[3] = 0.0f;
+    ambientUniform.shadowCounts[0] = static_cast<float>(directionalShadowCount);
+    ambientUniform.shadowCounts[1] = static_cast<float>(pointShadowCount);
+    ambientUniform.shadowCounts[2] = static_cast<float>(spotShadowCount);
+    ambientUniform.shadowCounts[3] = 0.0f;
     ambientUniform.shadowBiases[0] = 0.0018f;
     ambientUniform.shadowBiases[1] = 0.0065f;
     ambientUniform.shadowBiases[2] = 0.0025f;
     ambientUniform.shadowBiases[3] = 0.0f;
+
+    const uint32_t desiredDirectionalLayers = std::max(1u, directionalShadowCount);
+    const uint32_t desiredSpotLayers = std::max(1u, spotShadowCount);
+    const uint32_t desiredPointLayers = std::max(1u, pointShadowCount * VulkanGraphicsDevice::kPointShadowFaceCount);
+    if (!directionalShadowDepthImage ||
+        directionalShadowLayerImageViews.size() != desiredDirectionalLayers ||
+        spotShadowLayerImageViews.size() != desiredSpotLayers ||
+        pointShadowFaceImageViews.size() != desiredPointLayers)
+    {
+        for (VkFramebuffer framebuffer : directionalShadowFramebuffers)
+        {
+            if (framebuffer)
+            {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+        }
+        directionalShadowFramebuffers.clear();
+        for (VkImageView imageView : directionalShadowLayerImageViews)
+        {
+            if (imageView)
+            {
+                vkDestroyImageView(device, imageView, nullptr);
+            }
+        }
+        directionalShadowLayerImageViews.clear();
+        if (directionalShadowDepthImageView)
+        {
+            vkDestroyImageView(device, directionalShadowDepthImageView, nullptr);
+            directionalShadowDepthImageView = VK_NULL_HANDLE;
+        }
+        if (directionalShadowDepthImage)
+        {
+            vkDestroyImage(device, directionalShadowDepthImage, nullptr);
+            directionalShadowDepthImage = VK_NULL_HANDLE;
+        }
+        if (directionalShadowDepthImageMemory)
+        {
+            vkFreeMemory(device, directionalShadowDepthImageMemory, nullptr);
+            directionalShadowDepthImageMemory = VK_NULL_HANDLE;
+        }
+
+        for (VkFramebuffer framebuffer : spotShadowFramebuffers)
+        {
+            if (framebuffer)
+            {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+        }
+        spotShadowFramebuffers.clear();
+        for (VkImageView imageView : spotShadowLayerImageViews)
+        {
+            if (imageView)
+            {
+                vkDestroyImageView(device, imageView, nullptr);
+            }
+        }
+        spotShadowLayerImageViews.clear();
+        if (spotShadowDepthImageView)
+        {
+            vkDestroyImageView(device, spotShadowDepthImageView, nullptr);
+            spotShadowDepthImageView = VK_NULL_HANDLE;
+        }
+        if (spotShadowDepthImage)
+        {
+            vkDestroyImage(device, spotShadowDepthImage, nullptr);
+            spotShadowDepthImage = VK_NULL_HANDLE;
+        }
+        if (spotShadowDepthImageMemory)
+        {
+            vkFreeMemory(device, spotShadowDepthImageMemory, nullptr);
+            spotShadowDepthImageMemory = VK_NULL_HANDLE;
+        }
+
+        for (VkFramebuffer framebuffer : pointShadowFramebuffers)
+        {
+            if (framebuffer)
+            {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+        }
+        pointShadowFramebuffers.clear();
+        for (VkImageView imageView : pointShadowFaceImageViews)
+        {
+            if (imageView)
+            {
+                vkDestroyImageView(device, imageView, nullptr);
+            }
+        }
+        pointShadowFaceImageViews.clear();
+        if (pointShadowDepthImageView)
+        {
+            vkDestroyImageView(device, pointShadowDepthImageView, nullptr);
+            pointShadowDepthImageView = VK_NULL_HANDLE;
+        }
+        if (pointShadowDepthImage)
+        {
+            vkDestroyImage(device, pointShadowDepthImage, nullptr);
+            pointShadowDepthImage = VK_NULL_HANDLE;
+        }
+        if (pointShadowDepthImageMemory)
+        {
+            vkFreeMemory(device, pointShadowDepthImageMemory, nullptr);
+            pointShadowDepthImageMemory = VK_NULL_HANDLE;
+        }
+
+        if (!createShadowResources())
+        {
+            return false;
+        }
+    }
 
     const auto updateBufferData =
         [&](BufferHandle &bufferHandle,
@@ -1846,6 +1998,33 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
             spotLights.size() * sizeof(GpuSpotLight));
     }
 
+    std::vector<float> directionalShadowMatrixFloats(currentDirectionalShadowViewProjections.size() * 16, 0.0f);
+    for (size_t matrixIndex = 0; matrixIndex < currentDirectionalShadowViewProjections.size(); ++matrixIndex)
+    {
+        std::memcpy(
+            directionalShadowMatrixFloats.data() + matrixIndex * 16,
+            currentDirectionalShadowViewProjections[matrixIndex].m.data(),
+            sizeof(float) * 16);
+    }
+
+    std::vector<float> spotShadowMatrixFloats(currentSpotShadowViewProjections.size() * 16, 0.0f);
+    for (size_t matrixIndex = 0; matrixIndex < currentSpotShadowViewProjections.size(); ++matrixIndex)
+    {
+        std::memcpy(
+            spotShadowMatrixFloats.data() + matrixIndex * 16,
+            currentSpotShadowViewProjections[matrixIndex].m.data(),
+            sizeof(float) * 16);
+    }
+
+    std::vector<float> pointShadowMatrixFloats(currentPointShadowViewProjections.size() * 16, 0.0f);
+    for (size_t matrixIndex = 0; matrixIndex < currentPointShadowViewProjections.size(); ++matrixIndex)
+    {
+        std::memcpy(
+            pointShadowMatrixFloats.data() + matrixIndex * 16,
+            currentPointShadowViewProjections[matrixIndex].m.data(),
+            sizeof(float) * 16);
+    }
+
     if (!updateBufferData(
             ambientUniformBuffer,
             ambientUniformBufferSize,
@@ -1886,7 +2065,40 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
         return false;
     }
 
-    std::array<VkDescriptorBufferInfo, 4> bufferInfos{};
+    const VkDeviceSize directionalShadowMatrixBytes = std::max<VkDeviceSize>(sizeof(float) * 4, directionalShadowMatrixFloats.size() * sizeof(float));
+    if (!updateBufferData(
+            directionalShadowMatrixStorageBuffer,
+            directionalShadowMatrixStorageBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            directionalShadowMatrixFloats.empty() ? &ambientUniform.shadowCounts[3] : directionalShadowMatrixFloats.data(),
+            directionalShadowMatrixBytes))
+    {
+        return false;
+    }
+
+    const VkDeviceSize spotShadowMatrixBytes = std::max<VkDeviceSize>(sizeof(float) * 4, spotShadowMatrixFloats.size() * sizeof(float));
+    if (!updateBufferData(
+            spotShadowMatrixStorageBuffer,
+            spotShadowMatrixStorageBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            spotShadowMatrixFloats.empty() ? &ambientUniform.shadowCounts[3] : spotShadowMatrixFloats.data(),
+            spotShadowMatrixBytes))
+    {
+        return false;
+    }
+
+    const VkDeviceSize pointShadowMatrixBytes = std::max<VkDeviceSize>(sizeof(float) * 4, pointShadowMatrixFloats.size() * sizeof(float));
+    if (!updateBufferData(
+            pointShadowMatrixStorageBuffer,
+            pointShadowMatrixStorageBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            pointShadowMatrixFloats.empty() ? &ambientUniform.shadowCounts[3] : pointShadowMatrixFloats.data(),
+            pointShadowMatrixBytes))
+    {
+        return false;
+    }
+
+    std::array<VkDescriptorBufferInfo, 7> bufferInfos{};
     bufferInfos[0].buffer = ambientUniformBuffer.buffer;
     bufferInfos[0].offset = 0;
     bufferInfos[0].range = sizeof(AmbientUniform);
@@ -1899,9 +2111,18 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     bufferInfos[3].buffer = spotLightStorageBuffer.buffer;
     bufferInfos[3].offset = 0;
     bufferInfos[3].range = static_cast<VkDeviceSize>(spotBytes.size());
+    bufferInfos[4].buffer = directionalShadowMatrixStorageBuffer.buffer;
+    bufferInfos[4].offset = 0;
+    bufferInfos[4].range = directionalShadowMatrixBytes;
+    bufferInfos[5].buffer = spotShadowMatrixStorageBuffer.buffer;
+    bufferInfos[5].offset = 0;
+    bufferInfos[5].range = spotShadowMatrixBytes;
+    bufferInfos[6].buffer = pointShadowMatrixStorageBuffer.buffer;
+    bufferInfos[6].offset = 0;
+    bufferInfos[6].range = pointShadowMatrixBytes;
     VkDescriptorImageInfo directionalShadowImageInfo{};
     directionalShadowImageInfo.sampler = shadowDepthSampler;
-    directionalShadowImageInfo.imageView = shadowDepthImageView;
+    directionalShadowImageInfo.imageView = directionalShadowDepthImageView;
     directionalShadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorImageInfo spotShadowImageInfo{};
     spotShadowImageInfo.sampler = shadowDepthSampler;
@@ -1912,7 +2133,7 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     pointShadowImageInfo.imageView = pointShadowDepthImageView;
     pointShadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    std::array<VkWriteDescriptorSet, 7> descriptorWrites{};
+    std::array<VkWriteDescriptorSet, 10> descriptorWrites{};
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = lightingDescriptorSet;
     descriptorWrites[0].dstBinding = 0;
@@ -1943,21 +2164,39 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     descriptorWrites[4].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[4].dstSet = lightingDescriptorSet;
     descriptorWrites[4].dstBinding = 4;
-    descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorWrites[4].descriptorCount = 1;
-    descriptorWrites[4].pImageInfo = &directionalShadowImageInfo;
+    descriptorWrites[4].pBufferInfo = &bufferInfos[4];
     descriptorWrites[5].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[5].dstSet = lightingDescriptorSet;
     descriptorWrites[5].dstBinding = 5;
-    descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorWrites[5].descriptorCount = 1;
-    descriptorWrites[5].pImageInfo = &spotShadowImageInfo;
+    descriptorWrites[5].pBufferInfo = &bufferInfos[5];
     descriptorWrites[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[6].dstSet = lightingDescriptorSet;
     descriptorWrites[6].dstBinding = 6;
-    descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     descriptorWrites[6].descriptorCount = 1;
-    descriptorWrites[6].pImageInfo = &pointShadowImageInfo;
+    descriptorWrites[6].pBufferInfo = &bufferInfos[6];
+    descriptorWrites[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[7].dstSet = lightingDescriptorSet;
+    descriptorWrites[7].dstBinding = 7;
+    descriptorWrites[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[7].descriptorCount = 1;
+    descriptorWrites[7].pImageInfo = &directionalShadowImageInfo;
+    descriptorWrites[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[8].dstSet = lightingDescriptorSet;
+    descriptorWrites[8].dstBinding = 8;
+    descriptorWrites[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[8].descriptorCount = 1;
+    descriptorWrites[8].pImageInfo = &spotShadowImageInfo;
+    descriptorWrites[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[9].dstSet = lightingDescriptorSet;
+    descriptorWrites[9].dstBinding = 9;
+    descriptorWrites[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrites[9].descriptorCount = 1;
+    descriptorWrites[9].pImageInfo = &pointShadowImageInfo;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     return true;
@@ -2528,13 +2767,43 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, spotLightStorageBuffer.memory, nullptr);
         }
-        if (shadowFramebuffer)
+        if (directionalShadowMatrixStorageBuffer.buffer)
         {
-            vkDestroyFramebuffer(device, shadowFramebuffer, nullptr);
+            vkDestroyBuffer(device, directionalShadowMatrixStorageBuffer.buffer, nullptr);
         }
-        if (spotShadowFramebuffer)
+        if (directionalShadowMatrixStorageBuffer.memory)
         {
-            vkDestroyFramebuffer(device, spotShadowFramebuffer, nullptr);
+            vkFreeMemory(device, directionalShadowMatrixStorageBuffer.memory, nullptr);
+        }
+        if (spotShadowMatrixStorageBuffer.buffer)
+        {
+            vkDestroyBuffer(device, spotShadowMatrixStorageBuffer.buffer, nullptr);
+        }
+        if (spotShadowMatrixStorageBuffer.memory)
+        {
+            vkFreeMemory(device, spotShadowMatrixStorageBuffer.memory, nullptr);
+        }
+        if (pointShadowMatrixStorageBuffer.buffer)
+        {
+            vkDestroyBuffer(device, pointShadowMatrixStorageBuffer.buffer, nullptr);
+        }
+        if (pointShadowMatrixStorageBuffer.memory)
+        {
+            vkFreeMemory(device, pointShadowMatrixStorageBuffer.memory, nullptr);
+        }
+        for (VkFramebuffer framebuffer : directionalShadowFramebuffers)
+        {
+            if (framebuffer)
+            {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
+        }
+        for (VkFramebuffer framebuffer : spotShadowFramebuffers)
+        {
+            if (framebuffer)
+            {
+                vkDestroyFramebuffer(device, framebuffer, nullptr);
+            }
         }
         for (VkFramebuffer framebuffer : pointShadowFramebuffers)
         {
@@ -2547,13 +2816,27 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroySampler(device, shadowDepthSampler, nullptr);
         }
-        if (shadowDepthImageView)
+        if (directionalShadowDepthImageView)
         {
-            vkDestroyImageView(device, shadowDepthImageView, nullptr);
+            vkDestroyImageView(device, directionalShadowDepthImageView, nullptr);
+        }
+        for (VkImageView imageView : directionalShadowLayerImageViews)
+        {
+            if (imageView)
+            {
+                vkDestroyImageView(device, imageView, nullptr);
+            }
         }
         if (spotShadowDepthImageView)
         {
             vkDestroyImageView(device, spotShadowDepthImageView, nullptr);
+        }
+        for (VkImageView imageView : spotShadowLayerImageViews)
+        {
+            if (imageView)
+            {
+                vkDestroyImageView(device, imageView, nullptr);
+            }
         }
         if (pointShadowDepthImageView)
         {
@@ -2566,9 +2849,9 @@ void VulkanGraphicsDevice::destroyDevice()
                 vkDestroyImageView(device, imageView, nullptr);
             }
         }
-        if (shadowDepthImage)
+        if (directionalShadowDepthImage)
         {
-            vkDestroyImage(device, shadowDepthImage, nullptr);
+            vkDestroyImage(device, directionalShadowDepthImage, nullptr);
         }
         if (spotShadowDepthImage)
         {
@@ -2578,9 +2861,9 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyImage(device, pointShadowDepthImage, nullptr);
         }
-        if (shadowDepthImageMemory)
+        if (directionalShadowDepthImageMemory)
         {
-            vkFreeMemory(device, shadowDepthImageMemory, nullptr);
+            vkFreeMemory(device, directionalShadowDepthImageMemory, nullptr);
         }
         if (spotShadowDepthImageMemory)
         {
@@ -2711,19 +2994,20 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             vkCmdEndRenderPass(commandBuffer);
         };
 
-        if (directionalShadowEnabled)
+        for (uint32_t shadowIndex = 0; shadowIndex < directionalShadowCount; ++shadowIndex)
         {
-            renderShadowPass(shadowFramebuffer, currentDirectionalShadowViewProjection);
+            renderShadowPass(directionalShadowFramebuffers[shadowIndex], currentDirectionalShadowViewProjections[shadowIndex]);
         }
-        if (spotShadowEnabled)
+        for (uint32_t shadowIndex = 0; shadowIndex < spotShadowCount; ++shadowIndex)
         {
-            renderShadowPass(spotShadowFramebuffer, currentSpotShadowViewProjection);
+            renderShadowPass(spotShadowFramebuffers[shadowIndex], currentSpotShadowViewProjections[shadowIndex]);
         }
-        if (pointShadowEnabled)
+        for (uint32_t pointIndex = 0; pointIndex < pointShadowCount; ++pointIndex)
         {
-            for (uint32_t faceIndex = 0; faceIndex < 6; ++faceIndex)
+            for (uint32_t faceIndex = 0; faceIndex < VulkanGraphicsDevice::kPointShadowFaceCount; ++faceIndex)
             {
-                renderShadowPass(pointShadowFramebuffers[faceIndex], currentPointShadowViewProjections[faceIndex]);
+                const uint32_t layerIndex = pointIndex * VulkanGraphicsDevice::kPointShadowFaceCount + faceIndex;
+                renderShadowPass(pointShadowFramebuffers[layerIndex], currentPointShadowViewProjections[layerIndex]);
             }
         }
     }

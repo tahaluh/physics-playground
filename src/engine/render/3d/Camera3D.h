@@ -57,7 +57,7 @@ public:
 
     Vector3 getUp() const
     {
-        return getRight().cross(getForward() * -1.0f).normalized();
+        return getRight().cross(getForward()).normalized();
     }
 
     bool projectPoint(const Vector3 &worldPoint, int viewportWidth, int viewportHeight, Vector2 &screenPoint) const

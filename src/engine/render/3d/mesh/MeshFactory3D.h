@@ -193,8 +193,8 @@ inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeS
 
             mesh.edges.push_back({current, currentNext});
             mesh.edges.push_back({current, next});
-            mesh.triangles.push_back({{current, next, currentNext}, color});
-            mesh.triangles.push_back({{currentNext, next, nextNext}, color});
+            mesh.triangles.push_back({{current, currentNext, next}, color});
+            mesh.triangles.push_back({{currentNext, nextNext, next}, color});
         }
     }
 

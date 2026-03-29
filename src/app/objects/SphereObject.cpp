@@ -28,7 +28,7 @@ SphereObjectDesc SphereObject::makeDefaultDesc()
     desc.borderMaterial.renderWireframe = true;
     desc.ballMaterial.solid.color = 0xFFFF9F1C;
     desc.ballMaterial.solid.opacity = 1.0f;
-    desc.ballMaterial.solid.emissiveColor = 0x14080400;
+    desc.ballMaterial.solid.emissiveColor = 0x00000000;
     desc.ballMaterial.wireframe.color = 0xFFFFD166;
     desc.ballMaterial.wireframe.opacity = 1.0f;
     desc.ballMaterial.renderSolid = true;
@@ -44,7 +44,7 @@ std::unique_ptr<SphereObject> SphereObject::create(const SphereObjectDesc &desc)
     object->physicsScene = std::make_unique<PhysicsScene3D>();
     object->renderScene = std::make_unique<Scene3D>();
     object->renderScene->getAmbientLight().color = 0xFFFFFFFF;
-    object->renderScene->getAmbientLight().intensity = 1.0f;
+    object->renderScene->getAmbientLight().intensity = 0.2f;
 
     object->borderBodyIndex = object->physicsScene->getBodies().size();
     object->physicsScene->addBody(std::make_unique<BorderSphereBody3D>(Vector3::zero(), desc.boundaryRadius));

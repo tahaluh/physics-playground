@@ -37,7 +37,6 @@ SphereArenaObjectDesc SphereArenaObject::makeDefaultDesc()
     desc.ballMaterial.renderWireframe = true;
 
     desc.cubeSize = desc.ballRadius * 2.0f;
-    desc.cubeColliderRadius = desc.ballRadius;
     desc.cubeMaterial.solid = MaterialPresets3D::makeRubber(0xFF50C878);
     desc.cubeMaterial.wireframe.baseColor = 0xFFB8FFD4;
     desc.cubeMaterial.wireframe.opacity = 0.75f;

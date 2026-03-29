@@ -1,5 +1,9 @@
 #include "engine/physics/3d/PhysicsWorld3D.h"
 
+#include <algorithm>
+#include <array>
+#include <vector>
+
 #include "engine/physics/3d/PhysicsBody3D.h"
 #include "engine/physics/3d/shapes/BoxCollider3D.h"
 #include "engine/physics/3d/shapes/SphereShape3D.h"
@@ -8,6 +12,13 @@
 namespace
 {
 constexpr float kBoxAngularImpulseScale = 0.32f;
+
+struct BoundaryContact3D
+{
+    Vector3 point = Vector3::zero();
+    Vector3 normal = Vector3::up();
+    float penetration = 0.0f;
+};
 
 struct OrientedBoxBasis
 {
@@ -46,13 +57,53 @@ Vector3 getBoxSupportPoint(const PhysicsBody3D &boxBody, const BoxCollider3D &bo
     return boxBody.getPosition() + basis.axisX * sx + basis.axisY * sy + basis.axisZ * sz;
 }
 
+std::array<Vector3, 8> getBoxWorldCorners(const PhysicsBody3D &boxBody, const BoxCollider3D &box)
+{
+    const OrientedBoxBasis basis = getBodyBasis(boxBody);
+    const Vector3 halfExtents = box.getHalfExtents();
+    return {
+        boxBody.getPosition() + basis.axisX * halfExtents.x + basis.axisY * halfExtents.y + basis.axisZ * halfExtents.z,
+        boxBody.getPosition() + basis.axisX * halfExtents.x + basis.axisY * halfExtents.y - basis.axisZ * halfExtents.z,
+        boxBody.getPosition() + basis.axisX * halfExtents.x - basis.axisY * halfExtents.y + basis.axisZ * halfExtents.z,
+        boxBody.getPosition() + basis.axisX * halfExtents.x - basis.axisY * halfExtents.y - basis.axisZ * halfExtents.z,
+        boxBody.getPosition() - basis.axisX * halfExtents.x + basis.axisY * halfExtents.y + basis.axisZ * halfExtents.z,
+        boxBody.getPosition() - basis.axisX * halfExtents.x + basis.axisY * halfExtents.y - basis.axisZ * halfExtents.z,
+        boxBody.getPosition() - basis.axisX * halfExtents.x - basis.axisY * halfExtents.y + basis.axisZ * halfExtents.z,
+        boxBody.getPosition() - basis.axisX * halfExtents.x - basis.axisY * halfExtents.y - basis.axisZ * halfExtents.z};
+}
+
+std::vector<BoundaryContact3D> getBoxBoundaryContacts(
+    const PhysicsBody3D &boxBody,
+    const BoxCollider3D &box,
+    const PhysicsBody3D &borderBody,
+    const SphereShape3D &borderShape)
+{
+    std::vector<BoundaryContact3D> contacts;
+    contacts.reserve(8);
+    for (const Vector3 &corner : getBoxWorldCorners(boxBody, box))
+    {
+        const Vector3 relative = corner - borderBody.getPosition();
+        const float distance = relative.length();
+        if (distance <= borderShape.getRadius())
+        {
+            continue;
+        }
+
+        contacts.push_back({
+            corner,
+            distance > 0.0f ? relative / distance : Vector3::up(),
+            distance - borderShape.getRadius()});
+    }
+    return contacts;
+}
+
 void applyFrictionImpulse3D(
     PhysicsBody3D &bodyA,
     PhysicsBody3D &bodyB,
     const Vector3 &normal,
     const Vector3 &contactOffsetA,
     const Vector3 &contactOffsetB,
-    float staticFrictionScale = 1.0f)
+    float normalImpulseMagnitude)
 {
     const Vector3 contactVelocityA = bodyA.getVelocity() + bodyA.getAngularVelocity().cross(contactOffsetA);
     const Vector3 contactVelocityB = bodyB.getVelocity() + bodyB.getAngularVelocity().cross(contactOffsetB);
@@ -65,11 +116,13 @@ void applyFrictionImpulse3D(
         return;
     }
 
-    const float frictionStrength = Vector3::clamp(
-        (bodyA.getSurfaceMaterial().friction + bodyB.getSurfaceMaterial().friction) * 0.5f,
+    const float staticFriction = std::max(
         0.0f,
-        1.0f);
-    if (frictionStrength <= 0.0f)
+        (bodyA.getSurfaceMaterial().staticFriction + bodyB.getSurfaceMaterial().staticFriction) * 0.5f);
+    const float dynamicFriction = std::max(
+        0.0f,
+        (bodyA.getSurfaceMaterial().dynamicFriction + bodyB.getSurfaceMaterial().dynamicFriction) * 0.5f);
+    if (staticFriction <= 0.0f && dynamicFriction <= 0.0f)
     {
         return;
     }
@@ -87,12 +140,13 @@ void applyFrictionImpulse3D(
         return;
     }
 
-    const float staticFrictionSpeedThreshold = 0.12f * staticFrictionScale;
-    float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
-    if (tangentialSpeed < staticFrictionSpeedThreshold)
+    const float targetImpulseMagnitude = tangentialSpeed / denominator;
+    float frictionLimit = dynamicFriction * normalImpulseMagnitude;
+    if (targetImpulseMagnitude <= staticFriction * normalImpulseMagnitude)
     {
-        impulseMagnitude = -(tangentialSpeed / denominator);
+        frictionLimit = targetImpulseMagnitude;
     }
+    const float impulseMagnitude = -std::min(targetImpulseMagnitude, frictionLimit);
     const Vector3 impulse = tangent * impulseMagnitude;
     if (impulse.lengthSquared() <= 0.0f)
     {
@@ -203,7 +257,7 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
         boxBody.getAngularVelocity() +
         contactOffsetBox.cross(impulse) * boxBody.getInverseMomentOfInertia() * kBoxAngularImpulseScale);
 
-    applyFrictionImpulse3D(sphereBody, boxBody, normal, contactOffsetSphere, contactOffsetBox, 1.0f);
+    applyFrictionImpulse3D(sphereBody, boxBody, normal, contactOffsetSphere, contactOffsetBox, impulseMagnitude);
 }
 
 void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitutionThreshold)
@@ -297,7 +351,7 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitution
             bodyA->setAngularVelocity(bodyA->getAngularVelocity() - contactOffsetA.cross(impulse) * bodyA->getInverseMomentOfInertia());
             bodyB->setAngularVelocity(bodyB->getAngularVelocity() + contactOffsetB.cross(impulse) * bodyB->getInverseMomentOfInertia());
 
-            applyFrictionImpulse3D(*bodyA, *bodyB, normal, contactOffsetA, contactOffsetB, 1.0f);
+            applyFrictionImpulse3D(*bodyA, *bodyB, normal, contactOffsetA, contactOffsetB, impulseMagnitude);
         }
     }
 }
@@ -389,13 +443,26 @@ float PhysicsWorld3D::getSleepDelay() const
     return sleepDelay;
 }
 
+void PhysicsWorld3D::setSolverIterations(int newSolverIterations)
+{
+    solverIterations = std::max(1, newSolverIterations);
+}
+
+int PhysicsWorld3D::getSolverIterations() const
+{
+    return solverIterations;
+}
+
 void PhysicsWorld3D::step(PhysicsScene3D &scene, float dt) const
 {
     applyGlobalForces(scene);
     integrateBodies(scene, dt);
-    solveDynamicSphereSphereCollisions(scene, restitutionThreshold);
-    solveDynamicSphereBoxCollisions(scene, restitutionThreshold);
-    solveBoundaryCollisions(scene);
+    for (int iteration = 0; iteration < solverIterations; ++iteration)
+    {
+        solveDynamicSphereSphereCollisions(scene, restitutionThreshold);
+        solveDynamicSphereBoxCollisions(scene, restitutionThreshold);
+        solveBoundaryCollisions(scene);
+    }
     updateSleeping(scene, dt);
 }
 
@@ -458,6 +525,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             Vector3 contactPoint = Vector3::zero();
             Vector3 normal = Vector3::up();
             float penetration = 0.0f;
+            std::vector<BoundaryContact3D> boxContacts;
 
             if (dynamicShape)
             {
@@ -475,66 +543,93 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             }
             else
             {
-            const Vector3 supportPoint = getBoxSupportPoint(*dynamicCandidate, *dynamicBox, dynamicCandidate->getPosition() - borderCandidate->getPosition());
-                const Vector3 supportRelative = supportPoint - borderCandidate->getPosition();
-                const float supportDistance = supportRelative.length();
-                if (supportDistance <= borderShape->getRadius())
+                boxContacts = getBoxBoundaryContacts(*dynamicCandidate, *dynamicBox, *borderCandidate, *borderShape);
+                if (boxContacts.empty())
                 {
                     continue;
                 }
 
-                normal = supportDistance > 0.0f ? supportRelative / supportDistance : Vector3::up();
-                penetration = supportDistance - borderShape->getRadius();
-                contactPoint = supportPoint;
+                Vector3 weightedNormal = Vector3::zero();
+                float totalPenetration = 0.0f;
+                float deepestPenetration = 0.0f;
+                for (const BoundaryContact3D &contact : boxContacts)
+                {
+                    weightedNormal += contact.normal * contact.penetration;
+                    totalPenetration += contact.penetration;
+                    deepestPenetration = std::max(deepestPenetration, contact.penetration);
+                }
+
+                normal = totalPenetration > 0.0f ? weightedNormal / totalPenetration : boxContacts.front().normal;
+                if (normal.lengthSquared() == 0.0f)
+                {
+                    normal = boxContacts.front().normal;
+                }
+                normal = normal.normalized();
+                penetration = deepestPenetration;
+                contactPoint = boxContacts.front().point;
             }
 
             dynamicCandidate->setPosition(dynamicCandidate->getPosition() - normal * penetration);
 
-            const Vector3 contactOffset = contactPoint - dynamicCandidate->getCenterOfMassWorldPosition();
-            const Vector3 contactVelocity =
-                dynamicCandidate->getVelocity() + dynamicCandidate->getAngularVelocity().cross(contactOffset);
-            const float outwardSpeed = contactVelocity.dot(normal);
-            if (outwardSpeed > 0.0f)
+            std::vector<BoundaryContact3D> contactsToResolve;
+            if (dynamicShape)
             {
-                float restitution = dynamicCandidate->getSurfaceMaterial().restitution;
-                if (outwardSpeed < restitutionThreshold)
+                contactsToResolve.push_back({contactPoint, normal, penetration});
+            }
+            else
+            {
+                contactsToResolve = getBoxBoundaryContacts(*dynamicCandidate, *dynamicBox, *borderCandidate, *borderShape);
+                if (contactsToResolve.empty())
                 {
-                    restitution = 0.0f;
+                    contactsToResolve = boxContacts;
                 }
-                dynamicCandidate->wakeUp();
-                dynamicCandidate->setVelocity(
-                    dynamicCandidate->getVelocity() - normal * ((1.0f + restitution) * outwardSpeed));
             }
 
-            const float contactNormalSpeed = contactVelocity.dot(normal);
-            const Vector3 tangentialVelocity = contactVelocity - normal * contactNormalSpeed;
-            const float tangentialSpeed = tangentialVelocity.length();
-            const float surfaceFriction = dynamicCandidate->getSurfaceMaterial().friction;
-            const float frictionStrength = Vector3::clamp(surfaceFriction, 0.0f, 1.0f);
-            if (surfaceFriction > 0.0f && tangentialSpeed > 0.0f)
+            float maxFrictionStrength = 0.0f;
+            for (const BoundaryContact3D &contact : contactsToResolve)
             {
-                const Vector3 tangent = tangentialVelocity / tangentialSpeed;
-                const Vector3 radiusCrossTangent = contactOffset.cross(tangent);
-                const float denominator =
-                    dynamicCandidate->getInverseMass() +
-                    radiusCrossTangent.lengthSquared() * dynamicCandidate->getInverseMomentOfInertia();
-                if (denominator > 0.0f)
+                const Vector3 contactOffset = contact.point - dynamicCandidate->getCenterOfMassWorldPosition();
+                const Vector3 contactVelocity =
+                    dynamicCandidate->getVelocity() + dynamicCandidate->getAngularVelocity().cross(contactOffset);
+                const float outwardSpeed = contactVelocity.dot(contact.normal);
+                if (outwardSpeed > 0.0f)
                 {
-                    const float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
-                    const Vector3 impulse = tangent * impulseMagnitude;
+                    float restitution = dynamicCandidate->getSurfaceMaterial().restitution;
+                    if (outwardSpeed < restitutionThreshold)
+                    {
+                        restitution = 0.0f;
+                    }
+
                     dynamicCandidate->wakeUp();
+                    const float normalImpulseMagnitude = (1.0f + restitution) * outwardSpeed;
                     dynamicCandidate->setVelocity(
-                        dynamicCandidate->getVelocity() + impulse * dynamicCandidate->getInverseMass());
+                        dynamicCandidate->getVelocity() - contact.normal * normalImpulseMagnitude);
+
+                    const Vector3 angularImpulse = contactOffset.cross(contact.normal * -normalImpulseMagnitude);
                     const float angularScale = dynamicBox ? kBoxAngularImpulseScale : 1.0f;
                     dynamicCandidate->setAngularVelocity(
                         dynamicCandidate->getAngularVelocity() +
-                        contactOffset.cross(impulse) * dynamicCandidate->getInverseMomentOfInertia() * angularScale);
+                        angularImpulse * dynamicCandidate->getInverseMomentOfInertia() * angularScale);
+
+                    applyFrictionImpulse3D(
+                        *dynamicCandidate,
+                        *borderCandidate,
+                        contact.normal,
+                        contactOffset,
+                        Vector3::zero(),
+                        normalImpulseMagnitude);
                 }
+
+                maxFrictionStrength = std::max(
+                    maxFrictionStrength,
+                    std::max(
+                        dynamicCandidate->getSurfaceMaterial().staticFriction,
+                        dynamicCandidate->getSurfaceMaterial().dynamicFriction));
             }
 
             if (dynamicShape)
             {
-                steerSphereTowardRolling(*dynamicCandidate, *dynamicShape, normal, frictionStrength);
+                steerSphereTowardRolling(*dynamicCandidate, *dynamicShape, normal, maxFrictionStrength);
             }
 
             if (stopThreshold > 0.0f &&
@@ -544,7 +639,6 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
                 dynamicCandidate->setVelocity(Vector3::zero());
                 dynamicCandidate->setAngularVelocity(Vector3::zero());
             }
-
         }
     }
 }

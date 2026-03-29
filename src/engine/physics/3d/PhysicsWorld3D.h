@@ -17,6 +17,8 @@ public:
     float getRestitutionThreshold() const;
     void setSleepDelay(float newSleepDelay);
     float getSleepDelay() const;
+    void setSolverIterations(int newSolverIterations);
+    int getSolverIterations() const;
 
     void step(PhysicsScene3D &scene, float dt) const;
 
@@ -31,4 +33,5 @@ private:
     float angularStopThreshold = 0.0f;
     float restitutionThreshold = 0.0f;
     float sleepDelay = 0.0f;
+    int solverIterations = 1;
 };

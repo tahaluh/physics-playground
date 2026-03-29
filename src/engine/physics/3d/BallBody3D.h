@@ -13,7 +13,7 @@ public:
               Vector3::zero(),
               velocity,
               1.0f,
-              PhysicsSurfaceMaterial3D{0.82f, 0.55f},
+              PhysicsSurfaceMaterial3D{0.82f, 0.62f, 0.55f},
               RigidBodySettings3D{0.02f, 0.02f, true})
     {
     }

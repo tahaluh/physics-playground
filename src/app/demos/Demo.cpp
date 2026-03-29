@@ -70,6 +70,7 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     physicsWorld3D->setAngularStopThreshold(0.035f);
     physicsWorld3D->setRestitutionThreshold(0.22f);
     physicsWorld3D->setSleepDelay(0.45f);
+    physicsWorld3D->setSolverIterations(8);
 
     camera3D = std::make_unique<Camera3D>();
     camera3D->transform.position = sceneDesc.cameraPosition;

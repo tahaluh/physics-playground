@@ -5,7 +5,8 @@
 struct PhysicsSurfaceMaterial3D
 {
     float restitution = 0.85f;
-    float friction = 0.0f;
+    float staticFriction = 0.0f;
+    float dynamicFriction = 0.0f;
 };
 
 struct RigidBodySettings3D

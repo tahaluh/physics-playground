@@ -26,7 +26,7 @@ namespace
     const float kSpotLightInnerConeCos = 0.96f;
     const float kSpotLightOuterConeCos = 0.86f;
     const uint32_t kSpotLightColor = 0xFFFFFFFF;
-    const Vector3 kShadowTestSphereOffset = kSphereWorldOffset + Vector3(0.0f, -3.2f, -4.5f);
+const Vector3 kShadowTestSphereOffset = kSphereWorldOffset + Vector3(1.6f, 0.2f, 5.0f);
 
     RingObjectDesc makeRingObjectDesc()
     {
@@ -149,19 +149,19 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     combinedScene->createDirectionalLight({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
                                            0xFFFFFFFF,
                                            0.9f});
-    // combinedScene->createPointLight({
-    //     kPointLightPosition,
-    //     0xFFFF4040,
-    //     0.75f,
-    //     8.0f});
-    // combinedScene->createSpotLight({
-    //     kSpotLightPosition,
-    //     kSpotLightDirection,
-    //     kSpotLightColor,
-    //     kSpotLightIntensity,
-    //     kSpotLightRange,
-    //     kSpotLightInnerConeCos,
-    //     kSpotLightOuterConeCos});
+    combinedScene->createPointLight({
+        kPointLightPosition,
+        0xFFFF4040,
+        0.75f,
+        8.0f});
+    combinedScene->createSpotLight({
+        kSpotLightPosition,
+        kSpotLightDirection,
+        kSpotLightColor,
+        kSpotLightIntensity,
+        kSpotLightRange,
+        kSpotLightInnerConeCos,
+        kSpotLightOuterConeCos});
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }

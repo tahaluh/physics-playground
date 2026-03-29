@@ -8,6 +8,7 @@
 #include "engine/input/Input.h"
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
+#include "engine/render/debug/LightDebug3D.h"
 #include "engine/render/3d/mesh/MeshFactory3D.h"
 #include "engine/scene/3d/Entity3D.h"
 
@@ -18,7 +19,13 @@ const float kMouseLookSensitivity = 0.0025f;
 const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
 const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
 const Vector3 kPointLightPosition = kSphereWorldOffset + Vector3(2.8f, 0.5f, 0.0f);
-const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-2.2f, 2.6f, 2.2f);
+const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-5.2f, 2.4f, 2.0f);
+const Vector3 kSpotLightDirection = (kSphereWorldOffset - kSpotLightPosition).normalized();
+const float kSpotLightIntensity = 1.1f;
+const float kSpotLightRange = 10.0f;
+const float kSpotLightInnerConeCos = 0.96f;
+const float kSpotLightOuterConeCos = 0.86f;
+const uint32_t kSpotLightColor = 0xFFFFFFFF;
 
 Vector3 getPlanarForward(const Camera3D &camera)
 {
@@ -77,12 +84,12 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
         8.0f});
     combinedScene->createSpotLight({
         kSpotLightPosition,
-        (kSphereWorldOffset - kSpotLightPosition).normalized(),
-        0xFFFFFFFF,
-        1.1f,
-        10.0f,
-        0.96f,
-        0.86f});
+        kSpotLightDirection,
+        kSpotLightColor,
+        kSpotLightIntensity,
+        kSpotLightRange,
+        kSpotLightInnerConeCos,
+        kSpotLightOuterConeCos});
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }
@@ -224,19 +231,6 @@ void Demo::rebuildCombinedScene()
 
     if (showLightDebugMarkers)
     {
-        Entity3D pointLightMarker;
-        pointLightMarker.name = "PointLightMarker";
-        pointLightMarker.transform.position = kPointLightPosition;
-        pointLightMarker.mesh = MeshFactory3D::makeSphere(0.16f, 10, 16, 0);
-        pointLightMarker.material.solid.color = 0xFF000000;
-        pointLightMarker.material.solid.emissiveColor = 0xFFFF4040;
-        pointLightMarker.material.solid.ambientFactor = 0.0f;
-        pointLightMarker.material.solid.diffuseFactor = 0.0f;
-        pointLightMarker.material.wireframe.color = 0xFF000000;
-        pointLightMarker.material.wireframe.emissiveColor = 0xFFFF4040;
-        pointLightMarker.material.wireframe.ambientFactor = 0.0f;
-        pointLightMarker.material.renderSolid = true;
-        pointLightMarker.material.renderWireframe = false;
-        combinedScene->createEntity(pointLightMarker);
+        LightDebug3D::appendLightMarkers(*combinedScene, *combinedScene);
     }
 }

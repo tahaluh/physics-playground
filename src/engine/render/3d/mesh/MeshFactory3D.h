@@ -157,6 +157,37 @@ inline Mesh3D makeCube(float size)
     return mesh;
 }
 
+inline Mesh3D makeCone(float radius, float height, int segments = 24, uint32_t color = 0xFFFFFFFF)
+{
+    Mesh3D mesh;
+    mesh.vertices.reserve(static_cast<size_t>(segments) + 2);
+
+    const int tipIndex = 0;
+    const int baseCenterIndex = 1;
+    mesh.vertices.push_back(Vector3(0.0f, 0.0f, 0.0f));
+    mesh.vertices.push_back(Vector3(0.0f, 0.0f, height));
+
+    const float step = 2.0f * 3.14159265f / static_cast<float>(segments);
+    for (int i = 0; i < segments; ++i)
+    {
+        const float angle = step * static_cast<float>(i);
+        mesh.vertices.push_back(Vector3(std::cos(angle) * radius, std::sin(angle) * radius, height));
+    }
+
+    for (int i = 0; i < segments; ++i)
+    {
+        const int current = i + 2;
+        const int next = ((i + 1) % segments) + 2;
+
+        mesh.edges.push_back({tipIndex, current});
+        mesh.edges.push_back({current, next});
+        mesh.triangles.push_back({{tipIndex, current, next}, color});
+        mesh.triangles.push_back({{baseCenterIndex, next, current}, color});
+    }
+
+    return mesh;
+}
+
 inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeSegments = 24, uint32_t color = 0xFFFFFFFF)
 {
     Mesh3D mesh;

@@ -34,6 +34,6 @@ private:
     std::unique_ptr<Scene3D> combinedScene;
     std::unique_ptr<RingObject> ringObject;
     std::unique_ptr<SphereObject> sphereObject;
-    bool showLightDebugMarkers = true;
-    bool showWireframes = true;
+    bool showLightDebugMarkers = false;
+    bool showWireframes = false;
 };

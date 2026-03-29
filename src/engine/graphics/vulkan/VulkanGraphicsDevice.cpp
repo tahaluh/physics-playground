@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -290,8 +291,8 @@ void VulkanGraphicsDevice::beginFrame(uint32_t clearColor)
     opaqueSceneVertexCount = 0;
     transparentSceneVertexCount = 0;
     lineSceneVertexCount = 0;
-    lightingUniform = {};
-    lightingUniform.ambientColorIntensity[3] = 0.0f;
+    ambientUniform = {};
+    ambientUniform.ambientColorIntensity[3] = 0.0f;
     frameBegun = true;
     commandBufferRecorded = false;
 }
@@ -303,7 +304,10 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
-    updateLightingUniform(scene);
+    if (!updateLightingBuffers(scene))
+    {
+        return;
+    }
     appendSceneVertices(camera, scene);
 }
 
@@ -314,16 +318,6 @@ void VulkanGraphicsDevice::endFrame()
 
     if (!commandBufferRecorded)
     {
-        if (lightingUniformBuffer.buffer)
-        {
-            void *lightingData = nullptr;
-            if (vkMapMemory(device, lightingUniformBuffer.memory, 0, sizeof(LightingUniform), 0, &lightingData) == VK_SUCCESS)
-            {
-                std::memcpy(lightingData, &lightingUniform, sizeof(LightingUniform));
-                vkUnmapMemory(device, lightingUniformBuffer.memory);
-            }
-        }
-
         if (!uploadSceneVertexBuffers())
         {
             return;
@@ -685,38 +679,69 @@ bool VulkanGraphicsDevice::createDepthResources()
 
 bool VulkanGraphicsDevice::createLightingResources()
 {
-    VkDescriptorSetLayoutBinding lightingBinding{};
-    lightingBinding.binding = 0;
-    lightingBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    lightingBinding.descriptorCount = 1;
-    lightingBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &lightingBinding;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
     if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &lightingDescriptorSetLayout) != VK_SUCCESS)
     {
         return false;
     }
 
     if (!createBuffer(
-            sizeof(LightingUniform),
+            sizeof(AmbientUniform),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            lightingUniformBuffer))
+            ambientUniformBuffer))
     {
         return false;
     }
+    ambientUniformBufferSize = sizeof(AmbientUniform);
 
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSize.descriptorCount = 1;
+    if (!createBuffer(
+            sizeof(LightStorageHeader),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            directionalLightStorageBuffer))
+    {
+        return false;
+    }
+    directionalLightStorageBufferSize = sizeof(LightStorageHeader);
+
+    if (!createBuffer(
+            sizeof(LightStorageHeader),
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            pointLightStorageBuffer))
+    {
+        return false;
+    }
+    pointLightStorageBufferSize = sizeof(LightStorageHeader);
+
+    std::array<VkDescriptorPoolSize, 2> poolSizes{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[1].descriptorCount = 2;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
     poolInfo.maxSets = 1;
     if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &lightingDescriptorPool) != VK_SUCCESS)
     {
@@ -732,20 +757,6 @@ bool VulkanGraphicsDevice::createLightingResources()
     {
         return false;
     }
-
-    VkDescriptorBufferInfo bufferInfo{};
-    bufferInfo.buffer = lightingUniformBuffer.buffer;
-    bufferInfo.offset = 0;
-    bufferInfo.range = sizeof(LightingUniform);
-
-    VkWriteDescriptorSet descriptorWrite{};
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = lightingDescriptorSet;
-    descriptorWrite.dstBinding = 0;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.pBufferInfo = &bufferInfo;
-    vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 
     return true;
 }
@@ -1105,15 +1116,57 @@ bool VulkanGraphicsDevice::createLinePipeline()
     return success;
 }
 
-void VulkanGraphicsDevice::updateLightingUniform(const Scene3D &scene)
+bool VulkanGraphicsDevice::updateLightingBuffers(const Scene3D &scene)
 {
     const std::array<float, 4> ambientColor = colorToFloat4(scene.getAmbientLight().color);
-    lightingUniform.ambientColorIntensity[0] = ambientColor[0];
-    lightingUniform.ambientColorIntensity[1] = ambientColor[1];
-    lightingUniform.ambientColorIntensity[2] = ambientColor[2];
-    lightingUniform.ambientColorIntensity[3] = std::max(scene.getAmbientLight().intensity, 0.0f);
+    ambientUniform.ambientColorIntensity[0] = ambientColor[0];
+    ambientUniform.ambientColorIntensity[1] = ambientColor[1];
+    ambientUniform.ambientColorIntensity[2] = ambientColor[2];
+    ambientUniform.ambientColorIntensity[3] = std::max(scene.getAmbientLight().intensity, 0.0f);
 
-    uint32_t directionalLightCount = 0;
+    const auto updateBufferData =
+        [&](BufferHandle &bufferHandle,
+            VkDeviceSize &bufferSize,
+            VkBufferUsageFlags usage,
+            const void *data,
+            VkDeviceSize requiredSize) -> bool
+    {
+        if (!bufferHandle.buffer || bufferSize < requiredSize)
+        {
+            if (bufferHandle.buffer)
+            {
+                vkDestroyBuffer(device, bufferHandle.buffer, nullptr);
+                bufferHandle.buffer = VK_NULL_HANDLE;
+            }
+            if (bufferHandle.memory)
+            {
+                vkFreeMemory(device, bufferHandle.memory, nullptr);
+                bufferHandle.memory = VK_NULL_HANDLE;
+            }
+
+            if (!createBuffer(
+                    requiredSize,
+                    usage,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    bufferHandle))
+            {
+                return false;
+            }
+            bufferSize = requiredSize;
+        }
+
+        void *mappedData = nullptr;
+        if (vkMapMemory(device, bufferHandle.memory, 0, requiredSize, 0, &mappedData) != VK_SUCCESS)
+        {
+            return false;
+        }
+        std::memcpy(mappedData, data, static_cast<size_t>(requiredSize));
+        vkUnmapMemory(device, bufferHandle.memory);
+        return true;
+    };
+
+    std::vector<GpuDirectionalLight> directionalLights;
+    directionalLights.reserve(scene.getDirectionalLights().size());
     for (const DirectionalLight &light : scene.getDirectionalLights())
     {
         if (!light.enabled || light.intensity <= 0.0f)
@@ -1121,14 +1174,9 @@ void VulkanGraphicsDevice::updateLightingUniform(const Scene3D &scene)
             continue;
         }
 
-        if (directionalLightCount >= kMaxDirectionalLights)
-        {
-            break;
-        }
-
         const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
         const std::array<float, 4> lightColor = colorToFloat4(light.color);
-        GpuDirectionalLight &gpuLight = lightingUniform.directionalLights[directionalLightCount];
+        GpuDirectionalLight gpuLight{};
         gpuLight.direction[0] = lightDirection.x;
         gpuLight.direction[1] = lightDirection.y;
         gpuLight.direction[2] = lightDirection.z;
@@ -1137,20 +1185,22 @@ void VulkanGraphicsDevice::updateLightingUniform(const Scene3D &scene)
         gpuLight.colorIntensity[1] = lightColor[1];
         gpuLight.colorIntensity[2] = lightColor[2];
         gpuLight.colorIntensity[3] = std::max(light.intensity, 0.0f);
-        ++directionalLightCount;
+        directionalLights.push_back(gpuLight);
     }
 
-    for (uint32_t i = directionalLightCount; i < kMaxDirectionalLights; ++i)
+    std::vector<char> directionalBytes(sizeof(LightStorageHeader) + directionalLights.size() * sizeof(GpuDirectionalLight));
+    auto *directionalHeader = reinterpret_cast<LightStorageHeader *>(directionalBytes.data());
+    directionalHeader->count = static_cast<uint32_t>(directionalLights.size());
+    if (!directionalLights.empty())
     {
-        std::memset(&lightingUniform.directionalLights[i], 0, sizeof(GpuDirectionalLight));
+        std::memcpy(
+            directionalBytes.data() + sizeof(LightStorageHeader),
+            directionalLights.data(),
+            directionalLights.size() * sizeof(GpuDirectionalLight));
     }
 
-    lightingUniform.directionalLightMeta[0] = static_cast<float>(directionalLightCount);
-    lightingUniform.directionalLightMeta[1] = 0.0f;
-    lightingUniform.directionalLightMeta[2] = 0.0f;
-    lightingUniform.directionalLightMeta[3] = 0.0f;
-
-    uint32_t pointLightCount = 0;
+    std::vector<GpuPointLight> pointLights;
+    pointLights.reserve(scene.getPointLights().size());
     for (const PointLight &light : scene.getPointLights())
     {
         if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
@@ -1158,13 +1208,8 @@ void VulkanGraphicsDevice::updateLightingUniform(const Scene3D &scene)
             continue;
         }
 
-        if (pointLightCount >= kMaxPointLights)
-        {
-            break;
-        }
-
         const std::array<float, 4> lightColor = colorToFloat4(light.color);
-        GpuPointLight &gpuLight = lightingUniform.pointLights[pointLightCount];
+        GpuPointLight gpuLight{};
         gpuLight.positionRange[0] = light.position.x;
         gpuLight.positionRange[1] = light.position.y;
         gpuLight.positionRange[2] = light.position.z;
@@ -1173,18 +1218,85 @@ void VulkanGraphicsDevice::updateLightingUniform(const Scene3D &scene)
         gpuLight.colorIntensity[1] = lightColor[1];
         gpuLight.colorIntensity[2] = lightColor[2];
         gpuLight.colorIntensity[3] = light.intensity;
-        ++pointLightCount;
+        pointLights.push_back(gpuLight);
     }
 
-    for (uint32_t i = pointLightCount; i < kMaxPointLights; ++i)
+    std::vector<char> pointBytes(sizeof(LightStorageHeader) + pointLights.size() * sizeof(GpuPointLight));
+    auto *pointHeader = reinterpret_cast<LightStorageHeader *>(pointBytes.data());
+    pointHeader->count = static_cast<uint32_t>(pointLights.size());
+    if (!pointLights.empty())
     {
-        std::memset(&lightingUniform.pointLights[i], 0, sizeof(GpuPointLight));
+        std::memcpy(
+            pointBytes.data() + sizeof(LightStorageHeader),
+            pointLights.data(),
+            pointLights.size() * sizeof(GpuPointLight));
     }
 
-    lightingUniform.pointLightMeta[0] = static_cast<float>(pointLightCount);
-    lightingUniform.pointLightMeta[1] = 0.0f;
-    lightingUniform.pointLightMeta[2] = 0.0f;
-    lightingUniform.pointLightMeta[3] = 0.0f;
+    if (!updateBufferData(
+            ambientUniformBuffer,
+            ambientUniformBufferSize,
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            &ambientUniform,
+            sizeof(AmbientUniform)))
+    {
+        return false;
+    }
+
+    if (!updateBufferData(
+            directionalLightStorageBuffer,
+            directionalLightStorageBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            directionalBytes.data(),
+            static_cast<VkDeviceSize>(directionalBytes.size())))
+    {
+        return false;
+    }
+
+    if (!updateBufferData(
+            pointLightStorageBuffer,
+            pointLightStorageBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            pointBytes.data(),
+            static_cast<VkDeviceSize>(pointBytes.size())))
+    {
+        return false;
+    }
+
+    std::array<VkDescriptorBufferInfo, 3> bufferInfos{};
+    bufferInfos[0].buffer = ambientUniformBuffer.buffer;
+    bufferInfos[0].offset = 0;
+    bufferInfos[0].range = sizeof(AmbientUniform);
+    bufferInfos[1].buffer = directionalLightStorageBuffer.buffer;
+    bufferInfos[1].offset = 0;
+    bufferInfos[1].range = static_cast<VkDeviceSize>(directionalBytes.size());
+    bufferInfos[2].buffer = pointLightStorageBuffer.buffer;
+    bufferInfos[2].offset = 0;
+    bufferInfos[2].range = static_cast<VkDeviceSize>(pointBytes.size());
+
+    std::array<VkWriteDescriptorSet, 3> descriptorWrites{};
+    descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[0].dstSet = lightingDescriptorSet;
+    descriptorWrites[0].dstBinding = 0;
+    descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrites[0].descriptorCount = 1;
+    descriptorWrites[0].pBufferInfo = &bufferInfos[0];
+
+    descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[1].dstSet = lightingDescriptorSet;
+    descriptorWrites[1].dstBinding = 1;
+    descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[1].descriptorCount = 1;
+    descriptorWrites[1].pBufferInfo = &bufferInfos[1];
+
+    descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrites[2].dstSet = lightingDescriptorSet;
+    descriptorWrites[2].dstBinding = 2;
+    descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    descriptorWrites[2].descriptorCount = 1;
+    descriptorWrites[2].pBufferInfo = &bufferInfos[2];
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
+    return true;
 }
 
 void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Scene3D &scene)
@@ -1615,13 +1727,29 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, lineSceneVertexBuffer.memory, nullptr);
         }
-        if (lightingUniformBuffer.buffer)
+        if (ambientUniformBuffer.buffer)
         {
-            vkDestroyBuffer(device, lightingUniformBuffer.buffer, nullptr);
+            vkDestroyBuffer(device, ambientUniformBuffer.buffer, nullptr);
         }
-        if (lightingUniformBuffer.memory)
+        if (ambientUniformBuffer.memory)
         {
-            vkFreeMemory(device, lightingUniformBuffer.memory, nullptr);
+            vkFreeMemory(device, ambientUniformBuffer.memory, nullptr);
+        }
+        if (directionalLightStorageBuffer.buffer)
+        {
+            vkDestroyBuffer(device, directionalLightStorageBuffer.buffer, nullptr);
+        }
+        if (directionalLightStorageBuffer.memory)
+        {
+            vkFreeMemory(device, directionalLightStorageBuffer.memory, nullptr);
+        }
+        if (pointLightStorageBuffer.buffer)
+        {
+            vkDestroyBuffer(device, pointLightStorageBuffer.buffer, nullptr);
+        }
+        if (pointLightStorageBuffer.memory)
+        {
+            vkFreeMemory(device, pointLightStorageBuffer.memory, nullptr);
         }
         if (opaqueTrianglePipeline)
         {

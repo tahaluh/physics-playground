@@ -7,9 +7,6 @@ layout(location = 3) in vec3 fragWorldPosition;
 layout(location = 4) in vec2 fragMaterial;
 layout(location = 0) out vec4 outColor;
 
-const int MAX_DIRECTIONAL_LIGHTS = 4;
-const int MAX_POINT_LIGHTS = 8;
-
 struct DirectionalLight
 {
     vec4 direction;
@@ -22,41 +19,49 @@ struct PointLight
     vec4 colorIntensity;
 };
 
-layout(set = 0, binding = 0) uniform LightingUniform
+layout(set = 0, binding = 0) uniform AmbientUniform
 {
     vec4 ambientColorIntensity;
-    vec4 directionalLightMeta;
-    DirectionalLight directionalLights[MAX_DIRECTIONAL_LIGHTS];
-    vec4 pointLightMeta;
-    PointLight pointLights[MAX_POINT_LIGHTS];
-} lighting;
+} ambientLighting;
+
+layout(std430, set = 0, binding = 1) readonly buffer DirectionalLightBuffer
+{
+    uvec4 directionalLightMeta;
+    DirectionalLight directionalLights[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer PointLightBuffer
+{
+    uvec4 pointLightMeta;
+    PointLight pointLights[];
+};
 
 void main()
 {
     vec3 baseColor = fragColor.rgb;
-    vec3 result = baseColor * lighting.ambientColorIntensity.rgb * lighting.ambientColorIntensity.a * fragMaterial.x + fragEmissive;
+    vec3 result = baseColor * ambientLighting.ambientColorIntensity.rgb * ambientLighting.ambientColorIntensity.a * fragMaterial.x + fragEmissive;
 
     vec3 normal = fragNormal;
     float normalLength = length(normal);
     if (normalLength > 0.0001 && fragMaterial.y > 0.0)
     {
         normal /= normalLength;
-        int lightCount = min(int(lighting.directionalLightMeta.x + 0.5), MAX_DIRECTIONAL_LIGHTS);
+        int lightCount = int(directionalLightMeta.x);
         for (int i = 0; i < lightCount; ++i)
         {
-            vec3 lightDirection = normalize(lighting.directionalLights[i].direction.xyz);
+            vec3 lightDirection = normalize(directionalLights[i].direction.xyz);
             float ndotl = max(dot(normal, -lightDirection), 0.0);
-            float intensity = lighting.directionalLights[i].colorIntensity.a;
-            vec3 lightColor = lighting.directionalLights[i].colorIntensity.rgb;
+            float intensity = directionalLights[i].colorIntensity.a;
+            vec3 lightColor = directionalLights[i].colorIntensity.rgb;
             result += baseColor * lightColor * ndotl * intensity * fragMaterial.y;
         }
 
-        int pointLightCount = min(int(lighting.pointLightMeta.x + 0.5), MAX_POINT_LIGHTS);
+        int pointLightCount = int(pointLightMeta.x);
         for (int i = 0; i < pointLightCount; ++i)
         {
-            vec3 toLight = lighting.pointLights[i].positionRange.xyz - fragWorldPosition;
+            vec3 toLight = pointLights[i].positionRange.xyz - fragWorldPosition;
             float distance = length(toLight);
-            float range = max(lighting.pointLights[i].positionRange.w, 0.0001);
+            float range = max(pointLights[i].positionRange.w, 0.0001);
             if (distance >= range)
             {
                 continue;
@@ -71,8 +76,8 @@ void main()
 
             float falloff = 1.0 - (distance / range);
             falloff *= falloff;
-            float intensity = lighting.pointLights[i].colorIntensity.a * falloff;
-            vec3 lightColor = lighting.pointLights[i].colorIntensity.rgb;
+            float intensity = pointLights[i].colorIntensity.a * falloff;
+            vec3 lightColor = pointLights[i].colorIntensity.rgb;
             result += baseColor * lightColor * ndotl * intensity * fragMaterial.y;
         }
     }

@@ -9,9 +9,6 @@
 class VulkanGraphicsDevice : public IGraphicsDevice
 {
 public:
-    static constexpr uint32_t kMaxDirectionalLights = 4;
-    static constexpr uint32_t kMaxPointLights = 8;
-
     struct TriangleVertex
     {
         float position[3];
@@ -34,13 +31,17 @@ public:
         float colorIntensity[4];
     };
 
-    struct LightingUniform
+    struct AmbientUniform
     {
         float ambientColorIntensity[4];
-        float directionalLightMeta[4];
-        GpuDirectionalLight directionalLights[kMaxDirectionalLights];
-        float pointLightMeta[4];
-        GpuPointLight pointLights[kMaxPointLights];
+    };
+
+    struct LightStorageHeader
+    {
+        uint32_t count = 0;
+        uint32_t padding0 = 0;
+        uint32_t padding1 = 0;
+        uint32_t padding2 = 0;
     };
 
     struct BufferHandle
@@ -82,7 +83,7 @@ private:
     bool createTrianglePipeline();
     bool createLinePipeline();
     void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
-    void updateLightingUniform(const Scene3D &scene);
+    bool updateLightingBuffers(const Scene3D &scene);
     bool uploadSceneVertexBuffers();
     bool createFramebuffers();
     bool createCommandPool();
@@ -154,7 +155,12 @@ private:
     BufferHandle opaqueSceneVertexBuffer;
     BufferHandle transparentSceneVertexBuffer;
     BufferHandle lineSceneVertexBuffer;
-    BufferHandle lightingUniformBuffer;
+    BufferHandle ambientUniformBuffer;
+    BufferHandle directionalLightStorageBuffer;
+    BufferHandle pointLightStorageBuffer;
+    VkDeviceSize ambientUniformBufferSize = 0;
+    VkDeviceSize directionalLightStorageBufferSize = 0;
+    VkDeviceSize pointLightStorageBufferSize = 0;
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;
@@ -164,7 +170,7 @@ private:
     std::vector<TriangleVertex> opaqueSceneVertices;
     std::vector<TriangleVertex> transparentSceneVertices;
     std::vector<TriangleVertex> lineSceneVertices;
-    LightingUniform lightingUniform = {};
+    AmbientUniform ambientUniform = {};
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

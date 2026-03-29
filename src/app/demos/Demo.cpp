@@ -13,6 +13,8 @@ namespace
 {
     const float kMoveSpeed = 4.0f;
     const float kMouseLookSensitivity = 0.0025f;
+    const float kPhysicsDebugSolidOpacity = 0.24f;
+    const float kPhysicsDebugWireframeOpacity = 0.12f;
 
     Vector3 getPlanarForward(const Camera3D &camera)
     {
@@ -28,6 +30,22 @@ namespace
     Vector3 getPlanarRight(const Camera3D &camera)
     {
         return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
+    }
+
+    void applyPhysicsDebugTransparency(Scene3D &scene)
+    {
+        for (Entity3D &entity : scene.getEntities())
+        {
+            if (entity.material.renderSolid)
+            {
+                entity.material.solid.opacity = std::min(entity.material.solid.opacity, kPhysicsDebugSolidOpacity);
+            }
+
+            if (entity.material.renderWireframe)
+            {
+                entity.material.wireframe.opacity = std::min(entity.material.wireframe.opacity, kPhysicsDebugWireframeOpacity);
+            }
+        }
     }
 }
 
@@ -265,6 +283,11 @@ void Demo::rebuildCombinedScene()
     }
 
     combinedScene->applyWireframeVisibilityOverride(showWireframes);
+
+    if (showPhysicsDebugMarkers)
+    {
+        applyPhysicsDebugTransparency(*combinedScene);
+    }
 
     if (showLightDebugMarkers)
     {

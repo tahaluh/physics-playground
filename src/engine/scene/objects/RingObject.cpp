@@ -10,12 +10,27 @@
 #include "engine/physics/2d/PhysicsBody2D.h"
 #include "engine/physics/2d/PhysicsWorld2D.h"
 #include "engine/physics/2d/shapes/CircleShape.h"
+#include "engine/physics/2d/shapes/RectShape.h"
 #include "engine/render/2d/Object2DIn3D.h"
+#include "engine/render/3d/mesh/MeshFactory3D.h"
 #include "engine/scene/2d/Scene2D.h"
 #include "engine/scene/3d/Scene3D.h"
 
 namespace
 {
+Mesh3D makeRadialLineMesh()
+{
+    Mesh3D mesh;
+    mesh.vertices = {
+        Vector3(0.0f, 0.0f, 0.0f),
+        Vector3(1.0f, 0.0f, 0.0f)};
+    mesh.vertexNormals = {
+        Vector3(0.0f, 0.0f, 1.0f),
+        Vector3(0.0f, 0.0f, 1.0f)};
+    mesh.edges = {{0, 1}};
+    return mesh;
+}
+
 Vector3 toWorldPosition(const RingObjectDesc &config, const Vector2 &simulationPosition, float zOffset = 0.0f)
 {
     const float worldX = (simulationPosition.x - config.center.x) / config.simulationScale;
@@ -26,6 +41,11 @@ Vector3 toWorldPosition(const RingObjectDesc &config, const Vector2 &simulationP
 float toWorldRadius(const RingObjectDesc &config, float simulationRadius)
 {
     return simulationRadius / config.simulationScale;
+}
+
+float toWorldRotation(float simulationRotation)
+{
+    return -simulationRotation;
 }
 }
 
@@ -56,7 +76,9 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
     object->renderScene->getAmbientLight().intensity = 1.0f;
 
     object->borderBodyIndex = object->physicsScene->getBodies().size();
-    object->physicsScene->addBody(std::make_unique<BorderCircleBody2D>(desc.center, desc.borderRadiusPixels));
+    object->physicsScene->addBody(std::make_unique<BorderCircleBody2D>(
+        desc.center,
+        std::max(0.0f, desc.borderRadiusPixels - desc.borderThicknessPixels)));
 
     object->controlledBodyIndex = object->physicsScene->getBodies().size();
     auto ballBody = std::make_unique<BallBody2D>(
@@ -76,7 +98,7 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
         toWorldPosition(desc, desc.center, desc.planeZ).y);
     borderDesc.planeZ = desc.planeZ;
     borderDesc.radius = toWorldRadius(desc, desc.borderRadiusPixels);
-    borderDesc.innerRadius = borderDesc.radius - desc.borderThicknessWorld;
+    borderDesc.innerRadius = std::max(0.0f, borderDesc.radius - toWorldRadius(desc, desc.borderThicknessPixels));
     borderDesc.segments = desc.borderSegments;
     borderDesc.color = desc.borderColor;
     borderDesc.material = desc.borderMaterial;
@@ -98,24 +120,44 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
             continue;
         }
 
-        object->dynamicBodyIndices.push_back(bodyIndex);
+        RingDynamicBodyVisualBinding binding;
+        binding.bodyIndex = bodyIndex;
 
-        Shape2DIn3DDesc ballDesc;
-        ballDesc.kind = Shape2DIn3DKind::Disc;
-        ballDesc.name = "PhysicsBall";
-        ballDesc.position = Vector2(
-            toWorldPosition(desc, body->getPosition(), desc.planeZ).x,
-            toWorldPosition(desc, body->getPosition(), desc.planeZ).y);
-        ballDesc.planeZ = desc.planeZ;
-        ballDesc.radius = circle->getRadius() / desc.simulationScale;
-        ballDesc.segments = desc.ballSegments;
-        ballDesc.color = body->getColor();
-        ballDesc.material = desc.ballMaterial;
-        ballDesc.material.solid.baseColor = body->getColor();
-        ballDesc.material.wireframe.baseColor = body->getColor();
+        if (circle)
+        {
+            Shape2DIn3DDesc ballDesc;
+            ballDesc.kind = Shape2DIn3DKind::Disc;
+            ballDesc.name = "PhysicsBall";
+            ballDesc.position = Vector2(
+                toWorldPosition(desc, body->getPosition(), desc.planeZ).x,
+                toWorldPosition(desc, body->getPosition(), desc.planeZ).y);
+            ballDesc.planeZ = desc.planeZ;
+            ballDesc.radius = circle->getRadius() / desc.simulationScale;
+            ballDesc.segments = desc.ballSegments;
+            ballDesc.color = body->getColor();
+            ballDesc.material = desc.ballMaterial;
+            ballDesc.material.solid.baseColor = body->getColor();
+            ballDesc.material.wireframe.baseColor = body->getColor();
+            binding.entityIndex = object->renderScene->getEntities().size();
+            object->renderScene->createEntity(makeShape2DIn3D(ballDesc));
+            binding.rotationIndicatorOffset = 0.0f;
+            binding.rotationIndicatorScale = Vector3(ballDesc.radius, 1.0f, 1.0f);
+        }
+        if (desc.showRotationIndicators && circle)
+        {
+            Entity3D indicator;
+            indicator.name = "RotationIndicator";
+            indicator.mesh = makeRadialLineMesh();
+            indicator.material.solid.baseColor = desc.rotationIndicatorColor;
+            indicator.material.wireframe.baseColor = desc.rotationIndicatorColor;
+            indicator.material.renderSolid = false;
+            indicator.material.renderWireframe = true;
+            indicator.material.wireframe.doubleSidedLighting = true;
+            binding.rotationIndicatorEntityIndex = object->renderScene->getEntities().size();
+            object->renderScene->createEntity(indicator);
+        }
 
-        object->dynamicEntityIndices.push_back(object->renderScene->getEntities().size());
-        object->renderScene->createEntity(makeShape2DIn3D(ballDesc));
+        object->dynamicBindings.push_back(binding);
     }
 
     object->syncRenderScene();
@@ -134,8 +176,7 @@ void RingObject::destroy()
     controlledBodyIndex = kInvalidIndex;
     borderBodyIndex = kInvalidIndex;
     borderEntityIndex = kInvalidIndex;
-    dynamicBodyIndices.clear();
-    dynamicEntityIndices.clear();
+    dynamicBindings.clear();
 }
 
 bool RingObject::isValid() const
@@ -190,21 +231,37 @@ void RingObject::syncRenderScene()
     {
         entities[borderEntityIndex].transform.position =
             toWorldPosition(config, bodies[borderBodyIndex]->getPosition(), config.planeZ) + worldOffset;
-        entities[borderEntityIndex].transform.rotation = Vector3(0.0f, 0.0f, bodies[borderBodyIndex]->getRotationAngle());
+        entities[borderEntityIndex].transform.rotation = Vector3(0.0f, 0.0f, toWorldRotation(bodies[borderBodyIndex]->getRotationAngle()));
         entities[borderEntityIndex].transform.scale = Vector3::one();
     }
 
-    const std::size_t mappedCount = std::min(dynamicBodyIndices.size(), dynamicEntityIndices.size());
-    for (std::size_t i = 0; i < mappedCount; ++i)
+    for (const RingDynamicBodyVisualBinding &binding : dynamicBindings)
     {
-        const std::size_t bodyIndex = dynamicBodyIndices[i];
-        const std::size_t entityIndex = dynamicEntityIndices[i];
+        const std::size_t bodyIndex = binding.bodyIndex;
+        const std::size_t entityIndex = binding.entityIndex;
         if (bodyIndex >= bodies.size() || entityIndex >= entities.size())
             continue;
 
+        PhysicsBody2D &body = *bodies[bodyIndex];
+        Vector2 bodyPosition = body.getPosition();
+        if (const auto *rect = dynamic_cast<const RectShape *>(body.getShape()))
+        {
+            bodyPosition += Vector2(rect->getWidth() * 0.5f, rect->getHeight() * 0.5f);
+        }
+
         entities[entityIndex].transform.position =
-            toWorldPosition(config, bodies[bodyIndex]->getPosition(), config.planeZ) + worldOffset;
-        entities[entityIndex].transform.rotation = Vector3(0.0f, 0.0f, bodies[bodyIndex]->getRotationAngle());
-        entities[entityIndex].transform.scale = Vector3::one();
+            toWorldPosition(config, bodyPosition, config.planeZ) + worldOffset;
+        entities[entityIndex].transform.rotation = Vector3(0.0f, 0.0f, toWorldRotation(body.getRotationAngle()));
+        entities[entityIndex].transform.scale = binding.usesCustomScale ? binding.scale : Vector3::one();
+
+        if (binding.rotationIndicatorEntityIndex != kInvalidIndex &&
+            binding.rotationIndicatorEntityIndex < entities.size())
+        {
+            entities[binding.rotationIndicatorEntityIndex].transform.position =
+                toWorldPosition(config, bodyPosition, config.planeZ + 0.0005f) + worldOffset;
+            entities[binding.rotationIndicatorEntityIndex].transform.rotation =
+                Vector3(0.0f, 0.0f, toWorldRotation(body.getRotationAngle()));
+            entities[binding.rotationIndicatorEntityIndex].transform.scale = binding.rotationIndicatorScale;
+        }
     }
 }

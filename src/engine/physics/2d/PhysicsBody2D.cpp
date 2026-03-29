@@ -5,12 +5,38 @@
 #include "engine/physics/2d/BorderBoxBody2D.h"
 #include "engine/physics/2d/BorderCircleBody2D.h"
 #include "engine/physics/2d/shapes/CircleShape.h"
+#include "engine/physics/2d/shapes/RectShape.h"
 
 namespace
 {
+constexpr float kPositionCorrectionSlop2D = 0.5f;
+constexpr float kPositionCorrectionPercent2D = 0.8f;
+
 CircleShape *getCircleShape(PhysicsBody2D &body)
 {
     return dynamic_cast<CircleShape *>(body.getShape());
+}
+
+Vector2 getFarthestRectCorner(const RectShape &rect, const Vector2 &position, const Vector2 &referencePoint)
+{
+    const Vector2 corners[] = {
+        position,
+        position + Vector2(rect.getWidth(), 0.0f),
+        position + Vector2(rect.getWidth(), rect.getHeight()),
+        position + Vector2(0.0f, rect.getHeight())};
+
+    Vector2 farthestCorner = corners[0];
+    float farthestDistanceSquared = (corners[0] - referencePoint).lengthSquared();
+    for (int i = 1; i < 4; ++i)
+    {
+        const float distanceSquared = (corners[i] - referencePoint).lengthSquared();
+        if (distanceSquared > farthestDistanceSquared)
+        {
+            farthestDistanceSquared = distanceSquared;
+            farthestCorner = corners[i];
+        }
+    }
+    return farthestCorner;
 }
 }
 
@@ -18,16 +44,37 @@ bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float
 {
     auto *borderCircle = dynamic_cast<BorderCircleBody2D *>(contact.other);
     auto *circle = getCircleShape(*this);
-    if (!borderCircle || !circle)
+    auto *rect = dynamic_cast<RectShape *>(getShape());
+    if (!borderCircle || (!circle && !rect))
         return false;
 
-    const float innerRadius = borderCircle->getRadius() - circle->getRadius();
     Vector2 normal = contact.normal;
     if (normal.lengthSquared() <= 0.0f)
         return false;
-    position = borderCircle->getCenter() + normal * innerRadius;
-    velocity = velocity.reflect(normal) * surfaceMaterial.restitution;
-    applySurfaceFrictionAlongNormal(normal, normal * circle->getRadius());
+
+    Vector2 contactOffset = Vector2::zero();
+    if (circle)
+    {
+        const Vector2 radialDirection = (position - borderCircle->getCenter()).lengthSquared() > 0.0f
+                                            ? (position - borderCircle->getCenter()).normalized()
+                                            : normal;
+        const float resolvedRadius = borderCircle->getRadius() - circle->getRadius();
+        position = borderCircle->getCenter() + radialDirection * resolvedRadius;
+        contactOffset = normal * circle->getRadius();
+    }
+    else
+    {
+        const float correctedPenetration = std::max(0.0f, contact.penetration - kPositionCorrectionSlop2D) * kPositionCorrectionPercent2D;
+        position -= normal * correctedPenetration;
+        contactOffset = contact.contactPoint - getCenterOfMassPosition();
+    }
+
+    const float outwardSpeed = velocity.dot(normal);
+    if (outwardSpeed > 0.0f)
+    {
+        velocity -= normal * ((1.0f + surfaceMaterial.restitution) * outwardSpeed);
+    }
+    applySurfaceFrictionAlongNormal(normal, contactOffset);
 
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
@@ -59,7 +106,11 @@ bool PhysicsBody2D::resolveBorderBoxCollision(const Contact2D &contact, float st
     else if (normal.y < 0.0f)
         position.y = box->bottom() - radius;
 
-    velocity = velocity.reflect(normal) * surfaceMaterial.restitution;
+    const float outwardSpeed = velocity.dot(normal);
+    if (outwardSpeed > 0.0f)
+    {
+        velocity -= normal * ((1.0f + surfaceMaterial.restitution) * outwardSpeed);
+    }
     applySurfaceFrictionAlongNormal(normal, normal * -radius);
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
@@ -104,6 +155,15 @@ void PhysicsBody2D::applySurfaceFrictionAlongNormal(const Vector2 &normal, const
     const Vector2 impulse = tangent * impulseMagnitude;
     velocity += impulse * inverseMass;
     angularVelocity += Vector2::cross(contactOffset, impulse) * inverseMomentOfInertia;
+}
+
+Vector2 PhysicsBody2D::getCenterOfMassPosition() const
+{
+    if (const auto *rect = dynamic_cast<const RectShape *>(shape.get()))
+    {
+        return position + Vector2(rect->getWidth() * 0.5f, rect->getHeight() * 0.5f);
+    }
+    return position;
 }
 
 bool PhysicsBody2D::resolveBorderCircleAxisInvertCollision(const Contact2D &contact)

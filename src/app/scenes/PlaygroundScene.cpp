@@ -25,7 +25,7 @@ RingObjectDesc makeRingObjectDesc()
     desc.ballStartVelocity = Vector2(110.0f, -40.0f);
     desc.simulationScale = 100.0f;
     desc.borderRadiusPixels = 200.0f;
-    desc.borderThicknessWorld = 0.02f;
+    desc.borderThicknessPixels = 12.0f;
     desc.ballRadiusPixels = 10.0f;
     desc.ballOutlineThicknessWorld = 0.02f;
     desc.planeThicknessWorld = 0.04f;
@@ -34,8 +34,8 @@ RingObjectDesc makeRingObjectDesc()
     desc.ballSegments = 48;
     desc.borderColor = 0xFFFFFFFF;
     desc.ballColor = 0xFFFFFFFF;
-    desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.92f, 0.03f, 0.012f};
-    desc.rigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, true};
+    desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
+    desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
     desc.borderMaterial.solid.baseColor = desc.borderColor;
     desc.borderMaterial.wireframe.baseColor = desc.borderColor;
     desc.borderMaterial.renderSolid = true;

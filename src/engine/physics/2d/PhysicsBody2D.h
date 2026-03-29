@@ -119,6 +119,7 @@ protected:
     bool resolveBorderCircleAxisInvertCollision(const Contact2D &contact);
     void applySurfaceFrictionAlongNormal(const Vector2 &normal, const Vector2 &contactOffset);
     float computeMomentOfInertia() const;
+    Vector2 getCenterOfMassPosition() const;
 
 private:
     std::unique_ptr<Shape> shape;

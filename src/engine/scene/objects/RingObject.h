@@ -14,6 +14,17 @@ class PhysicsWorld2D;
 class Scene2D;
 class Scene3D;
 
+struct RingDynamicBodyVisualBinding
+{
+    std::size_t bodyIndex = static_cast<std::size_t>(-1);
+    std::size_t entityIndex = static_cast<std::size_t>(-1);
+    std::size_t rotationIndicatorEntityIndex = static_cast<std::size_t>(-1);
+    Vector3 scale = Vector3::one();
+    Vector3 rotationIndicatorScale = Vector3::one();
+    float rotationIndicatorOffset = 0.0f;
+    bool usesCustomScale = false;
+};
+
 struct RingObjectDesc
 {
     Vector3 worldOffset = Vector3::zero();
@@ -22,13 +33,15 @@ struct RingObjectDesc
     Vector2 ballStartVelocity = Vector2(110.0f, -40.0f);
     float simulationScale = 100.0f;
     float borderRadiusPixels = 200.0f;
-    float borderThicknessWorld = 0.02f;
+    float borderThicknessPixels = 12.0f;
     float ballRadiusPixels = 10.0f;
     float ballOutlineThicknessWorld = 0.02f;
     float planeThicknessWorld = 0.04f;
     float planeZ = 0.0f;
     int borderSegments = 96;
     int ballSegments = 48;
+    bool showRotationIndicators = true;
+    uint32_t rotationIndicatorColor = 0xFFFFD166;
     uint32_t borderColor = 0xFFFFFFFF;
     uint32_t ballColor = 0xFFFFFFFF;
     PhysicsSurfaceMaterial2D physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.9f, 0.03f, 0.012f};
@@ -67,8 +80,7 @@ private:
     std::size_t controlledBodyIndex = kInvalidIndex;
     std::size_t borderBodyIndex = kInvalidIndex;
     std::size_t borderEntityIndex = kInvalidIndex;
-    std::vector<std::size_t> dynamicBodyIndices;
-    std::vector<std::size_t> dynamicEntityIndices;
+    std::vector<RingDynamicBodyVisualBinding> dynamicBindings;
     Vector3 worldOffset = Vector3::zero();
     RingObjectDesc config;
 };

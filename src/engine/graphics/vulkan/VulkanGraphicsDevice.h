@@ -51,6 +51,7 @@ private:
     bool createRenderPass();
     bool createDepthResources();
     bool createTrianglePipeline();
+    bool createLinePipeline();
     bool updateSceneVertexBuffer(const Camera3D &camera, const Scene3D &scene);
     bool createFramebuffers();
     bool createCommandPool();
@@ -110,12 +111,21 @@ private:
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
-    VkPipeline trianglePipeline = VK_NULL_HANDLE;
+    VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
+    VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
+    VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
+    VkPipeline linePipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
-    BufferHandle sceneVertexBuffer;
-    VkDeviceSize sceneVertexBufferSize = 0;
-    uint32_t sceneVertexCount = 0;
+    BufferHandle opaqueSceneVertexBuffer;
+    BufferHandle transparentSceneVertexBuffer;
+    BufferHandle lineSceneVertexBuffer;
+    VkDeviceSize opaqueSceneVertexBufferSize = 0;
+    VkDeviceSize transparentSceneVertexBufferSize = 0;
+    VkDeviceSize lineSceneVertexBufferSize = 0;
+    uint32_t opaqueSceneVertexCount = 0;
+    uint32_t transparentSceneVertexCount = 0;
+    uint32_t lineSceneVertexCount = 0;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

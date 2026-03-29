@@ -6,8 +6,6 @@
 #include "engine/physics/2d/shapes/Shape.h"
 #include "engine/math/Vector2.h"
 
-class Renderer2D;
-
 class PhysicsBody2D
 {
 public:
@@ -72,8 +70,6 @@ public:
         position += velocity * dt;
         acceleration = Vector2::zero();
     }
-
-    virtual void render(Renderer2D &renderer) const;
 
     virtual void onCollision(const Contact2D &contact)
     {

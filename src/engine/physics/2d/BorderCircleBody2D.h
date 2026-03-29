@@ -12,8 +12,6 @@ public:
     float getRadius() const { return radius; }
     Vector2 getCenter() const { return getPosition(); }
 
-    void render(Renderer2D &renderer) const override;
-
 private:
     float radius;
 };

@@ -1,11 +1,17 @@
 #pragma once
 
-#include <cstdint>
+#include "engine/render/RenderMaterial.h"
 
 struct Material3D
 {
-    uint32_t fillColor = 0xFF3A86FF;
-    uint32_t wireframeColor = 0xFF44AAFF;
+    RenderMaterial solid = {0xFF3A86FF, 1.0f};
+    RenderMaterial wireframe = {0xFF44AAFF, 1.0f};
     bool renderSolid = true;
     bool renderWireframe = true;
+
+    bool isTransparent() const
+    {
+        return (renderSolid && solid.isTransparent()) ||
+               (renderWireframe && wireframe.isTransparent());
+    }
 };

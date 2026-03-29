@@ -20,6 +20,7 @@ constexpr float kBorderRadiusPixels = 200.0f;
 constexpr float kBorderThicknessWorld = 0.02f;
 constexpr float kBallRadiusPixels = 10.0f;
 constexpr float kBallOutlineThicknessWorld = 0.02f;
+constexpr float kPlaneThicknessWorld = 0.04f;
 constexpr float kSimulationPlaneZ = 0.0f;
 
 Vector3 toWorldPlanePosition(const Vector2 &simulationPosition, float zOffset = 0.0f)
@@ -37,11 +38,14 @@ float toWorldRadius(float simulationRadius)
 
 PhysicsRingScene::~PhysicsRingScene() = default;
 
-std::unique_ptr<PhysicsRingScene> PhysicsRingScene::createDefault()
+std::unique_ptr<PhysicsRingScene> PhysicsRingScene::createDefault(bool enableRenderScene)
 {
     auto loadedScene = std::make_unique<PhysicsRingScene>();
     loadedScene->physicsScene = std::make_unique<Scene2D>();
-    loadedScene->renderScene = std::make_unique<Scene3D>();
+    if (enableRenderScene)
+    {
+        loadedScene->renderScene = std::make_unique<Scene3D>();
+    }
 
     loadedScene->borderBodyIndex = loadedScene->getPhysicsScene().getBodies().size();
     loadedScene->getPhysicsScene().addBody(std::make_unique<BorderCircleBody2D>(kSimulationCenter, kBorderRadiusPixels));
@@ -54,21 +58,25 @@ std::unique_ptr<PhysicsRingScene> PhysicsRingScene::createDefault()
             Vector2(110.0f, -40.0f),
             0xFFFFFFFF));
 
-    Entity3D border;
-    border.name = "PhysicsBorder";
-    border.mesh = MeshFactory3D::makeRing(
-        toWorldRadius(kBorderRadiusPixels) - kBorderThicknessWorld,
-        toWorldRadius(kBorderRadiusPixels),
-        96,
-        0xFFFFFFFF);
-    border.material.fillColor = 0xFFFFFFFF;
-    border.material.wireframeColor = 0xFFFFFFFF;
-    border.material.renderSolid = true;
-    border.material.renderWireframe = false;
-    border.transform.position = toWorldPlanePosition(kSimulationCenter, kSimulationPlaneZ);
+    if (loadedScene->renderScene)
+    {
+        Entity3D border;
+        border.name = "PhysicsBorder";
+        border.mesh = MeshFactory3D::makeDoubleSidedRing(
+            toWorldRadius(kBorderRadiusPixels) - kBorderThicknessWorld,
+            toWorldRadius(kBorderRadiusPixels),
+            kPlaneThicknessWorld,
+            96,
+            0xFFFFFFFF);
+        border.material.solid.color = 0xFFFFFFFF;
+        border.material.wireframe.color = 0xFFFFFFFF;
+        border.material.renderSolid = true;
+        border.material.renderWireframe = false;
+        border.transform.position = toWorldPlanePosition(kSimulationCenter, kSimulationPlaneZ);
 
-    loadedScene->borderEntityIndex = loadedScene->getRenderScene().getEntities().size();
-    loadedScene->getRenderScene().createEntity(border);
+        loadedScene->borderEntityIndex = loadedScene->getRenderScene().getEntities().size();
+        loadedScene->getRenderScene().createEntity(border);
+    }
 
     const auto &bodies = loadedScene->getPhysicsScene().getBodies();
     for (std::size_t bodyIndex = 0; bodyIndex < bodies.size(); ++bodyIndex)
@@ -85,22 +93,31 @@ std::unique_ptr<PhysicsRingScene> PhysicsRingScene::createDefault()
             continue;
         }
 
-        Entity3D ball;
-        ball.name = "PhysicsBall";
-        const float ballOuterRadius = circle->getRadius() / kSimulationScale;
-        const float ballInnerRadius = ballOuterRadius > kBallOutlineThicknessWorld
-                                          ? ballOuterRadius - kBallOutlineThicknessWorld
-                                          : ballOuterRadius * 0.5f;
-        ball.mesh = MeshFactory3D::makeRing(ballInnerRadius, ballOuterRadius, 48, body->getColor());
-        ball.material.fillColor = body->getColor();
-        ball.material.wireframeColor = body->getColor();
-        ball.material.renderSolid = true;
-        ball.material.renderWireframe = false;
-        ball.transform.position = toWorldPlanePosition(body->getPosition(), kSimulationPlaneZ);
-
         loadedScene->dynamicBodyIndices.push_back(bodyIndex);
-        loadedScene->dynamicEntityIndices.push_back(loadedScene->getRenderScene().getEntities().size());
-        loadedScene->getRenderScene().createEntity(ball);
+
+        if (loadedScene->renderScene)
+        {
+            Entity3D ball;
+            ball.name = "PhysicsBall";
+            const float ballOuterRadius = circle->getRadius() / kSimulationScale;
+            const float ballInnerRadius = ballOuterRadius > kBallOutlineThicknessWorld
+                                              ? ballOuterRadius - kBallOutlineThicknessWorld
+                                              : ballOuterRadius * 0.5f;
+            ball.mesh = MeshFactory3D::makeDoubleSidedRing(
+                ballInnerRadius,
+                ballOuterRadius,
+                kPlaneThicknessWorld,
+                48,
+                body->getColor());
+            ball.material.solid.color = body->getColor();
+            ball.material.wireframe.color = body->getColor();
+            ball.material.renderSolid = true;
+            ball.material.renderWireframe = false;
+            ball.transform.position = toWorldPlanePosition(body->getPosition(), kSimulationPlaneZ);
+
+            loadedScene->dynamicEntityIndices.push_back(loadedScene->getRenderScene().getEntities().size());
+            loadedScene->getRenderScene().createEntity(ball);
+        }
     }
 
     loadedScene->syncRenderScene();
@@ -115,6 +132,11 @@ Scene2D &PhysicsRingScene::getPhysicsScene()
 const Scene2D &PhysicsRingScene::getPhysicsScene() const
 {
     return *physicsScene;
+}
+
+bool PhysicsRingScene::hasRenderScene() const
+{
+    return static_cast<bool>(renderScene);
 }
 
 Scene3D &PhysicsRingScene::getRenderScene()
@@ -147,6 +169,17 @@ const PhysicsBody2D *PhysicsRingScene::getControlledBody() const
     return physicsScene->getBodies()[controlledBodyIndex].get();
 }
 
+void PhysicsRingScene::setWorldOffset(const Vector3 &offset)
+{
+    worldOffset = offset;
+    syncRenderScene();
+}
+
+const Vector3 &PhysicsRingScene::getWorldOffset() const
+{
+    return worldOffset;
+}
+
 void PhysicsRingScene::syncRenderScene()
 {
     if (!physicsScene || !renderScene)
@@ -163,7 +196,7 @@ void PhysicsRingScene::syncRenderScene()
         borderEntityIndex < entities.size())
     {
         entities[borderEntityIndex].transform.position =
-            toWorldPlanePosition(bodies[borderBodyIndex]->getPosition(), kSimulationPlaneZ);
+            toWorldPlanePosition(bodies[borderBodyIndex]->getPosition(), kSimulationPlaneZ) + worldOffset;
         entities[borderEntityIndex].transform.rotation = Vector3::zero();
         entities[borderEntityIndex].transform.scale = Vector3::one();
     }
@@ -179,7 +212,7 @@ void PhysicsRingScene::syncRenderScene()
         }
 
         entities[entityIndex].transform.position =
-            toWorldPlanePosition(bodies[bodyIndex]->getPosition(), kSimulationPlaneZ);
+            toWorldPlanePosition(bodies[bodyIndex]->getPosition(), kSimulationPlaneZ) + worldOffset;
         entities[entityIndex].transform.rotation = Vector3::zero();
         entities[entityIndex].transform.scale = Vector3::one();
     }

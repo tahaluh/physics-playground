@@ -1,9 +1,10 @@
 #include "engine/physics/2d/PhysicsBody2D.h"
+
+#include <cmath>
+
 #include "engine/physics/2d/BorderBoxBody2D.h"
 #include "engine/physics/2d/BorderCircleBody2D.h"
 #include "engine/physics/2d/shapes/CircleShape.h"
-#include "engine/physics/2d/shapes/RectShape.h"
-#include "engine/render/2d/Renderer2D.h"
 
 namespace
 {
@@ -11,34 +12,6 @@ CircleShape *getCircleShape(PhysicsBody2D &body)
 {
     return dynamic_cast<CircleShape *>(body.getShape());
 }
-}
-
-void PhysicsBody2D::render(Renderer2D &renderer) const
-{
-    if (!getShape())
-        return;
-
-    if (getShape()->getType() == ShapeType::Rect)
-    {
-        auto *rect = static_cast<const RectShape *>(getShape());
-        renderer.drawRect(
-            static_cast<int>(position.x),
-            static_cast<int>(position.y),
-            static_cast<int>(rect->getWidth()),
-            static_cast<int>(rect->getHeight()),
-            color);
-        return;
-    }
-
-    if (getShape()->getType() == ShapeType::Circle)
-    {
-        auto *circ = static_cast<const CircleShape *>(getShape());
-        renderer.drawCircle(
-            static_cast<int>(position.x),
-            static_cast<int>(position.y),
-            static_cast<int>(circ->getRadius()),
-            color);
-    }
 }
 
 bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float stopThreshold)

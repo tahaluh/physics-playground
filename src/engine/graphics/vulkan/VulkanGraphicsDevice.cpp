@@ -206,6 +206,7 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
         return false;
 
     triangleResourcesReady = createTrianglePipeline();
+    triangleResourcesReady = triangleResourcesReady && createLinePipeline();
     if (!triangleResourcesReady)
     {
         std::fprintf(
@@ -736,28 +737,6 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-    VkPipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
-    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-    depthStencil.depthBoundsTestEnable = VK_FALSE;
-    depthStencil.stencilTestEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT |
-        VK_COLOR_COMPONENT_G_BIT |
-        VK_COLOR_COMPONENT_B_BIT |
-        VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlending.logicOpEnable = VK_FALSE;
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments = &colorBlendAttachment;
-
     const std::array<VkDynamicState, 2> dynamicStates = {
         VK_DYNAMIC_STATE_VIEWPORT,
         VK_DYNAMIC_STATE_SCISSOR};
@@ -777,6 +756,197 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
         return false;
     }
 
+    const auto createPipeline = [&](bool enableBlend, bool writeDepth, VkPipeline &pipeline) -> bool
+    {
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_TRUE;
+        depthStencil.depthWriteEnable = writeDepth ? VK_TRUE : VK_FALSE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.stencilTestEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT |
+            VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT |
+            VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = enableBlend ? VK_TRUE : VK_FALSE;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = &dynamicState;
+        pipelineInfo.layout = trianglePipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        return vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline) == VK_SUCCESS;
+    };
+
+    const bool opaqueSuccess = createPipeline(false, true, opaqueTrianglePipeline);
+    const bool transparentSuccess = createPipeline(true, false, transparentTrianglePipeline);
+    if (!opaqueSuccess || !transparentSuccess)
+    {
+        std::fprintf(stderr, "Failed to create triangle graphics pipelines.\n");
+    }
+
+    vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+    return opaqueSuccess && transparentSuccess;
+}
+
+bool VulkanGraphicsDevice::createLinePipeline()
+{
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/basic/basic.vert.spv",
+        "shaders/vulkan/basic/basic.vert.spv"});
+    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/basic/basic.frag.spv",
+        "shaders/vulkan/basic/basic.frag.spv"});
+    if (vertexShaderCode.empty() || fragmentShaderCode.empty())
+    {
+        return false;
+    }
+
+    const VkShaderModule vertexShaderModule = createShaderModule(vertexShaderCode);
+    const VkShaderModule fragmentShaderModule = createShaderModule(fragmentShaderCode);
+    if (!vertexShaderModule || !fragmentShaderModule)
+    {
+        if (vertexShaderModule)
+            vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+        if (fragmentShaderModule)
+            vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo vertexShaderStageInfo{};
+    vertexShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertexShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertexShaderStageInfo.module = vertexShaderModule;
+    vertexShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragmentShaderStageInfo{};
+    fragmentShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragmentShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragmentShaderStageInfo.module = fragmentShaderModule;
+    fragmentShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
+
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(TriangleVertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(TriangleVertex, position);
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(TriangleVertex, color);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT |
+        VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT |
+        VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    const std::array<VkDynamicState, 2> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &linePipelineLayout) != VK_SUCCESS)
+    {
+        vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
+        vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+        return false;
+    }
+
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
@@ -789,15 +959,11 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = trianglePipelineLayout;
+    pipelineInfo.layout = linePipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
 
-    const bool success = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &trianglePipeline) == VK_SUCCESS;
-    if (!success)
-    {
-        std::fprintf(stderr, "Failed to create triangle graphics pipeline.\n");
-    }
+    const bool success = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &linePipeline) == VK_SUCCESS;
     vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
     vkDestroyShaderModule(device, vertexShaderModule, nullptr);
     return success;
@@ -805,21 +971,55 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
 
 bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const Scene3D &scene)
 {
-    std::vector<TriangleVertex> vertices;
+    struct EntitySortItem
+    {
+        const Entity3D *entity = nullptr;
+        float distanceSquared = 0.0f;
+    };
+
+    std::vector<TriangleVertex> opaqueVertices;
+    std::vector<TriangleVertex> transparentVertices;
+    std::vector<TriangleVertex> lineVertices;
     const Matrix4 viewMatrix = camera.getViewMatrix();
     const Matrix4 projectionMatrix = camera.getProjectionMatrix();
+    std::vector<EntitySortItem> opaqueEntities;
+    std::vector<EntitySortItem> transparentEntities;
 
     for (const Entity3D &entity : scene.getEntities())
     {
+        EntitySortItem item;
+        item.entity = &entity;
+        item.distanceSquared = (entity.transform.position - camera.transform.position).lengthSquared();
+        if (entity.material.isTransparent())
+        {
+            transparentEntities.push_back(item);
+        }
+        else
+        {
+            opaqueEntities.push_back(item);
+        }
+    }
+
+    std::sort(
+        transparentEntities.begin(),
+        transparentEntities.end(),
+        [](const EntitySortItem &a, const EntitySortItem &b)
+        {
+            return a.distanceSquared > b.distanceSquared;
+        });
+
+    const auto appendEntityTriangles =
+        [&](const Entity3D &entity, std::vector<TriangleVertex> &vertices)
+    {
         if (!entity.material.renderSolid)
         {
-            continue;
+            return;
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
         for (const MeshTriangle3D &triangle : entity.mesh.triangles)
         {
-            const uint32_t triangleColor = triangle.color != 0 ? triangle.color : entity.material.fillColor;
+            const uint32_t triangleColor = entity.material.solid.resolveColor(triangle.color);
             const std::array<float, 4> rgba = colorToFloat4(triangleColor);
 
             bool triangleVisible = true;
@@ -856,52 +1056,124 @@ bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const
                 vertices.push_back(vertex);
             }
         }
+    };
+
+    for (const EntitySortItem &item : opaqueEntities)
+    {
+        appendEntityTriangles(*item.entity, opaqueVertices);
+    }
+    for (const EntitySortItem &item : transparentEntities)
+    {
+        appendEntityTriangles(*item.entity, transparentVertices);
     }
 
-    sceneVertexCount = static_cast<uint32_t>(vertices.size());
-    if (sceneVertexCount == 0)
+    for (const Entity3D &entity : scene.getEntities())
+    {
+        if (!entity.material.renderWireframe)
+        {
+            continue;
+        }
+
+        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        const uint32_t lineColor = entity.material.wireframe.resolveColor();
+        const std::array<float, 4> rgba = colorToFloat4(lineColor);
+
+        for (const MeshEdge3D &edge : entity.mesh.edges)
+        {
+            std::array<Vector3, 2> ndcPositions{};
+            bool edgeVisible = true;
+            const std::array<int, 2> indices = {edge.start, edge.end};
+            for (size_t i = 0; i < indices.size(); ++i)
+            {
+                const Vector3 modelPosition = entity.mesh.vertices[indices[i]];
+                const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
+                const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
+                if (-viewPosition.z < camera.nearPlane)
+                {
+                    edgeVisible = false;
+                    continue;
+                }
+
+                ndcPositions[i] = projectionMatrix.transformPoint(viewPosition);
+            }
+
+            if (!edgeVisible)
+            {
+                continue;
+            }
+
+            for (const Vector3 &ndcPosition : ndcPositions)
+            {
+                TriangleVertex vertex{};
+                vertex.position[0] = ndcPosition.x;
+                vertex.position[1] = ndcPosition.y;
+                vertex.position[2] = ndcPosition.z;
+                vertex.color[0] = rgba[0];
+                vertex.color[1] = rgba[1];
+                vertex.color[2] = rgba[2];
+                vertex.color[3] = rgba[3];
+                lineVertices.push_back(vertex);
+            }
+        }
+    }
+
+    opaqueSceneVertexCount = static_cast<uint32_t>(opaqueVertices.size());
+    transparentSceneVertexCount = static_cast<uint32_t>(transparentVertices.size());
+    lineSceneVertexCount = static_cast<uint32_t>(lineVertices.size());
+
+    const auto uploadVertices = [&](const std::vector<TriangleVertex> &vertices, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
+    {
+        if (vertices.empty())
+        {
+            return true;
+        }
+
+        const VkDeviceSize requiredSize = sizeof(TriangleVertex) * static_cast<VkDeviceSize>(vertices.size());
+        if (!bufferHandle.buffer || bufferSize < requiredSize)
+        {
+            if (bufferHandle.buffer)
+            {
+                vkDestroyBuffer(device, bufferHandle.buffer, nullptr);
+                bufferHandle.buffer = VK_NULL_HANDLE;
+            }
+            if (bufferHandle.memory)
+            {
+                vkFreeMemory(device, bufferHandle.memory, nullptr);
+                bufferHandle.memory = VK_NULL_HANDLE;
+            }
+
+            if (!createBuffer(
+                    requiredSize,
+                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    bufferHandle))
+            {
+                std::fprintf(stderr, "Failed to create scene vertex buffer.\n");
+                bufferSize = 0;
+                return false;
+            }
+            bufferSize = requiredSize;
+        }
+
+        void *data = nullptr;
+        if (vkMapMemory(device, bufferHandle.memory, 0, requiredSize, 0, &data) != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "Failed to map scene vertex buffer memory.\n");
+            return false;
+        }
+        std::memcpy(data, vertices.data(), static_cast<size_t>(requiredSize));
+        vkUnmapMemory(device, bufferHandle.memory);
+        return true;
+    };
+
+    if (opaqueSceneVertexCount == 0 && transparentSceneVertexCount == 0 && lineSceneVertexCount == 0)
     {
         return true;
     }
 
-    const VkDeviceSize bufferSize = sizeof(TriangleVertex) * static_cast<VkDeviceSize>(vertices.size());
-    if (!sceneVertexBuffer.buffer || sceneVertexBufferSize < bufferSize)
-    {
-        if (sceneVertexBuffer.buffer)
-        {
-            vkDestroyBuffer(device, sceneVertexBuffer.buffer, nullptr);
-            sceneVertexBuffer.buffer = VK_NULL_HANDLE;
-        }
-        if (sceneVertexBuffer.memory)
-        {
-            vkFreeMemory(device, sceneVertexBuffer.memory, nullptr);
-            sceneVertexBuffer.memory = VK_NULL_HANDLE;
-        }
-
-        if (!createBuffer(
-                bufferSize,
-                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                sceneVertexBuffer))
-        {
-            std::fprintf(stderr, "Failed to create scene vertex buffer.\n");
-            sceneVertexCount = 0;
-            sceneVertexBufferSize = 0;
-            return false;
-        }
-        sceneVertexBufferSize = bufferSize;
-    }
-
-    void *data = nullptr;
-    if (vkMapMemory(device, sceneVertexBuffer.memory, 0, bufferSize, 0, &data) != VK_SUCCESS)
-    {
-        std::fprintf(stderr, "Failed to map scene vertex buffer memory.\n");
-        sceneVertexCount = 0;
-        return false;
-    }
-    std::memcpy(data, vertices.data(), static_cast<size_t>(bufferSize));
-    vkUnmapMemory(device, sceneVertexBuffer.memory);
-    return true;
+    return uploadVertices(opaqueVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
+           uploadVertices(transparentVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
+           uploadVertices(lineVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize);
 }
 
 bool VulkanGraphicsDevice::createFramebuffers()
@@ -1056,21 +1328,49 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyCommandPool(device, commandPool, nullptr);
         }
-        if (sceneVertexBuffer.buffer)
+        if (opaqueSceneVertexBuffer.buffer)
         {
-            vkDestroyBuffer(device, sceneVertexBuffer.buffer, nullptr);
+            vkDestroyBuffer(device, opaqueSceneVertexBuffer.buffer, nullptr);
         }
-        if (sceneVertexBuffer.memory)
+        if (opaqueSceneVertexBuffer.memory)
         {
-            vkFreeMemory(device, sceneVertexBuffer.memory, nullptr);
+            vkFreeMemory(device, opaqueSceneVertexBuffer.memory, nullptr);
         }
-        if (trianglePipeline)
+        if (transparentSceneVertexBuffer.buffer)
         {
-            vkDestroyPipeline(device, trianglePipeline, nullptr);
+            vkDestroyBuffer(device, transparentSceneVertexBuffer.buffer, nullptr);
+        }
+        if (transparentSceneVertexBuffer.memory)
+        {
+            vkFreeMemory(device, transparentSceneVertexBuffer.memory, nullptr);
+        }
+        if (lineSceneVertexBuffer.buffer)
+        {
+            vkDestroyBuffer(device, lineSceneVertexBuffer.buffer, nullptr);
+        }
+        if (lineSceneVertexBuffer.memory)
+        {
+            vkFreeMemory(device, lineSceneVertexBuffer.memory, nullptr);
+        }
+        if (opaqueTrianglePipeline)
+        {
+            vkDestroyPipeline(device, opaqueTrianglePipeline, nullptr);
+        }
+        if (transparentTrianglePipeline)
+        {
+            vkDestroyPipeline(device, transparentTrianglePipeline, nullptr);
+        }
+        if (linePipeline)
+        {
+            vkDestroyPipeline(device, linePipeline, nullptr);
         }
         if (trianglePipelineLayout)
         {
             vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
+        }
+        if (linePipelineLayout)
+        {
+            vkDestroyPipelineLayout(device, linePipelineLayout, nullptr);
         }
         if (renderPass)
         {
@@ -1122,7 +1422,7 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
     renderPassInfo.pClearValues = clearValues.data();
 
     vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    if (drawTriangle && trianglePipeline && sceneVertexBuffer.buffer && sceneVertexCount > 0)
+    if (drawTriangle)
     {
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -1139,9 +1439,24 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         VkDeviceSize offsets[] = {0};
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &sceneVertexBuffer.buffer, offsets);
-        vkCmdDraw(commandBuffer, sceneVertexCount, 1, 0, 0);
+        if (opaqueTrianglePipeline && opaqueSceneVertexBuffer.buffer && opaqueSceneVertexCount > 0)
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueTrianglePipeline);
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &opaqueSceneVertexBuffer.buffer, offsets);
+            vkCmdDraw(commandBuffer, opaqueSceneVertexCount, 1, 0, 0);
+        }
+        if (transparentTrianglePipeline && transparentSceneVertexBuffer.buffer && transparentSceneVertexCount > 0)
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, transparentTrianglePipeline);
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &transparentSceneVertexBuffer.buffer, offsets);
+            vkCmdDraw(commandBuffer, transparentSceneVertexCount, 1, 0, 0);
+        }
+        if (linePipeline && lineSceneVertexBuffer.buffer && lineSceneVertexCount > 0)
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline);
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &lineSceneVertexBuffer.buffer, offsets);
+            vkCmdDraw(commandBuffer, lineSceneVertexCount, 1, 0, 0);
+        }
     }
     vkCmdEndRenderPass(commandBuffer);
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)

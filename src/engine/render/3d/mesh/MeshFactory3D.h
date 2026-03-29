@@ -62,6 +62,67 @@ inline Mesh3D makeRing(float innerRadius, float outerRadius, int segments = 64, 
     return mesh;
 }
 
+inline Mesh3D makeDoubleSidedRing(
+    float innerRadius,
+    float outerRadius,
+    float thickness,
+    int segments = 64,
+    uint32_t color = 0xFFFFFFFF)
+{
+    Mesh3D mesh;
+    const float halfThickness = thickness * 0.5f;
+    mesh.vertices.reserve(static_cast<size_t>(segments) * 4);
+
+    const float step = 2.0f * 3.14159265f / static_cast<float>(segments);
+    for (int i = 0; i < segments; ++i)
+    {
+        const float angle = step * static_cast<float>(i);
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+
+        mesh.vertices.push_back(Vector3(c * outerRadius, s * outerRadius, halfThickness));
+        mesh.vertices.push_back(Vector3(c * innerRadius, s * innerRadius, halfThickness));
+        mesh.vertices.push_back(Vector3(c * outerRadius, s * outerRadius, -halfThickness));
+        mesh.vertices.push_back(Vector3(c * innerRadius, s * innerRadius, -halfThickness));
+    }
+
+    for (int i = 0; i < segments; ++i)
+    {
+        const int next = (i + 1) % segments;
+
+        const int outerFrontCurrent = i * 4;
+        const int innerFrontCurrent = outerFrontCurrent + 1;
+        const int outerBackCurrent = outerFrontCurrent + 2;
+        const int innerBackCurrent = outerFrontCurrent + 3;
+
+        const int outerFrontNext = next * 4;
+        const int innerFrontNext = outerFrontNext + 1;
+        const int outerBackNext = outerFrontNext + 2;
+        const int innerBackNext = outerFrontNext + 3;
+
+        mesh.edges.push_back({outerFrontCurrent, outerFrontNext});
+        mesh.edges.push_back({innerFrontCurrent, innerFrontNext});
+        mesh.edges.push_back({outerBackCurrent, outerBackNext});
+        mesh.edges.push_back({innerBackCurrent, innerBackNext});
+        mesh.edges.push_back({outerFrontCurrent, outerBackCurrent});
+        mesh.edges.push_back({innerFrontCurrent, innerBackCurrent});
+
+        mesh.triangles.push_back({{outerFrontCurrent, innerFrontCurrent, outerFrontNext}, color});
+        mesh.triangles.push_back({{outerFrontNext, innerFrontCurrent, innerFrontNext}, color});
+
+        mesh.triangles.push_back({{outerBackCurrent, outerBackNext, innerBackCurrent}, color});
+        mesh.triangles.push_back({{outerBackNext, innerBackNext, innerBackCurrent}, color});
+
+        mesh.triangles.push_back({{outerFrontCurrent, outerBackCurrent, outerFrontNext}, color});
+        mesh.triangles.push_back({{outerFrontNext, outerBackCurrent, outerBackNext}, color});
+
+        mesh.triangles.push_back({{innerFrontCurrent, innerFrontNext, innerBackCurrent}, color});
+        mesh.triangles.push_back({{innerFrontNext, innerBackNext, innerBackCurrent}, color});
+    }
+
+    return mesh;
+}
+
 inline Mesh3D makeCube(float size)
 {
     const float halfSize = size * 0.5f;
@@ -92,6 +153,50 @@ inline Mesh3D makeCube(float size)
         {{{1, 2, 6}}, 0xFF560BAD}, {{{1, 6, 5}}, 0xFF560BAD},
         {{{0, 3, 7}}, 0xFFF72585}, {{{0, 7, 4}}, 0xFFF72585},
     };
+
+    return mesh;
+}
+
+inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeSegments = 24, uint32_t color = 0xFFFFFFFF)
+{
+    Mesh3D mesh;
+    mesh.vertices.reserve(static_cast<size_t>(latitudeSegments + 1) * static_cast<size_t>(longitudeSegments + 1));
+
+    const float pi = 3.14159265f;
+    for (int lat = 0; lat <= latitudeSegments; ++lat)
+    {
+        const float v = static_cast<float>(lat) / static_cast<float>(latitudeSegments);
+        const float phi = v * pi;
+        const float y = std::cos(phi) * radius;
+        const float ringRadius = std::sin(phi) * radius;
+
+        for (int lon = 0; lon <= longitudeSegments; ++lon)
+        {
+            const float u = static_cast<float>(lon) / static_cast<float>(longitudeSegments);
+            const float theta = u * 2.0f * pi;
+            mesh.vertices.push_back(Vector3(
+                std::cos(theta) * ringRadius,
+                y,
+                std::sin(theta) * ringRadius));
+        }
+    }
+
+    const int stride = longitudeSegments + 1;
+    for (int lat = 0; lat < latitudeSegments; ++lat)
+    {
+        for (int lon = 0; lon < longitudeSegments; ++lon)
+        {
+            const int current = lat * stride + lon;
+            const int next = current + stride;
+            const int currentNext = current + 1;
+            const int nextNext = next + 1;
+
+            mesh.edges.push_back({current, currentNext});
+            mesh.edges.push_back({current, next});
+            mesh.triangles.push_back({{current, next, currentNext}, color});
+            mesh.triangles.push_back({{currentNext, next, nextNext}, color});
+        }
+    }
 
     return mesh;
 }

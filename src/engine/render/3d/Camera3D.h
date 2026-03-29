@@ -13,6 +13,10 @@ public:
     float aspectRatio = 4.0f / 3.0f;
     float nearPlane = 0.1f;
     float farPlane = 100.0f;
+    int viewportX = 0;
+    int viewportY = 0;
+    int viewportWidth = 0;
+    int viewportHeight = 0;
 
     Matrix4 getViewMatrix() const
     {
@@ -32,6 +36,15 @@ public:
         }
     }
 
+    void setViewport(int x, int y, int width, int height)
+    {
+        viewportX = x;
+        viewportY = y;
+        viewportWidth = width;
+        viewportHeight = height;
+        setAspectRatio(static_cast<float>(width) / static_cast<float>(height));
+    }
+
     Vector3 getForward() const
     {
         return Matrix4::rotationXYZ(transform.rotation).transformVector(Vector3(0.0f, 0.0f, -1.0f)).normalized();
@@ -49,13 +62,20 @@ public:
 
     bool projectPoint(const Vector3 &worldPoint, int viewportWidth, int viewportHeight, Vector2 &screenPoint) const
     {
+        const int resolvedViewportX = this->viewportWidth > 0 ? this->viewportX : 0;
+        const int resolvedViewportY = this->viewportHeight > 0 ? this->viewportY : 0;
+        const int resolvedViewportWidth = this->viewportWidth > 0 ? this->viewportWidth : viewportWidth;
+        const int resolvedViewportHeight = this->viewportHeight > 0 ? this->viewportHeight : viewportHeight;
+
         Vector3 viewPoint = getViewMatrix().transformPoint(worldPoint);
         if (-viewPoint.z < nearPlane)
             return false;
 
         Vector3 ndcPoint = getProjectionMatrix().transformPoint(viewPoint);
-        screenPoint.x = (ndcPoint.x * 0.5f + 0.5f) * static_cast<float>(viewportWidth);
-        screenPoint.y = (1.0f - (ndcPoint.y * 0.5f + 0.5f)) * static_cast<float>(viewportHeight);
+        screenPoint.x = static_cast<float>(resolvedViewportX) +
+                        (ndcPoint.x * 0.5f + 0.5f) * static_cast<float>(resolvedViewportWidth);
+        screenPoint.y = static_cast<float>(resolvedViewportY) +
+                        (1.0f - (ndcPoint.y * 0.5f + 0.5f)) * static_cast<float>(resolvedViewportHeight);
         return true;
     }
 };

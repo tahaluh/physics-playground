@@ -2,6 +2,5 @@
 
 enum class GraphicsBackend
 {
-    Vulkan,
-    Software
+    Vulkan
 };

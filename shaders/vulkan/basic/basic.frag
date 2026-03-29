@@ -72,6 +72,40 @@ vec4 multiplyShadowMatrix(vec4 shadowRows[4], vec3 worldPosition)
         dot(shadowRows[3], point));
 }
 
+float sampleShadowPCF(sampler2D depthTexture, vec2 uv, float compareDepth, float bias)
+{
+    vec2 texelSize = 1.0 / vec2(textureSize(depthTexture, 0));
+    float visibility = 0.0;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            vec2 offsetUv = uv + vec2(float(x), float(y)) * texelSize;
+            float closestDepth = texture(depthTexture, offsetUv).r;
+            visibility += compareDepth - bias > closestDepth ? 0.0 : 1.0;
+        }
+    }
+
+    return visibility / 9.0;
+}
+
+float samplePointShadowPCF(sampler2DArray depthTexture, vec2 uv, int faceIndex, float compareDepth, float bias)
+{
+    vec2 texelSize = 1.0 / vec2(textureSize(depthTexture, 0).xy);
+    float visibility = 0.0;
+    for (int y = -1; y <= 1; ++y)
+    {
+        for (int x = -1; x <= 1; ++x)
+        {
+            vec2 offsetUv = uv + vec2(float(x), float(y)) * texelSize;
+            float closestDepth = texture(depthTexture, vec3(offsetUv, float(faceIndex))).r;
+            visibility += compareDepth - bias > closestDepth ? 0.0 : 1.0;
+        }
+    }
+
+    return visibility / 9.0;
+}
+
 float computeShadowFactor(sampler2D depthTexture, vec4 shadowRows[4], vec3 worldPosition, float ndotl, float biasBase)
 {
     vec4 lightClip = multiplyShadowMatrix(shadowRows, worldPosition);
@@ -87,9 +121,8 @@ float computeShadowFactor(sampler2D depthTexture, vec4 shadowRows[4], vec3 world
         return 1.0;
     }
 
-    float bias = max(biasBase * (1.0 - ndotl), biasBase * 0.25);
-    float closestDepth = texture(depthTexture, shadowCoord.xy).r;
-    return shadowCoord.z - bias > closestDepth ? 0.0 : 1.0;
+    float bias = max(biasBase * (1.0 - ndotl), biasBase * 0.35);
+    return sampleShadowPCF(depthTexture, shadowCoord.xy, shadowCoord.z, bias);
 }
 
 float computeDirectionalShadowFactor(vec3 worldPosition, float ndotl)
@@ -174,9 +207,8 @@ float computePointShadowFactor(vec3 worldPosition, float ndotl)
         return 1.0;
     }
 
-    float bias = max(ambientLighting.shadowBiases.y * (1.0 - ndotl), ambientLighting.shadowBiases.y * 0.25);
-    float closestDepth = texture(pointShadowMap, vec3(shadowCoord.xy, float(faceIndex))).r;
-    return shadowCoord.z - bias > closestDepth ? 0.0 : 1.0;
+    float bias = max(ambientLighting.shadowBiases.y * (1.0 - ndotl), ambientLighting.shadowBiases.y * 0.35);
+    return samplePointShadowPCF(pointShadowMap, shadowCoord.xy, faceIndex, shadowCoord.z, bias);
 }
 
 void main()

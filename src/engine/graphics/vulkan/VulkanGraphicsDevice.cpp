@@ -1691,9 +1691,9 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     ambientUniform.shadowFlags[1] = pointShadowEnabled ? 1.0f : 0.0f;
     ambientUniform.shadowFlags[2] = spotShadowEnabled ? 1.0f : 0.0f;
     ambientUniform.shadowFlags[3] = 0.0f;
-    ambientUniform.shadowBiases[0] = 0.0025f;
-    ambientUniform.shadowBiases[1] = 0.01f;
-    ambientUniform.shadowBiases[2] = 0.0035f;
+    ambientUniform.shadowBiases[0] = 0.0018f;
+    ambientUniform.shadowBiases[1] = 0.0065f;
+    ambientUniform.shadowBiases[2] = 0.0025f;
     ambientUniform.shadowBiases[3] = 0.0f;
 
     const auto updateBufferData =

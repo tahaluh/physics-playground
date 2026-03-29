@@ -9,6 +9,8 @@ class PhysicsWorld3D
 public:
     void setGravity(const Vector3 &newGravity);
     const Vector3 &getGravity() const;
+    void setStopThreshold(float newStopThreshold);
+    float getStopThreshold() const;
 
     void step(PhysicsScene3D &scene, float dt) const;
 
@@ -18,4 +20,5 @@ private:
     void solveBoundaryCollisions(PhysicsScene3D &scene) const;
 
     Vector3 gravity = Vector3::zero();
+    float stopThreshold = 0.0f;
 };

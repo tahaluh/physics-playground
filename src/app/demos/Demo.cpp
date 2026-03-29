@@ -25,59 +25,59 @@
 
 namespace
 {
-const float kMoveSpeed = 4.0f;
-const float kMouseLookSensitivity = 0.0025f;
-const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
-const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
+    const float kMoveSpeed = 4.0f;
+    const float kMouseLookSensitivity = 0.0025f;
+    const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
+    const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
 
-const Vector2 kRingSimulationCenter(400.0f, 300.0f);
-constexpr float kRingSimulationScale = 100.0f;
-constexpr float kRingBorderRadiusPixels = 200.0f;
-constexpr float kRingBorderThicknessWorld = 0.02f;
-constexpr float kRingBallRadiusPixels = 10.0f;
-constexpr float kRingBallOutlineThicknessWorld = 0.02f;
-constexpr float kRingPlaneThicknessWorld = 0.04f;
-constexpr float kRingPlaneZ = 0.0f;
+    const Vector2 kRingSimulationCenter(400.0f, 300.0f);
+    constexpr float kRingSimulationScale = 100.0f;
+    constexpr float kRingBorderRadiusPixels = 200.0f;
+    constexpr float kRingBorderThicknessWorld = 0.02f;
+    constexpr float kRingBallRadiusPixels = 10.0f;
+    constexpr float kRingBallOutlineThicknessWorld = 0.02f;
+    constexpr float kRingPlaneThicknessWorld = 0.04f;
+    constexpr float kRingPlaneZ = 0.0f;
 
-constexpr float kSphereBoundaryRadius = 4.0f;
-constexpr float kSphereBallRadius = 0.45f;
-const Vector3 kSphereBallStartPosition(0.9f, 1.4f, -0.6f);
-const Vector3 kSphereBallStartVelocity(1.8f, -0.4f, 1.2f);
-constexpr float kSphereBallLinearDamping = 0.03f;
-constexpr float kSphereBallRestitution = 0.68f;
-constexpr float kSphereBallSurfaceFriction = 0.48f;
-constexpr int kBoundarySphereRings = 20;
-constexpr int kBoundarySphereSegments = 32;
-constexpr int kBallSphereRings = 16;
-constexpr int kBallSphereSegments = 24;
+    constexpr float kSphereBoundaryRadius = 4.0f;
+    constexpr float kSphereBallRadius = 0.45f;
+    const Vector3 kSphereBallStartPosition(0.9f, 1.4f, -0.6f);
+    const Vector3 kSphereBallStartVelocity(1.8f, -0.4f, 1.2f);
+    constexpr float kSphereBallLinearDamping = 0.03f;
+    constexpr float kSphereBallRestitution = 0.75f;
+    constexpr float kSphereBallSurfaceFriction = 0.5f;
+    constexpr int kBoundarySphereRings = 20;
+    constexpr int kBoundarySphereSegments = 32;
+    constexpr int kBallSphereRings = 16;
+    constexpr int kBallSphereSegments = 24;
 
-Vector3 getPlanarForward(const Camera3D &camera)
-{
-    Vector3 forward = camera.getForward();
-    forward.y = 0.0f;
-    if (forward.lengthSquared() == 0.0f)
+    Vector3 getPlanarForward(const Camera3D &camera)
     {
-        return Vector3(0.0f, 0.0f, -1.0f);
+        Vector3 forward = camera.getForward();
+        forward.y = 0.0f;
+        if (forward.lengthSquared() == 0.0f)
+        {
+            return Vector3(0.0f, 0.0f, -1.0f);
+        }
+        return forward.normalized();
     }
-    return forward.normalized();
-}
 
-Vector3 getPlanarRight(const Camera3D &camera)
-{
-    return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
-}
+    Vector3 getPlanarRight(const Camera3D &camera)
+    {
+        return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
+    }
 
-Vector3 toRingWorldPosition(const Vector2 &simulationPosition, float zOffset = 0.0f)
-{
-    const float worldX = (simulationPosition.x - kRingSimulationCenter.x) / kRingSimulationScale;
-    const float worldY = -(simulationPosition.y - kRingSimulationCenter.y) / kRingSimulationScale;
-    return Vector3(worldX, worldY, zOffset);
-}
+    Vector3 toRingWorldPosition(const Vector2 &simulationPosition, float zOffset = 0.0f)
+    {
+        const float worldX = (simulationPosition.x - kRingSimulationCenter.x) / kRingSimulationScale;
+        const float worldY = -(simulationPosition.y - kRingSimulationCenter.y) / kRingSimulationScale;
+        return Vector3(worldX, worldY, zOffset);
+    }
 
-float toRingWorldRadius(float simulationRadius)
-{
-    return simulationRadius / kRingSimulationScale;
-}
+    float toRingWorldRadius(float simulationRadius)
+    {
+        return simulationRadius / kRingSimulationScale;
+    }
 }
 
 Demo::~Demo() = default;

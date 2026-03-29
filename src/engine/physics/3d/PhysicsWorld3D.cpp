@@ -14,6 +14,16 @@ const Vector3 &PhysicsWorld3D::getGravity() const
     return gravity;
 }
 
+void PhysicsWorld3D::setStopThreshold(float newStopThreshold)
+{
+    stopThreshold = newStopThreshold;
+}
+
+float PhysicsWorld3D::getStopThreshold() const
+{
+    return stopThreshold;
+}
+
 void PhysicsWorld3D::step(PhysicsScene3D &scene, float dt) const
 {
     applyGlobalForces(scene);
@@ -116,6 +126,12 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
                         dynamicCandidate->getAngularVelocity() +
                         contactOffset.cross(impulse) * dynamicCandidate->getInverseMomentOfInertia());
                 }
+            }
+
+            if (stopThreshold > 0.0f && dynamicCandidate->getVelocity().length() < stopThreshold)
+            {
+                dynamicCandidate->setVelocity(Vector3::zero());
+                dynamicCandidate->setAngularVelocity(Vector3::zero());
             }
 
         }

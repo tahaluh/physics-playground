@@ -17,11 +17,9 @@ public:
 
     void onCollision(const Contact2D &contact) override
     {
-        constexpr float stopThreshold = 25.0f;
-
-        if (resolveBorderCircleCollision(contact, stopThreshold))
+        if (resolveBorderCircleCollision(contact))
             return;
 
-        resolveBorderBoxCollision(contact, stopThreshold);
+        resolveBorderBoxCollision(contact);
     }
 };

@@ -272,6 +272,12 @@ void VulkanGraphicsDevice::beginFrame(uint32_t clearColor)
 
     vkResetCommandBuffer(commandBuffers[currentImageIndex], 0);
     currentClearColor = clearColor;
+    opaqueSceneVertices.clear();
+    transparentSceneVertices.clear();
+    lineSceneVertices.clear();
+    opaqueSceneVertexCount = 0;
+    transparentSceneVertexCount = 0;
+    lineSceneVertexCount = 0;
     frameBegun = true;
     commandBufferRecorded = false;
 }
@@ -283,10 +289,7 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
-    if (!updateSceneVertexBuffer(camera, scene))
-    {
-        return;
-    }
+    appendSceneVertices(camera, scene);
 }
 
 void VulkanGraphicsDevice::endFrame()
@@ -296,6 +299,11 @@ void VulkanGraphicsDevice::endFrame()
 
     if (!commandBufferRecorded)
     {
+        if (!uploadSceneVertexBuffers())
+        {
+            return;
+        }
+
         const bool drawTriangle = triangleResourcesReady;
         recordCommandBuffer(commandBuffers[currentImageIndex], currentImageIndex, currentClearColor, drawTriangle);
         commandBufferRecorded = true;
@@ -969,7 +977,7 @@ bool VulkanGraphicsDevice::createLinePipeline()
     return success;
 }
 
-bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const Scene3D &scene)
+void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Scene3D &scene)
 {
     struct EntitySortItem
     {
@@ -977,8 +985,6 @@ bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const
         float distanceSquared = 0.0f;
     };
 
-    std::vector<TriangleVertex> opaqueVertices;
-    std::vector<TriangleVertex> transparentVertices;
     std::vector<TriangleVertex> lineVertices;
     const Matrix4 viewMatrix = camera.getViewMatrix();
     const Matrix4 projectionMatrix = camera.getProjectionMatrix();
@@ -1060,11 +1066,11 @@ bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const
 
     for (const EntitySortItem &item : opaqueEntities)
     {
-        appendEntityTriangles(*item.entity, opaqueVertices);
+        appendEntityTriangles(*item.entity, opaqueSceneVertices);
     }
     for (const EntitySortItem &item : transparentEntities)
     {
-        appendEntityTriangles(*item.entity, transparentVertices);
+        appendEntityTriangles(*item.entity, transparentSceneVertices);
     }
 
     for (const Entity3D &entity : scene.getEntities())
@@ -1117,10 +1123,11 @@ bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const
         }
     }
 
-    opaqueSceneVertexCount = static_cast<uint32_t>(opaqueVertices.size());
-    transparentSceneVertexCount = static_cast<uint32_t>(transparentVertices.size());
-    lineSceneVertexCount = static_cast<uint32_t>(lineVertices.size());
+    lineSceneVertices.insert(lineSceneVertices.end(), lineVertices.begin(), lineVertices.end());
+}
 
+bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
+{
     const auto uploadVertices = [&](const std::vector<TriangleVertex> &vertices, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
     {
         if (vertices.empty())
@@ -1166,14 +1173,18 @@ bool VulkanGraphicsDevice::updateSceneVertexBuffer(const Camera3D &camera, const
         return true;
     };
 
+    opaqueSceneVertexCount = static_cast<uint32_t>(opaqueSceneVertices.size());
+    transparentSceneVertexCount = static_cast<uint32_t>(transparentSceneVertices.size());
+    lineSceneVertexCount = static_cast<uint32_t>(lineSceneVertices.size());
+
     if (opaqueSceneVertexCount == 0 && transparentSceneVertexCount == 0 && lineSceneVertexCount == 0)
     {
         return true;
     }
 
-    return uploadVertices(opaqueVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
-           uploadVertices(transparentVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
-           uploadVertices(lineVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize);
+    return uploadVertices(opaqueSceneVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
+           uploadVertices(transparentSceneVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
+           uploadVertices(lineSceneVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize);
 }
 
 bool VulkanGraphicsDevice::createFramebuffers()

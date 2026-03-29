@@ -41,8 +41,8 @@ void PhysicsComparisonDemo::onAttach(int viewportWidth, int viewportHeight)
     scene2D->setWorldOffset(kScene2DOffset);
 
     camera3D = std::make_unique<Camera3D>();
-    camera3D->transform.position = Vector3(0.0f, 2.2f, 18.0f);
-    camera3D->transform.rotation = Vector3(0.0f, 3.14159265f, 0.0f);
+    camera3D->transform.position = Vector3(0.0f, 3.5f, 22.0f);
+    camera3D->transform.rotation = Vector3(-0.12f, 0.0f, 0.0f);
     scene3D = PhysicsSphereScene3D::createDefault();
     scene3D->setWorldOffset(kScene3DOffset);
     physicsWorld3D = std::make_unique<PhysicsWorld3D>();

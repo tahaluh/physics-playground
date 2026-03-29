@@ -52,7 +52,8 @@ private:
     bool createDepthResources();
     bool createTrianglePipeline();
     bool createLinePipeline();
-    bool updateSceneVertexBuffer(const Camera3D &camera, const Scene3D &scene);
+    void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
+    bool uploadSceneVertexBuffers();
     bool createFramebuffers();
     bool createCommandPool();
     bool createCommandBuffers();
@@ -126,6 +127,9 @@ private:
     uint32_t opaqueSceneVertexCount = 0;
     uint32_t transparentSceneVertexCount = 0;
     uint32_t lineSceneVertexCount = 0;
+    std::vector<TriangleVertex> opaqueSceneVertices;
+    std::vector<TriangleVertex> transparentSceneVertices;
+    std::vector<TriangleVertex> lineSceneVertices;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

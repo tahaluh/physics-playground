@@ -71,6 +71,7 @@ public:
     const Vector3 &getWorldOffset() const;
     void step(PhysicsWorld2D &physicsWorld, float dt);
     void syncRenderScene();
+    void appendDebugMarkers(Scene3D &targetScene) const;
 
 private:
     static constexpr std::size_t kInvalidIndex = static_cast<std::size_t>(-1);

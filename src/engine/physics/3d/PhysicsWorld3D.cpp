@@ -258,6 +258,15 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
         contactOffsetBox.cross(impulse) * boxBody.getInverseMomentOfInertia() * kBoxAngularImpulseScale);
 
     applyFrictionImpulse3D(sphereBody, boxBody, normal, contactOffsetSphere, contactOffsetBox, impulseMagnitude);
+
+    const float frictionStrength = std::max(
+        0.0f,
+        (sphereBody.getSurfaceMaterial().staticFriction +
+         sphereBody.getSurfaceMaterial().dynamicFriction +
+         boxBody.getSurfaceMaterial().staticFriction +
+         boxBody.getSurfaceMaterial().dynamicFriction) *
+            0.25f);
+    steerSphereTowardRolling(sphereBody, sphere, normal, frictionStrength);
 }
 
 void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitutionThreshold)
@@ -352,6 +361,16 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitution
             bodyB->setAngularVelocity(bodyB->getAngularVelocity() + contactOffsetB.cross(impulse) * bodyB->getInverseMomentOfInertia());
 
             applyFrictionImpulse3D(*bodyA, *bodyB, normal, contactOffsetA, contactOffsetB, impulseMagnitude);
+
+            const float frictionStrength = std::max(
+                0.0f,
+                (bodyA->getSurfaceMaterial().staticFriction +
+                 bodyA->getSurfaceMaterial().dynamicFriction +
+                 bodyB->getSurfaceMaterial().staticFriction +
+                 bodyB->getSurfaceMaterial().dynamicFriction) *
+                    0.25f);
+            steerSphereTowardRolling(*bodyA, *shapeA, normal, frictionStrength);
+            steerSphereTowardRolling(*bodyB, *shapeB, normal * -1.0f, frictionStrength);
         }
     }
 }

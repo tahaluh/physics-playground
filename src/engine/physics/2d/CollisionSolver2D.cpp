@@ -431,17 +431,37 @@ bool CollisionSolver2D::resolveDynamicCircleCollision(const Contact2D &contactA,
     bodyA->setPosition(bodyA->getPosition() - normal * (correctedPenetration * (bodyB->getMass() / totalMass)));
     bodyB->setPosition(bodyB->getPosition() + normal * (correctedPenetration * (bodyA->getMass() / totalMass)));
 
-    Vector2 relativeVelocity = bodyB->getVelocity() - bodyA->getVelocity();
-    float velocityAlongNormal = relativeVelocity.dot(normal);
+    const Vector2 contactPoint = contactA.contactPoint;
+    const Vector2 contactOffsetA = contactPoint - getBodyCenter(*bodyA);
+    const Vector2 contactOffsetB = contactPoint - getBodyCenter(*bodyB);
+    const Vector2 contactVelocityA = getContactVelocity(*bodyA, contactPoint);
+    const Vector2 contactVelocityB = getContactVelocity(*bodyB, contactPoint);
+    const Vector2 relativeVelocity = contactVelocityB - contactVelocityA;
+    const float velocityAlongNormal = relativeVelocity.dot(normal);
     if (velocityAlongNormal > 0.0f)
         return true;
 
     const float combinedRestitution = std::min(bodyA->getSurfaceMaterial().restitution, bodyB->getSurfaceMaterial().restitution);
-    float impulseMagnitude = -(1.0f + combinedRestitution) * velocityAlongNormal;
-    impulseMagnitude /= (1.0f / bodyA->getMass()) + (1.0f / bodyB->getMass());
+    const float radiusCrossNormalA = Vector2::cross(contactOffsetA, normal);
+    const float radiusCrossNormalB = Vector2::cross(contactOffsetB, normal);
+    const float denominator =
+        bodyA->getInverseMass() +
+        bodyB->getInverseMass() +
+        radiusCrossNormalA * radiusCrossNormalA * bodyA->getInverseMomentOfInertia() +
+        radiusCrossNormalB * radiusCrossNormalB * bodyB->getInverseMomentOfInertia();
+    if (denominator <= 0.0f)
+    {
+        return true;
+    }
 
-    Vector2 impulse = normal * impulseMagnitude;
-    bodyA->setVelocity(bodyA->getVelocity() - impulse / bodyA->getMass());
-    bodyB->setVelocity(bodyB->getVelocity() + impulse / bodyB->getMass());
+    const float impulseMagnitude = -(1.0f + combinedRestitution) * velocityAlongNormal / denominator;
+
+    const Vector2 impulse = normal * impulseMagnitude;
+    bodyA->setVelocity(bodyA->getVelocity() - impulse * bodyA->getInverseMass());
+    bodyB->setVelocity(bodyB->getVelocity() + impulse * bodyB->getInverseMass());
+    bodyA->setAngularVelocity(bodyA->getAngularVelocity() - Vector2::cross(contactOffsetA, impulse) * bodyA->getInverseMomentOfInertia());
+    bodyB->setAngularVelocity(bodyB->getAngularVelocity() + Vector2::cross(contactOffsetB, impulse) * bodyB->getInverseMomentOfInertia());
+
+    applyDynamicFrictionImpulse(*bodyA, *bodyB, contactA, impulseMagnitude);
     return true;
 }

@@ -18,6 +18,8 @@
 
 namespace
 {
+constexpr float kCenterOfMassMarkerRadius = 0.06f;
+
 Mesh3D makeRadialLineMesh()
 {
     Mesh3D mesh;
@@ -263,5 +265,48 @@ void RingObject::syncRenderScene()
                 Vector3(0.0f, 0.0f, toWorldRotation(body.getRotationAngle()));
             entities[binding.rotationIndicatorEntityIndex].transform.scale = binding.rotationIndicatorScale;
         }
+    }
+}
+
+void RingObject::appendDebugMarkers(Scene3D &targetScene) const
+{
+    if (!physicsScene)
+    {
+        return;
+    }
+
+    for (const auto &bodyPtr : physicsScene->getBodies())
+    {
+        if (!bodyPtr)
+        {
+            continue;
+        }
+
+        const PhysicsBody2D &body = *bodyPtr;
+        Vector2 centerOfMass = body.getPosition();
+        if (const auto *rect = dynamic_cast<const RectShape *>(body.getShape()))
+        {
+            centerOfMass += Vector2(rect->getWidth() * 0.5f, rect->getHeight() * 0.5f);
+        }
+
+        Shape2DIn3DDesc markerDesc;
+        markerDesc.kind = Shape2DIn3DKind::Disc;
+        markerDesc.name = body.isStatic() ? "StaticBodyCenterDebug2D" : "DynamicBodyCenterDebug2D";
+        markerDesc.position = Vector2(
+            toWorldPosition(config, centerOfMass, config.planeZ + 0.001f).x,
+            toWorldPosition(config, centerOfMass, config.planeZ + 0.001f).y);
+        markerDesc.planeZ = config.planeZ + 0.001f;
+        markerDesc.radius = body.isStatic() ? kCenterOfMassMarkerRadius * 0.8f : kCenterOfMassMarkerRadius;
+        markerDesc.segments = 20;
+        markerDesc.color = body.isStatic() ? 0xFFFFB347 : 0xFF59E3FF;
+        markerDesc.material.renderSolid = true;
+        markerDesc.material.renderWireframe = false;
+        markerDesc.material.solid.baseColor = markerDesc.color;
+        markerDesc.material.solid.opacity = 0.9f;
+        markerDesc.material.solid.doubleSidedLighting = true;
+
+        Entity3D marker = makeShape2DIn3D(markerDesc);
+        marker.transform.position += worldOffset;
+        targetScene.createEntity(marker);
     }
 }

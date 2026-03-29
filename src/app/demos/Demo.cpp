@@ -296,6 +296,14 @@ void Demo::rebuildCombinedScene()
 
     if (showPhysicsDebugMarkers)
     {
+        for (const auto &ringObject : ringObjects)
+        {
+            if (ringObject)
+            {
+                ringObject->appendDebugMarkers(*combinedScene);
+            }
+        }
+
         for (const auto &sphereArenaObject : sphereArenaObjects)
         {
             if (sphereArenaObject)

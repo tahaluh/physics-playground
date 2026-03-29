@@ -284,6 +284,11 @@ void RingObject::appendDebugMarkers(Scene3D &targetScene) const
         }
 
         const PhysicsBody2D &body = *bodyPtr;
+        if (dynamic_cast<const RectShape *>(body.getShape()) && !body.isStatic())
+        {
+            continue;
+        }
+
         Vector2 centerOfMass = body.getPosition();
         if (const auto *rect = dynamic_cast<const RectShape *>(body.getShape()))
         {

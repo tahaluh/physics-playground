@@ -58,6 +58,7 @@ public:
     {
         float position[4];
         float velocity[4];
+        float halfExtentsRestitution[4];
     };
 
     struct LightStorageHeader
@@ -244,6 +245,9 @@ private:
     uint32_t pointShadowCount = 0;
     uint32_t gpuSquareCount = 0;
     float queuedSimulationDeltaTime = 0.0f;
+    float gpuSquareRingCenter[2] = {0.0f, 0.0f};
+    float gpuSquareRingInnerRadius = 0.0f;
+    bool gpuSquareRingValid = false;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

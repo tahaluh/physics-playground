@@ -345,6 +345,22 @@ void Demo::rebuildCombinedScene()
             }
         }
 
+        for (std::size_t i = 0; i < squareObjects.size(); ++i)
+        {
+            if (!squareObjects[i] || i >= squareObjectRingIndices.size())
+            {
+                continue;
+            }
+
+            const std::size_t ringIndex = squareObjectRingIndices[i];
+            if (ringIndex >= ringObjects.size() || !ringObjects[ringIndex])
+            {
+                continue;
+            }
+
+            squareObjects[i]->appendDebugMarkers(*combinedScene, ringObjects[ringIndex]->getConfig());
+        }
+
         for (const auto &sphereArenaObject : sphereArenaObjects)
         {
             if (sphereArenaObject)

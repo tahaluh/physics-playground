@@ -12,6 +12,8 @@
 
 namespace
 {
+constexpr float kSquareCenterOfMassMarkerRadius = 0.06f;
+
 Vector3 toWorldPosition(const RingObjectDesc &ringConfig, const Vector2 &simulationPosition, float zOffset = 0.0f)
 {
     const float worldX = (simulationPosition.x - ringConfig.center.x) / ringConfig.simulationScale;
@@ -124,4 +126,24 @@ void SquareObject::syncRenderScene(const Scene2D &physicsScene, const RingObject
         toWorldPosition(ringConfig, bodyPosition, ringConfig.planeZ + 0.0003f) + ringConfig.worldOffset;
     entities[squareEntityIndex].transform.rotation = Vector3(0.0f, 0.0f, toWorldRotation(body.getRotationAngle()));
     entities[squareEntityIndex].transform.scale = Vector3::one();
+}
+
+void SquareObject::appendDebugMarkers(Scene3D &targetScene, const RingObjectDesc &ringConfig) const
+{
+    Shape2DIn3DDesc markerDesc;
+    markerDesc.kind = Shape2DIn3DKind::Disc;
+    markerDesc.name = "SquareCenterDebug2D";
+    const Vector3 markerWorldPosition = toWorldPosition(ringConfig, config.startPosition, ringConfig.planeZ + 0.001f) + ringConfig.worldOffset;
+    markerDesc.position = Vector2(markerWorldPosition.x, markerWorldPosition.y);
+    markerDesc.planeZ = ringConfig.planeZ + 0.001f;
+    markerDesc.radius = kSquareCenterOfMassMarkerRadius;
+    markerDesc.segments = 20;
+    markerDesc.color = 0xFF59E3FF;
+    markerDesc.material.renderSolid = true;
+    markerDesc.material.renderWireframe = false;
+    markerDesc.material.solid.baseColor = markerDesc.color;
+    markerDesc.material.solid.opacity = 0.9f;
+    markerDesc.material.solid.doubleSidedLighting = true;
+
+    targetScene.createEntity(makeShape2DIn3D(markerDesc));
 }

@@ -453,11 +453,29 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
     }
 
     uint32_t detectedGpuSquareCount = 0;
+    gpuSquareRingValid = false;
     for (const Entity3D &entity : scene.getEntities())
     {
         if (entity.name == "Square")
         {
             ++detectedGpuSquareCount;
+        }
+        else if (!gpuSquareRingValid && entity.name == "PhysicsBorder")
+        {
+            float innerRadius = std::numeric_limits<float>::max();
+            for (const Vector3 &vertex : entity.mesh.vertices)
+            {
+                const float radialDistance = std::sqrt(vertex.x * vertex.x + vertex.y * vertex.y);
+                innerRadius = std::min(innerRadius, radialDistance);
+            }
+
+            if (innerRadius < std::numeric_limits<float>::max())
+            {
+                gpuSquareRingCenter[0] = entity.transform.position.x;
+                gpuSquareRingCenter[1] = entity.transform.position.y;
+                gpuSquareRingInnerRadius = innerRadius;
+                gpuSquareRingValid = true;
+            }
         }
     }
 
@@ -506,6 +524,17 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
             initialStates[squareIndex].velocity[1] = 0.0f;
             initialStates[squareIndex].velocity[2] = 0.0f;
             initialStates[squareIndex].velocity[3] = 0.0f;
+            float halfExtentX = 0.0f;
+            float halfExtentY = 0.0f;
+            for (const Vector3 &vertex : entity.mesh.vertices)
+            {
+                halfExtentX = std::max(halfExtentX, std::abs(vertex.x));
+                halfExtentY = std::max(halfExtentY, std::abs(vertex.y));
+            }
+            initialStates[squareIndex].halfExtentsRestitution[0] = halfExtentX;
+            initialStates[squareIndex].halfExtentsRestitution[1] = halfExtentY;
+            initialStates[squareIndex].halfExtentsRestitution[2] = 0.55f;
+            initialStates[squareIndex].halfExtentsRestitution[3] = 0.0f;
             ++squareIndex;
         }
 
@@ -1488,7 +1517,7 @@ bool VulkanGraphicsDevice::createComputePipeline()
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(float) * 4;
+    pushConstantRange.size = sizeof(float) * 8;
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -2364,11 +2393,20 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     std::vector<TriangleVertex> lineVertices;
     std::unordered_map<const Entity3D *, uint32_t> gpuSquareIndices;
     uint32_t nextGpuSquareIndex = 0;
+    uint32_t lastAssignedGpuSquareIndex = 0;
+    bool hasAssignedGpuSquare = false;
     for (const Entity3D &entity : scene.getEntities())
     {
         if (entity.name == "Square")
         {
-            gpuSquareIndices[&entity] = nextGpuSquareIndex++;
+            gpuSquareIndices[&entity] = nextGpuSquareIndex;
+            lastAssignedGpuSquareIndex = nextGpuSquareIndex;
+            hasAssignedGpuSquare = true;
+            ++nextGpuSquareIndex;
+        }
+        else if (entity.name == "SquareCenterDebug2D" && hasAssignedGpuSquare)
+        {
+            gpuSquareIndices[&entity] = lastAssignedGpuSquareIndex;
         }
     }
     std::vector<GpuSquareSimState> gpuSquareStates(nextGpuSquareIndex);
@@ -3156,7 +3194,19 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             float gravityX;
             float gravityY;
             float stateCount;
-        } pushConstants{queuedSimulationDeltaTime, 0.0f, kGpuSquareGravityY, static_cast<float>(gpuSquareCount)};
+            float ringCenterX;
+            float ringCenterY;
+            float ringInnerRadius;
+            float ringEnabled;
+        } pushConstants{
+            queuedSimulationDeltaTime,
+            0.0f,
+            kGpuSquareGravityY,
+            static_cast<float>(gpuSquareCount),
+            gpuSquareRingCenter[0],
+            gpuSquareRingCenter[1],
+            gpuSquareRingInnerRadius,
+            gpuSquareRingValid ? 1.0f : 0.0f};
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
         vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);

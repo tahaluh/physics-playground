@@ -38,6 +38,7 @@ public:
     Scene3D &getRenderScene();
     const Scene3D &getRenderScene() const;
     void syncRenderScene(const Scene2D &physicsScene, const RingObjectDesc &ringConfig);
+    void appendDebugMarkers(Scene3D &targetScene, const RingObjectDesc &ringConfig) const;
 
 private:
     static constexpr std::size_t kInvalidIndex = static_cast<std::size_t>(-1);

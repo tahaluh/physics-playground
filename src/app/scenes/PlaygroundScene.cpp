@@ -51,7 +51,7 @@ namespace
     {
         SquareObjectDesc desc;
         desc.ringObjectIndex = 0;
-        desc.startPosition = Vector2(400.0f, 100.0f);
+        desc.startPosition = Vector2(400.0f, 40.0f);
         desc.startVelocity = Vector2::zero();
         desc.sizePixels = 44.0f;
         desc.color = 0xFFFF8A5B;

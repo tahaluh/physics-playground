@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include "app/demos/PhysicsComparisonDemo.h"
+#include "app/demos/Demo.h"
 #include "engine/core/Application.h"
 #include "engine/graphics/GraphicsBackend.h"
 
@@ -22,5 +22,5 @@ ApplicationConfig PlaygroundApp::makeConfig() const
 int PlaygroundApp::run()
 {
     Application application(makeConfig());
-    return application.run(std::make_unique<PhysicsComparisonDemo>());
+    return application.run(std::make_unique<Demo>());
 }

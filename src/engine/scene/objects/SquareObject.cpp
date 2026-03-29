@@ -54,15 +54,18 @@ std::unique_ptr<SquareObject> SquareObject::create(const SquareObjectDesc &desc,
         desc.color);
     squareBody->getSurfaceMaterial() = desc.physicsSurfaceMaterial;
     squareBody->getRigidBodySettings() = desc.rigidBodySettings;
-    squareBody->setCollisionEnabled(false);
+    if (desc.gpuSimulated)
+    {
+        squareBody->getRigidBodySettings().useGravity = false;
+        squareBody->setCollisionEnabled(false);
+    }
     physicsScene.addBody(std::move(squareBody));
 
     Shape2DIn3DDesc squareDesc;
     squareDesc.kind = Shape2DIn3DKind::Rectangle;
     squareDesc.name = "Square";
-    squareDesc.position = Vector2(
-        toWorldPosition(ringConfig, desc.startPosition, ringConfig.planeZ).x,
-        toWorldPosition(ringConfig, desc.startPosition, ringConfig.planeZ).y);
+    const Vector3 initialWorldPosition = toWorldPosition(ringConfig, desc.startPosition, ringConfig.planeZ + 0.0003f) + ringConfig.worldOffset;
+    squareDesc.position = Vector2(initialWorldPosition.x, initialWorldPosition.y);
     squareDesc.planeZ = ringConfig.planeZ + 0.0003f;
     squareDesc.size = Vector2(
         desc.sizePixels / ringConfig.simulationScale,
@@ -88,12 +91,17 @@ bool SquareObject::isValid() const
     return static_cast<bool>(renderScene) && bodyIndex != kInvalidIndex;
 }
 
+bool SquareObject::usesGpuSimulation() const
+{
+    return config.gpuSimulated;
+}
+
 Scene3D &SquareObject::getRenderScene() { return *renderScene; }
 const Scene3D &SquareObject::getRenderScene() const { return *renderScene; }
 
 void SquareObject::syncRenderScene(const Scene2D &physicsScene, const RingObjectDesc &ringConfig)
 {
-    if (!renderScene)
+    if (!renderScene || config.gpuSimulated)
     {
         return;
     }

@@ -216,7 +216,7 @@ void Demo::onFixedUpdate(float dt)
 
         for (std::size_t i = 0; i < squareObjects.size(); ++i)
         {
-            if (!squareObjects[i] || i >= squareObjectRingIndices.size())
+            if (!squareObjects[i] || squareObjects[i]->usesGpuSimulation() || i >= squareObjectRingIndices.size())
             {
                 continue;
             }

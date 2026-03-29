@@ -1,0 +1,35 @@
+#version 450
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform SimulationPushConstants
+{
+    float deltaTime;
+    float gravityX;
+    float gravityY;
+    float stateCount;
+} sim;
+
+struct GpuSquareSimState
+{
+    vec4 position;
+    vec4 velocity;
+};
+
+layout(std430, set = 0, binding = 10) buffer SquareSimulationBuffer
+{
+    GpuSquareSimState squareStates[];
+};
+
+void main()
+{
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= uint(sim.stateCount))
+    {
+        return;
+    }
+
+    vec2 acceleration = vec2(sim.gravityX, sim.gravityY);
+    squareStates[index].velocity.xy += acceleration * sim.deltaTime;
+    squareStates[index].position.xy += squareStates[index].velocity.xy * sim.deltaTime;
+}

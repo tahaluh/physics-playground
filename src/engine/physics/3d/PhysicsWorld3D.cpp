@@ -7,6 +7,8 @@
 
 namespace
 {
+constexpr float kBoxAngularImpulseScale = 0.32f;
+
 struct OrientedBoxBasis
 {
     Vector3 axisX;
@@ -53,7 +55,7 @@ void applyFrictionImpulse3D(
 {
     const Vector3 contactVelocityA = bodyA.getVelocity() + bodyA.getAngularVelocity().cross(contactOffsetA);
     const Vector3 contactVelocityB = bodyB.getVelocity() + bodyB.getAngularVelocity().cross(contactOffsetB);
-    const Vector3 relativeVelocity = contactVelocityA - contactVelocityB;
+    const Vector3 relativeVelocity = contactVelocityB - contactVelocityA;
     const float normalSpeed = relativeVelocity.dot(normal);
     const Vector3 tangentialVelocity = relativeVelocity - normal * normalSpeed;
     const float tangentialSpeed = tangentialVelocity.length();
@@ -63,7 +65,7 @@ void applyFrictionImpulse3D(
     }
 
     const float frictionStrength = Vector3::clamp(
-        (bodyA.getMaterial().surfaceFriction + bodyB.getMaterial().surfaceFriction) * 0.5f,
+        (bodyA.getSurfaceMaterial().friction + bodyB.getSurfaceMaterial().friction) * 0.5f,
         0.0f,
         1.0f);
     if (frictionStrength <= 0.0f)
@@ -86,16 +88,35 @@ void applyFrictionImpulse3D(
 
     const float impulseMagnitude = -(tangentialSpeed / denominator) * frictionStrength;
     const Vector3 impulse = tangent * impulseMagnitude;
-    bodyA.setVelocity(bodyA.getVelocity() + impulse * bodyA.getInverseMass());
-    bodyB.setVelocity(bodyB.getVelocity() - impulse * bodyB.getInverseMass());
-    bodyA.setAngularVelocity(bodyA.getAngularVelocity() + contactOffsetA.cross(impulse) * bodyA.getInverseMomentOfInertia());
-    bodyB.setAngularVelocity(bodyB.getAngularVelocity() - contactOffsetB.cross(impulse) * bodyB.getInverseMomentOfInertia());
+    bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
+    bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
+    bodyA.setAngularVelocity(bodyA.getAngularVelocity() - contactOffsetA.cross(impulse) * bodyA.getInverseMomentOfInertia());
+    bodyB.setAngularVelocity(bodyB.getAngularVelocity() + contactOffsetB.cross(impulse) * bodyB.getInverseMomentOfInertia());
+}
+
+void steerSphereTowardRolling(PhysicsBody3D &body, const SphereShape3D &sphere, const Vector3 &normal, float frictionStrength)
+{
+    if (sphere.getRadius() <= 0.0f || frictionStrength <= 0.0f)
+    {
+        return;
+    }
+
+    const Vector3 tangentialLinearVelocity = body.getVelocity() - normal * body.getVelocity().dot(normal);
+    const float tangentialSpeed = tangentialLinearVelocity.length();
+    if (tangentialSpeed <= 0.0001f)
+    {
+        return;
+    }
+
+    const Vector3 desiredAngularVelocity = tangentialLinearVelocity.cross(normal) / sphere.getRadius();
+    const float blend = Vector3::clamp(0.35f + frictionStrength * 0.65f, 0.0f, 1.0f);
+    body.setAngularVelocity(body.getAngularVelocity() * (1.0f - blend) + desiredAngularVelocity * blend);
 }
 
 void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sphere, PhysicsBody3D &boxBody, const BoxCollider3D &box)
 {
     const Vector3 closestPoint = getClosestPointOnBox(boxBody, box, sphereBody.getPosition());
-    Vector3 normal = sphereBody.getPosition() - closestPoint;
+    Vector3 normal = closestPoint - sphereBody.getPosition();
     float distance = normal.length();
     const float penetration = sphere.getRadius() - distance;
     if (penetration <= 0.0f)
@@ -105,7 +126,7 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
 
     if (distance <= 0.0001f)
     {
-        normal = (sphereBody.getPosition() - boxBody.getPosition()).normalized();
+        normal = (boxBody.getPosition() - sphereBody.getPosition()).normalized();
         if (normal.lengthSquared() == 0.0f)
         {
             normal = Vector3::up();
@@ -124,8 +145,8 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
     }
 
     const Vector3 correction = normal * (penetration / inverseMassSum);
-    sphereBody.setPosition(sphereBody.getPosition() + correction * sphereBody.getInverseMass());
-    boxBody.setPosition(boxBody.getPosition() - correction * boxBody.getInverseMass());
+    sphereBody.setPosition(sphereBody.getPosition() - correction * sphereBody.getInverseMass());
+    boxBody.setPosition(boxBody.getPosition() + correction * boxBody.getInverseMass());
 
     const Vector3 contactPoint = closestPoint;
     const Vector3 contactOffsetSphere = contactPoint - sphereBody.getPosition();
@@ -139,7 +160,7 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
         return;
     }
 
-    const float restitution = (sphereBody.getMaterial().restitution + boxBody.getMaterial().restitution) * 0.5f;
+    const float restitution = (sphereBody.getSurfaceMaterial().restitution + boxBody.getSurfaceMaterial().restitution) * 0.5f;
     const Vector3 radiusCrossNormalSphere = contactOffsetSphere.cross(normal);
     const Vector3 radiusCrossNormalBox = contactOffsetBox.cross(normal);
     const float denominator =
@@ -156,7 +177,9 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
     sphereBody.setVelocity(sphereBody.getVelocity() - impulse * sphereBody.getInverseMass());
     boxBody.setVelocity(boxBody.getVelocity() + impulse * boxBody.getInverseMass());
     sphereBody.setAngularVelocity(sphereBody.getAngularVelocity() - contactOffsetSphere.cross(impulse) * sphereBody.getInverseMomentOfInertia());
-    boxBody.setAngularVelocity(boxBody.getAngularVelocity() + contactOffsetBox.cross(impulse) * boxBody.getInverseMomentOfInertia());
+    boxBody.setAngularVelocity(
+        boxBody.getAngularVelocity() +
+        contactOffsetBox.cross(impulse) * boxBody.getInverseMomentOfInertia() * kBoxAngularImpulseScale);
 
     applyFrictionImpulse3D(sphereBody, boxBody, normal, contactOffsetSphere, contactOffsetBox);
 }
@@ -223,7 +246,7 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene)
                 continue;
             }
 
-            const float restitution = (bodyA->getMaterial().restitution + bodyB->getMaterial().restitution) * 0.5f;
+            const float restitution = (bodyA->getSurfaceMaterial().restitution + bodyB->getSurfaceMaterial().restitution) * 0.5f;
             const Vector3 radiusCrossNormalA = contactOffsetA.cross(normal);
             const Vector3 radiusCrossNormalB = contactOffsetB.cross(normal);
             const float denominator =
@@ -304,6 +327,16 @@ float PhysicsWorld3D::getStopThreshold() const
     return stopThreshold;
 }
 
+void PhysicsWorld3D::setAngularStopThreshold(float newAngularStopThreshold)
+{
+    angularStopThreshold = newAngularStopThreshold;
+}
+
+float PhysicsWorld3D::getAngularStopThreshold() const
+{
+    return angularStopThreshold;
+}
+
 void PhysicsWorld3D::step(PhysicsScene3D &scene, float dt) const
 {
     applyGlobalForces(scene);
@@ -317,7 +350,7 @@ void PhysicsWorld3D::applyGlobalForces(PhysicsScene3D &scene) const
 {
     for (auto &body : scene.getBodies())
     {
-        if (body->isStatic() || !body->getMaterial().useGravity)
+        if (body->isStatic() || !body->getRigidBodySettings().useGravity)
         {
             continue;
         }
@@ -405,7 +438,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             const float outwardSpeed = contactVelocity.dot(normal);
             if (outwardSpeed > 0.0f)
             {
-                const float restitution = dynamicCandidate->getMaterial().restitution;
+                const float restitution = dynamicCandidate->getSurfaceMaterial().restitution;
                 dynamicCandidate->setVelocity(
                     dynamicCandidate->getVelocity() - normal * ((1.0f + restitution) * outwardSpeed));
             }
@@ -413,7 +446,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             const float contactNormalSpeed = contactVelocity.dot(normal);
             const Vector3 tangentialVelocity = contactVelocity - normal * contactNormalSpeed;
             const float tangentialSpeed = tangentialVelocity.length();
-            const float surfaceFriction = dynamicCandidate->getMaterial().surfaceFriction;
+            const float surfaceFriction = dynamicCandidate->getSurfaceMaterial().friction;
             const float frictionStrength = Vector3::clamp(surfaceFriction, 0.0f, 1.0f);
             if (surfaceFriction > 0.0f && tangentialSpeed > 0.0f)
             {
@@ -428,13 +461,21 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
                     const Vector3 impulse = tangent * impulseMagnitude;
                     dynamicCandidate->setVelocity(
                         dynamicCandidate->getVelocity() + impulse * dynamicCandidate->getInverseMass());
+                    const float angularScale = dynamicBox ? kBoxAngularImpulseScale : 1.0f;
                     dynamicCandidate->setAngularVelocity(
                         dynamicCandidate->getAngularVelocity() +
-                        contactOffset.cross(impulse) * dynamicCandidate->getInverseMomentOfInertia());
+                        contactOffset.cross(impulse) * dynamicCandidate->getInverseMomentOfInertia() * angularScale);
                 }
             }
 
-            if (stopThreshold > 0.0f && dynamicCandidate->getVelocity().length() < stopThreshold)
+            if (dynamicShape)
+            {
+                steerSphereTowardRolling(*dynamicCandidate, *dynamicShape, normal, frictionStrength);
+            }
+
+            if (stopThreshold > 0.0f &&
+                dynamicCandidate->getVelocity().length() < stopThreshold &&
+                dynamicCandidate->getAngularVelocity().length() < angularStopThreshold)
             {
                 dynamicCandidate->setVelocity(Vector3::zero());
                 dynamicCandidate->setAngularVelocity(Vector3::zero());

@@ -13,7 +13,8 @@ public:
               Vector3::zero(),
               Vector3::zero(),
               0.0f,
-              PhysicsMaterial3D{0.0f, 1.0f, 0.0f, false}),
+              PhysicsSurfaceMaterial3D{0.55f, 0.6f},
+              RigidBodySettings3D{0.0f, 0.0f, false}),
           radius(radius)
     {
     }

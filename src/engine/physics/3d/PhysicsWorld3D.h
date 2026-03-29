@@ -11,6 +11,8 @@ public:
     const Vector3 &getGravity() const;
     void setStopThreshold(float newStopThreshold);
     float getStopThreshold() const;
+    void setAngularStopThreshold(float newAngularStopThreshold);
+    float getAngularStopThreshold() const;
 
     void step(PhysicsScene3D &scene, float dt) const;
 
@@ -21,4 +23,5 @@ private:
 
     Vector3 gravity = Vector3::zero();
     float stopThreshold = 0.0f;
+    float angularStopThreshold = 0.0f;
 };

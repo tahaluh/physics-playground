@@ -66,8 +66,8 @@ std::unique_ptr<SphereArenaObject> SphereArenaObject::create(const SphereArenaOb
         Vector3::zero(),
         desc.ballStartVelocity,
         1.0f,
-        desc.ballPhysicsMaterial);
-    ballBody->getMaterial() = desc.ballPhysicsMaterial;
+        desc.ballSurfaceMaterial,
+        desc.ballRigidBodySettings);
     object->physicsScene->addBody(std::move(ballBody));
 
     if (desc.enableCubeBody)
@@ -79,8 +79,8 @@ std::unique_ptr<SphereArenaObject> SphereArenaObject::create(const SphereArenaOb
             Vector3::zero(),
             desc.cubeStartVelocity,
             1.0f,
-            desc.cubePhysicsMaterial);
-        cubeBody->getMaterial() = desc.cubePhysicsMaterial;
+            desc.cubeSurfaceMaterial,
+            desc.cubeRigidBodySettings);
         object->physicsScene->addBody(std::move(cubeBody));
     }
 

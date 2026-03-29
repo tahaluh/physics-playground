@@ -54,7 +54,8 @@ SphereArenaObjectDesc makeSphereArenaObjectDesc()
     desc.ballRadius = 0.45f;
     desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
     desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
-    desc.ballPhysicsMaterial = PhysicsMaterial3D{0.03f, 0.04f, 0.75f, 0.5f, true};
+    desc.ballSurfaceMaterial = PhysicsSurfaceMaterial3D{0.55f, 0.6f};
+    desc.ballRigidBodySettings = RigidBodySettings3D{0.025f, 0.03f, true};
     desc.boundarySphereRings = 10;
     desc.boundarySphereSegments = 16;
     desc.ballSphereRings = 16;
@@ -81,7 +82,8 @@ SphereArenaObjectDesc makeSphereArenaObjectDesc()
     desc.cubeColliderRadius = desc.ballRadius;
     desc.cubeStartPosition = Vector3(-1.15f, 0.4f, 0.8f);
     desc.cubeStartVelocity = Vector3(-1.4f, 0.25f, -1.1f);
-    desc.cubePhysicsMaterial = PhysicsMaterial3D{0.18f, 0.65f, 0.22f, 0.72f, true};
+    desc.cubeSurfaceMaterial = PhysicsSurfaceMaterial3D{0.55f, 0.6f};
+    desc.cubeRigidBodySettings = RigidBodySettings3D{0.1f, 0.55f, true};
     desc.cubeMaterial.solid = MaterialPresets3D::makeRubber(0xFF50C878);
     desc.cubeMaterial.wireframe.baseColor = 0xFFB8FFD4;
     desc.cubeMaterial.wireframe.opacity = 0.75f;

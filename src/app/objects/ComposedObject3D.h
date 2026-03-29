@@ -40,7 +40,8 @@ struct PhysicsBodyDesc3D
     PhysicsBodyType3D bodyType = PhysicsBodyType3D::Static;
     float mass = 1.0f;
     Vector3 startVelocity = Vector3::zero();
-    PhysicsMaterial3D material = PhysicsMaterial3D{};
+    PhysicsSurfaceMaterial3D surfaceMaterial = PhysicsSurfaceMaterial3D{};
+    RigidBodySettings3D rigidBodySettings = RigidBodySettings3D{};
     bool syncRotationFromPhysics = true;
 };
 

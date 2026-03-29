@@ -66,6 +66,8 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
 
     physicsWorld3D = std::make_unique<PhysicsWorld3D>();
     physicsWorld3D->setGravity(sceneDesc.gravity3D);
+    physicsWorld3D->setStopThreshold(0.02f);
+    physicsWorld3D->setAngularStopThreshold(0.035f);
 
     camera3D = std::make_unique<Camera3D>();
     camera3D->transform.position = sceneDesc.cameraPosition;

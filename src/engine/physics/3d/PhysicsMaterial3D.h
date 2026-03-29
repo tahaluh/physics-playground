@@ -1,10 +1,14 @@
 #pragma once
 
-struct PhysicsMaterial3D
+struct PhysicsSurfaceMaterial3D
+{
+    float restitution = 0.85f;
+    float friction = 0.0f;
+};
+
+struct RigidBodySettings3D
 {
     float linearDamping = 0.02f;
     float angularDamping = 0.02f;
-    float restitution = 0.85f;
-    float surfaceFriction = 0.0f;
     bool useGravity = true;
 };

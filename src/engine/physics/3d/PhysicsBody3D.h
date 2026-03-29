@@ -20,7 +20,8 @@ public:
         Vector3 rotation = Vector3::zero(),
         Vector3 velocity = Vector3::zero(),
         float mass = 1.0f,
-        PhysicsMaterial3D material = {})
+        PhysicsSurfaceMaterial3D surfaceMaterial = {},
+        RigidBodySettings3D rigidBodySettings = {})
         : shape(std::move(shape)),
           position(position),
           rotation(rotation),
@@ -28,7 +29,8 @@ public:
           acceleration(Vector3::zero()),
           mass(mass),
           inverseMass(mass > 0.0f ? 1.0f / mass : 0.0f),
-          material(material),
+          surfaceMaterial(surfaceMaterial),
+          rigidBodySettings(rigidBodySettings),
           momentOfInertia(computeMomentOfInertia()),
           inverseMomentOfInertia(momentOfInertia > 0.0f ? 1.0f / momentOfInertia : 0.0f)
     {
@@ -58,8 +60,10 @@ public:
     float getInverseMass() const { return inverseMass; }
     float getMomentOfInertia() const { return momentOfInertia; }
     float getInverseMomentOfInertia() const { return inverseMomentOfInertia; }
-    const PhysicsMaterial3D &getMaterial() const { return material; }
-    PhysicsMaterial3D &getMaterial() { return material; }
+    const PhysicsSurfaceMaterial3D &getSurfaceMaterial() const { return surfaceMaterial; }
+    PhysicsSurfaceMaterial3D &getSurfaceMaterial() { return surfaceMaterial; }
+    const RigidBodySettings3D &getRigidBodySettings() const { return rigidBodySettings; }
+    RigidBodySettings3D &getRigidBodySettings() { return rigidBodySettings; }
     const Vector3 &getAngularVelocity() const { return angularVelocity; }
     void setAngularVelocity(const Vector3 &newAngularVelocity) { angularVelocity = newAngularVelocity; }
     const Vector3 &getTorque() const { return torque; }
@@ -93,11 +97,11 @@ public:
             return;
 
         velocity += acceleration * dt;
-        const float linearDampingFactor = std::max(0.0f, 1.0f - material.linearDamping * dt);
+        const float linearDampingFactor = std::max(0.0f, 1.0f - rigidBodySettings.linearDamping * dt);
         velocity *= linearDampingFactor;
         position += velocity * dt;
         angularVelocity += torque * inverseMomentOfInertia * dt;
-        const float angularDampingFactor = std::max(0.0f, 1.0f - material.angularDamping * dt);
+        const float angularDampingFactor = std::max(0.0f, 1.0f - rigidBodySettings.angularDamping * dt);
         angularVelocity *= angularDampingFactor;
         const float angularSpeed = angularVelocity.length();
         if (angularSpeed > 0.0f)
@@ -145,7 +149,8 @@ private:
     Vector3 acceleration;
     float mass = 1.0f;
     float inverseMass = 0.0f;
-    PhysicsMaterial3D material;
+    PhysicsSurfaceMaterial3D surfaceMaterial;
+    RigidBodySettings3D rigidBodySettings;
     Vector3 angularVelocity = Vector3::zero();
     Vector3 torque = Vector3::zero();
     float momentOfInertia = 0.0f;

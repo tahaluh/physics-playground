@@ -30,7 +30,8 @@ std::unique_ptr<PhysicsBody3D> createPhysicsBody(const SceneBodyNodeDesc3D &node
             node.render.localRotation,
             node.physics.startVelocity,
             mass,
-            node.physics.material);
+            node.physics.surfaceMaterial,
+            node.physics.rigidBodySettings);
     }
     case ColliderShape3DType::None:
     default:

@@ -25,7 +25,8 @@ struct SphereArenaObjectDesc
     Vector3 ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
     int ballSphereRings = 16;
     int ballSphereSegments = 24;
-    PhysicsMaterial3D ballPhysicsMaterial = PhysicsMaterial3D{0.03f, 0.04f, 0.75f, 0.5f, true};
+    PhysicsSurfaceMaterial3D ballSurfaceMaterial = PhysicsSurfaceMaterial3D{0.75f, 0.5f};
+    RigidBodySettings3D ballRigidBodySettings = RigidBodySettings3D{0.03f, 0.04f, true};
     Material3D ballMaterial = Material3D{};
 
     bool enableCubeBody = true;
@@ -33,7 +34,8 @@ struct SphereArenaObjectDesc
     float cubeColliderRadius = 0.45f;
     Vector3 cubeStartPosition = Vector3(-1.0f, 0.6f, 0.4f);
     Vector3 cubeStartVelocity = Vector3(-1.2f, 0.1f, -1.0f);
-    PhysicsMaterial3D cubePhysicsMaterial = PhysicsMaterial3D{0.18f, 0.65f, 0.22f, 0.72f, true};
+    PhysicsSurfaceMaterial3D cubeSurfaceMaterial = PhysicsSurfaceMaterial3D{0.22f, 0.72f};
+    RigidBodySettings3D cubeRigidBodySettings = RigidBodySettings3D{0.18f, 0.65f, true};
     Material3D cubeMaterial = Material3D{};
 };
 

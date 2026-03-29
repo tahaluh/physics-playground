@@ -20,20 +20,16 @@ SphereObject::~SphereObject() = default;
 SphereObjectDesc SphereObject::makeDefaultDesc()
 {
     SphereObjectDesc desc;
-    desc.borderMaterial.solid.color = 0xFF9AD1FF;
+    desc.borderMaterial.solid = MaterialPresets3D::makeFrostedGlass(0x669AD1FF);
     desc.borderMaterial.solid.opacity = 0.18f;
-    desc.borderMaterial.wireframe.color = 0xFFBFE6FF;
+    desc.borderMaterial.wireframe.baseColor = 0xFFBFE6FF;
     desc.borderMaterial.wireframe.opacity = 0.55f;
     desc.borderMaterial.renderSolid = true;
     desc.borderMaterial.renderWireframe = true;
-    desc.borderMaterial.solid.specularStrength = 0.05f;
-    desc.borderMaterial.solid.shininess = 14.0f;
-    desc.ballMaterial.solid.color = 0xFFFF9F1C;
+    desc.ballMaterial.solid = MaterialPresets3D::makeCopper(0xFFFF9F1C);
     desc.ballMaterial.solid.opacity = 1.0f;
     desc.ballMaterial.solid.emissiveColor = 0x00000000;
-    desc.ballMaterial.solid.specularStrength = 0.85f;
-    desc.ballMaterial.solid.shininess = 64.0f;
-    desc.ballMaterial.wireframe.color = 0xFFFFD166;
+    desc.ballMaterial.wireframe.baseColor = 0xFFFFD166;
     desc.ballMaterial.wireframe.opacity = 1.0f;
     desc.ballMaterial.renderSolid = true;
     desc.ballMaterial.renderWireframe = true;

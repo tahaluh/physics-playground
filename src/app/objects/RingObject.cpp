@@ -34,12 +34,12 @@ RingObject::~RingObject() = default;
 RingObjectDesc RingObject::makeDefaultDesc()
 {
     RingObjectDesc desc;
-    desc.borderMaterial.solid.color = desc.borderColor;
-    desc.borderMaterial.wireframe.color = desc.borderColor;
+    desc.borderMaterial.solid.baseColor = desc.borderColor;
+    desc.borderMaterial.wireframe.baseColor = desc.borderColor;
     desc.borderMaterial.renderSolid = true;
     desc.borderMaterial.renderWireframe = false;
-    desc.ballMaterial.solid.color = desc.ballColor;
-    desc.ballMaterial.wireframe.color = desc.ballColor;
+    desc.ballMaterial.solid.baseColor = desc.ballColor;
+    desc.ballMaterial.wireframe.baseColor = desc.ballColor;
     desc.ballMaterial.renderSolid = true;
     desc.ballMaterial.renderWireframe = false;
     return desc;
@@ -110,8 +110,8 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
         ballDesc.segments = desc.ballSegments;
         ballDesc.color = body->getColor();
         ballDesc.material = desc.ballMaterial;
-        ballDesc.material.solid.color = body->getColor();
-        ballDesc.material.wireframe.color = body->getColor();
+        ballDesc.material.solid.baseColor = body->getColor();
+        ballDesc.material.wireframe.baseColor = body->getColor();
 
         object->dynamicEntityIndices.push_back(object->renderScene->getEntities().size());
         object->renderScene->createEntity(makeShape2DIn3D(ballDesc));

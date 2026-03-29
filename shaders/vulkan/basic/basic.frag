@@ -1,6 +1,7 @@
 #version 450
 
 const int POINT_SHADOW_FACE_COUNT = 6;
+const float PI = 3.14159265359;
 
 layout(location = 0) in vec4 fragColor;
 layout(location = 1) in vec3 fragEmissive;
@@ -219,6 +220,75 @@ float computePointShadowFactor(int pointShadowIndex, vec3 worldPosition, float n
     return sampleShadowPCF(pointShadowMap, shadowCoord.xy, pointShadowIndex * POINT_SHADOW_FACE_COUNT + faceIndex, shadowCoord.z, bias);
 }
 
+float distributionGGX(vec3 N, vec3 H, float roughness)
+{
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH * NdotH;
+
+    float numerator = a2;
+    float denominator = (NdotH2 * (a2 - 1.0) + 1.0);
+    denominator = PI * denominator * denominator;
+    return numerator / max(denominator, 0.0001);
+}
+
+float geometrySchlickGGX(float NdotV, float roughness)
+{
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    float numerator = NdotV;
+    float denominator = NdotV * (1.0 - k) + k;
+    return numerator / max(denominator, 0.0001);
+}
+
+float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2 = geometrySchlickGGX(NdotV, roughness);
+    float ggx1 = geometrySchlickGGX(NdotL, roughness);
+    return ggx1 * ggx2;
+}
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 evaluatePbrLight(
+    vec3 albedo,
+    vec3 lightColor,
+    vec3 normal,
+    vec3 viewDirection,
+    vec3 lightDirection,
+    float metallic,
+    float roughness,
+    float attenuation,
+    float diffuseFactor,
+    float shadowFactor)
+{
+    vec3 halfVector = normalize(viewDirection + lightDirection);
+    float NdotL = max(dot(normal, lightDirection), 0.0);
+    float NdotV = max(dot(normal, viewDirection), 0.0);
+    float HdotV = max(dot(halfVector, viewDirection), 0.0);
+
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F = fresnelSchlick(HdotV, F0);
+    float NDF = distributionGGX(normal, halfVector, roughness);
+    float G = geometrySmith(normal, viewDirection, lightDirection, roughness);
+
+    vec3 numerator = NDF * G * F;
+    float denominator = max(4.0 * NdotV * NdotL, 0.0001);
+    vec3 specular = numerator / denominator;
+
+    vec3 kS = F;
+    vec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo / PI;
+    vec3 radiance = lightColor * attenuation * shadowFactor;
+    return (diffuse * diffuseFactor + specular) * radiance * NdotL;
+}
+
 void main()
 {
     vec3 baseColor = fragColor.rgb;
@@ -236,8 +306,8 @@ void main()
     {
         normal /= normalLength;
         vec3 viewDirection = normalize(ambientLighting.cameraWorldPosition.xyz - fragWorldPosition);
-        float specularStrength = fragLighting.x;
-        float shininess = max(fragLighting.y, 1.0);
+        float metallic = clamp(fragLighting.x, 0.0, 1.0);
+        float roughness = clamp(fragLighting.y, 0.045, 1.0);
         int lightCount = int(directionalLightMeta.x);
         for (int i = 0; i < lightCount; ++i)
         {
@@ -247,12 +317,19 @@ void main()
             float intensity = directionalLights[i].colorIntensity.a;
             vec3 lightColor = directionalLights[i].colorIntensity.rgb;
             float shadowFactor = i < int(ambientLighting.shadowCounts.x) ? computeDirectionalShadowFactor(i, fragWorldPosition, ndotl) : 1.0;
-            result += baseColor * lightColor * ndotl * intensity * fragMaterial.y * shadowFactor;
-            if (ndotl > 0.0 && specularStrength > 0.0)
+            if (ndotl > 0.0)
             {
-                vec3 reflectDirection = reflect(lightDirection, normal);
-                float specular = pow(max(dot(viewDirection, reflectDirection), 0.0), shininess);
-                result += lightColor * specular * specularStrength * intensity * shadowFactor;
+                result += evaluatePbrLight(
+                    baseColor,
+                    lightColor,
+                    normal,
+                    viewDirection,
+                    -lightDirection,
+                    metallic,
+                    roughness,
+                    intensity,
+                    fragMaterial.y,
+                    shadowFactor);
             }
         }
 
@@ -280,13 +357,17 @@ void main()
             float intensity = pointLights[i].colorIntensity.a * falloff;
             vec3 lightColor = pointLights[i].colorIntensity.rgb;
             float shadowFactor = i < int(ambientLighting.shadowCounts.y) ? computePointShadowFactor(i, fragWorldPosition, ndotl) : 1.0;
-            result += baseColor * lightColor * ndotl * intensity * fragMaterial.y * shadowFactor;
-            if (specularStrength > 0.0)
-            {
-                vec3 reflectDirection = reflect(-lightDirection, normal);
-                float specular = pow(max(dot(viewDirection, reflectDirection), 0.0), shininess);
-                result += lightColor * specular * specularStrength * intensity * shadowFactor;
-            }
+            result += evaluatePbrLight(
+                baseColor,
+                lightColor,
+                normal,
+                viewDirection,
+                lightDirection,
+                metallic,
+                roughness,
+                intensity,
+                fragMaterial.y,
+                shadowFactor);
         }
 
         int spotLightCount = int(spotLightMeta.x);
@@ -323,13 +404,17 @@ void main()
             float intensity = spotLights[i].colorIntensity.a * falloff * coneAttenuation;
             vec3 lightColor = spotLights[i].colorIntensity.rgb;
             float shadowFactor = i < int(ambientLighting.shadowCounts.z) ? computeSpotShadowFactor(i, fragWorldPosition, ndotl) : 1.0;
-            result += baseColor * lightColor * ndotl * intensity * fragMaterial.y * shadowFactor;
-            if (specularStrength > 0.0)
-            {
-                vec3 reflectDirection = reflect(-lightDirection, normal);
-                float specular = pow(max(dot(viewDirection, reflectDirection), 0.0), shininess);
-                result += lightColor * specular * specularStrength * intensity * shadowFactor;
-            }
+            result += evaluatePbrLight(
+                baseColor,
+                lightColor,
+                normal,
+                viewDirection,
+                lightDirection,
+                metallic,
+                roughness,
+                intensity,
+                fragMaterial.y,
+                shadowFactor);
         }
     }
 

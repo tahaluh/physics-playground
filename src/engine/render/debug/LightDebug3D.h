@@ -18,12 +18,12 @@ namespace LightDebug3D
 inline Material3D makeUnlitDebugMaterial(uint32_t color, bool wireframeOnly = false, float wireOpacity = 0.35f)
 {
     Material3D material;
-    material.solid.color = 0xFF000000;
+    material.solid.baseColor = 0xFF000000;
     material.solid.emissiveColor = color;
     material.solid.ambientFactor = 0.0f;
     material.solid.diffuseFactor = 0.0f;
     material.solid.unlit = true;
-    material.wireframe.color = color;
+    material.wireframe.baseColor = color;
     material.wireframe.emissiveColor = color;
     material.wireframe.ambientFactor = 0.0f;
     material.wireframe.diffuseFactor = 0.0f;

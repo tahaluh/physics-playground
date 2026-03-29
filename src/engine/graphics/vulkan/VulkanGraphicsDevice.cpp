@@ -2286,7 +2286,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         const auto emitTriangle =
             [&](const MeshTriangle3D &triangle)
         {
-            const uint32_t triangleColor = entity.material.solid.resolveColor(triangle.color);
+            const uint32_t triangleColor = entity.material.solid.resolveBaseColor(triangle.color);
             const std::array<float, 4> baseColor = colorToFloat4(triangleColor);
             const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
             bool triangleVisible = true;
@@ -2356,8 +2356,8 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
                 vertex.material[2] = entity.material.solid.unlit ? 1.0f : 0.0f;
                 vertex.material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
-                vertex.lighting[0] = Vector3::clamp(entity.material.solid.specularStrength, 0.0f, 1.0f);
-                vertex.lighting[1] = std::max(entity.material.solid.shininess, 1.0f);
+                vertex.lighting[0] = Vector3::clamp(entity.material.solid.metallic, 0.0f, 1.0f);
+                vertex.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
                 vertex.lighting[2] = 0.0f;
                 vertex.lighting[3] = 0.0f;
                 vertices.push_back(vertex);
@@ -2422,7 +2422,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        const uint32_t lineColor = entity.material.wireframe.resolveColor();
+        const uint32_t lineColor = entity.material.wireframe.resolveBaseColor();
         const std::array<float, 4> rgba = colorToFloat4(lineColor);
         const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.wireframe.resolveEmissiveColor());
 
@@ -2476,8 +2476,8 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.material[1] = 0.0f;
                 vertex.material[2] = entity.material.wireframe.unlit ? 1.0f : 0.0f;
                 vertex.material[3] = entity.material.wireframe.doubleSidedLighting ? 1.0f : 0.0f;
-                vertex.lighting[0] = Vector3::clamp(entity.material.wireframe.specularStrength, 0.0f, 1.0f);
-                vertex.lighting[1] = std::max(entity.material.wireframe.shininess, 1.0f);
+                vertex.lighting[0] = Vector3::clamp(entity.material.wireframe.metallic, 0.0f, 1.0f);
+                vertex.lighting[1] = Vector3::clamp(entity.material.wireframe.roughness, 0.0f, 1.0f);
                 vertex.lighting[2] = 0.0f;
                 vertex.lighting[3] = 0.0f;
                 lineVertices.push_back(vertex);

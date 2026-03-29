@@ -41,6 +41,14 @@ public:
 
     const Vector3 &getPosition() const { return position; }
     void setPosition(const Vector3 &newPosition) { position = newPosition; }
+    Vector3 getCenterOfMassWorldPosition() const
+    {
+        return position + orientation.toMatrix().transformVector(rigidBodySettings.centerOfMassOffset);
+    }
+    Vector3 getCenterOfMassOffsetWorld() const
+    {
+        return orientation.toMatrix().transformVector(rigidBodySettings.centerOfMassOffset);
+    }
 
     const Vector3 &getRotation() const { return rotation; }
     void setRotation(const Vector3 &newRotation)
@@ -88,7 +96,7 @@ public:
             return;
 
         applyForce(force);
-        torque += (point - position).cross(force);
+        torque += (point - getCenterOfMassWorldPosition()).cross(force);
     }
 
     virtual void integrate(float dt)

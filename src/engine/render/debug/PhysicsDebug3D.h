@@ -15,7 +15,7 @@ inline Entity3D makeBodyCenterMarker(const PhysicsBody3D &body, const Vector3 &w
 {
     Entity3D marker;
     marker.name = body.isStatic() ? "StaticBodyCenterDebug" : "DynamicBodyCenterDebug";
-    marker.transform.position = worldOffset + body.getPosition();
+    marker.transform.position = worldOffset + body.getCenterOfMassWorldPosition();
     marker.mesh = MeshFactory3D::makeSphere(body.isStatic() ? 0.08f : 0.12f, 8, 12, 0);
     marker.material = LightDebug3D::makeUnlitDebugMaterial(body.isStatic() ? 0xFFFFB347 : 0xFF59E3FF, false, 0.4f);
     return marker;

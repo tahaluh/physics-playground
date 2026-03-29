@@ -35,7 +35,7 @@ struct SphereArenaObjectDesc
     Vector3 cubeStartPosition = Vector3(-1.0f, 0.6f, 0.4f);
     Vector3 cubeStartVelocity = Vector3(-1.2f, 0.1f, -1.0f);
     PhysicsSurfaceMaterial3D cubeSurfaceMaterial = PhysicsSurfaceMaterial3D{0.22f, 0.72f};
-    RigidBodySettings3D cubeRigidBodySettings = RigidBodySettings3D{0.18f, 0.65f, true};
+    RigidBodySettings3D cubeRigidBodySettings = RigidBodySettings3D{0.18f, 0.65f, true, Vector3(0.0f, -0.08f, 0.0f)};
     Material3D cubeMaterial = Material3D{};
 };
 

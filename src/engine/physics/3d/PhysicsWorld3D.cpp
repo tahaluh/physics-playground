@@ -148,9 +148,9 @@ void solveSphereBoxCollision(PhysicsBody3D &sphereBody, const SphereShape3D &sph
     sphereBody.setPosition(sphereBody.getPosition() - correction * sphereBody.getInverseMass());
     boxBody.setPosition(boxBody.getPosition() + correction * boxBody.getInverseMass());
 
-    const Vector3 contactPoint = closestPoint;
-    const Vector3 contactOffsetSphere = contactPoint - sphereBody.getPosition();
-    const Vector3 contactOffsetBox = contactPoint - boxBody.getPosition();
+    const Vector3 contactPoint = getClosestPointOnBox(boxBody, box, sphereBody.getPosition());
+    const Vector3 contactOffsetSphere = contactPoint - sphereBody.getCenterOfMassWorldPosition();
+    const Vector3 contactOffsetBox = contactPoint - boxBody.getCenterOfMassWorldPosition();
     const Vector3 contactVelocitySphere = sphereBody.getVelocity() + sphereBody.getAngularVelocity().cross(contactOffsetSphere);
     const Vector3 contactVelocityBox = boxBody.getVelocity() + boxBody.getAngularVelocity().cross(contactOffsetBox);
     const Vector3 relativeVelocity = contactVelocityBox - contactVelocitySphere;
@@ -235,8 +235,9 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene)
             bodyA->setPosition(bodyA->getPosition() - correction * bodyA->getInverseMass());
             bodyB->setPosition(bodyB->getPosition() + correction * bodyB->getInverseMass());
 
-            const Vector3 contactOffsetA = normal * shapeA->getRadius();
-            const Vector3 contactOffsetB = normal * (-shapeB->getRadius());
+            const Vector3 contactPoint = bodyA->getPosition() + normal * shapeA->getRadius();
+            const Vector3 contactOffsetA = contactPoint - bodyA->getCenterOfMassWorldPosition();
+            const Vector3 contactOffsetB = contactPoint - bodyB->getCenterOfMassWorldPosition();
             const Vector3 contactVelocityA = bodyA->getVelocity() + bodyA->getAngularVelocity().cross(contactOffsetA);
             const Vector3 contactVelocityB = bodyB->getVelocity() + bodyB->getAngularVelocity().cross(contactOffsetB);
             const Vector3 relativeVelocity = contactVelocityB - contactVelocityA;
@@ -417,7 +418,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
             }
             else
             {
-                const Vector3 supportPoint = getBoxSupportPoint(*dynamicCandidate, *dynamicBox, dynamicCandidate->getPosition() - borderCandidate->getPosition());
+            const Vector3 supportPoint = getBoxSupportPoint(*dynamicCandidate, *dynamicBox, dynamicCandidate->getPosition() - borderCandidate->getPosition());
                 const Vector3 supportRelative = supportPoint - borderCandidate->getPosition();
                 const float supportDistance = supportRelative.length();
                 if (supportDistance <= borderShape->getRadius())
@@ -432,7 +433,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
 
             dynamicCandidate->setPosition(dynamicCandidate->getPosition() - normal * penetration);
 
-            const Vector3 contactOffset = contactPoint - dynamicCandidate->getPosition();
+            const Vector3 contactOffset = contactPoint - dynamicCandidate->getCenterOfMassWorldPosition();
             const Vector3 contactVelocity =
                 dynamicCandidate->getVelocity() + dynamicCandidate->getAngularVelocity().cross(contactOffset);
             const float outwardSpeed = contactVelocity.dot(normal);

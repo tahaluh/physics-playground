@@ -8,6 +8,7 @@
 
 #include "engine/physics/2d/BorderBoxBody2D.h"
 #include "engine/physics/2d/BorderCircleBody2D.h"
+#include "engine/physics/2d/BallInvertBody2D.h"
 #include "engine/physics/2d/Contact2D.h"
 #include "engine/physics/2d/Manifold2D.h"
 #include "engine/physics/2d/PhysicsBody2D.h"
@@ -395,31 +396,6 @@ namespace
         return true;
     }
 
-    bool resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, const Contact2D &contactB)
-    {
-        if (dynamic_cast<BorderCircleBody2D *>(&bodyA) || dynamic_cast<BorderCircleBody2D *>(&bodyB))
-        {
-            return false;
-        }
-
-        switch (getPairKind(bodyA.getShape(), bodyB.getShape()))
-        {
-        case CollisionPairKind2D::CircleCircle:
-            return resolveDynamicCircleCircleCollision(bodyA, bodyB, contactA);
-
-        case CollisionPairKind2D::CircleRect:
-            // Normalize this resolver so it always receives circle as A and rect as B.
-            if (dynamic_cast<CircleShape *>(bodyA.getShape()) && dynamic_cast<RectShape *>(bodyB.getShape()))
-            {
-                return resolveDynamicCircleRectCollision(bodyA, bodyB, contactA);
-            }
-            return resolveDynamicCircleRectCollision(bodyB, bodyA, contactB);
-
-        case CollisionPairKind2D::Unsupported:
-        default:
-            return false;
-        }
-    }
 } // namespace
 
 void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds) const
@@ -718,4 +694,52 @@ bool CollisionSolver2D::resolveDynamicCircleCollision(const Contact2D &contactA,
         return false;
     }
     return resolveDynamicCircleCircleCollision(*contactA.self, *contactB.self, contactA);
+}
+
+bool CollisionSolver2D::resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, const Contact2D &contactB) const
+{
+    if (dynamic_cast<BorderCircleBody2D *>(&bodyA))
+    {
+        if (auto *invertBody = dynamic_cast<BallInvertBody2D *>(&bodyB))
+        {
+            return invertBody->resolveBorderCircleAxisInvertCollision(contactB);
+        }
+        return bodyB.resolveBorderCircleCollision(contactB);
+    }
+
+    if (dynamic_cast<BorderCircleBody2D *>(&bodyB))
+    {
+        if (auto *invertBody = dynamic_cast<BallInvertBody2D *>(&bodyA))
+        {
+            return invertBody->resolveBorderCircleAxisInvertCollision(contactA);
+        }
+        return bodyA.resolveBorderCircleCollision(contactA);
+    }
+
+    if (dynamic_cast<BorderBoxBody2D *>(&bodyA))
+    {
+        return bodyB.resolveBorderBoxCollision(contactB);
+    }
+
+    if (dynamic_cast<BorderBoxBody2D *>(&bodyB))
+    {
+        return bodyA.resolveBorderBoxCollision(contactA);
+    }
+
+    switch (getPairKind(bodyA.getShape(), bodyB.getShape()))
+    {
+    case CollisionPairKind2D::CircleCircle:
+        return resolveDynamicCircleCircleCollision(bodyA, bodyB, contactA);
+
+    case CollisionPairKind2D::CircleRect:
+        if (dynamic_cast<CircleShape *>(bodyA.getShape()) && dynamic_cast<RectShape *>(bodyB.getShape()))
+        {
+            return resolveDynamicCircleRectCollision(bodyA, bodyB, contactA);
+        }
+        return resolveDynamicCircleRectCollision(bodyB, bodyA, contactB);
+
+    case CollisionPairKind2D::Unsupported:
+    default:
+        return false;
+    }
 }

@@ -116,6 +116,8 @@ public:
     virtual ~PhysicsBody2D() = default;
 
 protected:
+    friend class CollisionSolver2D;
+
     bool resolveBorderCircleCollision(const Contact2D &contact, float stopThreshold = 0.0f);
     bool resolveBorderBoxCollision(const Contact2D &contact, float stopThreshold = 0.0f);
     bool resolveBorderCircleAxisInvertCollision(const Contact2D &contact);

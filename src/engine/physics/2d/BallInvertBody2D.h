@@ -18,6 +18,6 @@ public:
 
     void onCollision(const Contact2D &contact) override
     {
-        resolveBorderCircleAxisInvertCollision(contact);
+        (void)contact;
     }
 };

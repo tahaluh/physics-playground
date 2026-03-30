@@ -15,5 +15,6 @@ public:
 private:
     bool buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, Manifold2D &manifold) const;
     void buildContactsFromManifold(const Manifold2D &manifold, Contact2D &contactA, Contact2D &contactB) const;
+    bool resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, const Contact2D &contactB) const;
     bool resolveDynamicCircleCollision(const Contact2D &contactA, const Contact2D &contactB) const;
 };

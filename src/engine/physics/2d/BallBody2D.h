@@ -18,9 +18,6 @@ public:
 
     void onCollision(const Contact2D &contact) override
     {
-        if (resolveBorderCircleCollision(contact))
-            return;
-
-        resolveBorderBoxCollision(contact);
+        (void)contact;
     }
 };

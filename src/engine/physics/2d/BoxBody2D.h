@@ -64,10 +64,6 @@ public:
             contact.contactPoint.x,
             contact.contactPoint.y);
 
-        if (resolveBorderCircleCollision(contact))
-            return;
-
-        resolveBorderBoxCollision(contact);
     }
 
 private:

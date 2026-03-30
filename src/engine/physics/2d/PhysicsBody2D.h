@@ -37,7 +37,14 @@ public:
     void setPosition(const Vector2 &newPosition) { position = newPosition; }
 
     const Vector2 &getVelocity() const { return velocity; }
-    void setVelocity(const Vector2 &newVelocity) { velocity = newVelocity; }
+    void setVelocity(const Vector2 &newVelocity)
+    {
+        velocity = newVelocity;
+        if (velocity.lengthSquared() > 0.0f)
+        {
+            wakeUp();
+        }
+    }
 
     const Vector2 &getAcceleration() const { return acceleration; }
     void setAcceleration(const Vector2 &newAcceleration) { acceleration = newAcceleration; }
@@ -59,9 +66,35 @@ public:
     RigidBodySettings2D &getRigidBodySettings() { return rigidBodySettings; }
 
     float getAngularVelocity() const { return angularVelocity; }
-    void setAngularVelocity(float newAngularVelocity) { angularVelocity = newAngularVelocity; }
+    void setAngularVelocity(float newAngularVelocity)
+    {
+        angularVelocity = newAngularVelocity;
+        if (std::abs(angularVelocity) > 0.0f)
+        {
+            wakeUp();
+        }
+    }
     float getTorque() const { return torque; }
     void setTorque(float newTorque) { torque = newTorque; }
+    bool isSleeping() const { return sleeping; }
+    void setSleeping(bool shouldSleep)
+    {
+        sleeping = shouldSleep;
+        if (sleeping)
+        {
+            velocity = Vector2::zero();
+            angularVelocity = 0.0f;
+            acceleration = Vector2::zero();
+            torque = 0.0f;
+        }
+    }
+    void wakeUp()
+    {
+        sleeping = false;
+        sleepTime = 0.0f;
+    }
+    float getSleepTime() const { return sleepTime; }
+    void setSleepTime(float newSleepTime) { sleepTime = newSleepTime; }
 
     uint32_t getColor() const { return color; }
     void setColor(uint32_t newColor) { color = newColor; }
@@ -77,6 +110,7 @@ public:
     {
         if (isStatic())
             return;
+        wakeUp();
         acceleration += force * inverseMass;
     }
 
@@ -85,6 +119,7 @@ public:
         if (isStatic())
             return;
 
+        wakeUp();
         applyForce(force);
         const Vector2 leverArm = point - position;
         torque += Vector2::cross(leverArm, force);
@@ -92,7 +127,7 @@ public:
 
     virtual void integrate(float dt)
     {
-        if (isStatic())
+        if (isStatic() || sleeping)
             return;
 
         velocity = velocity + acceleration * dt;
@@ -145,6 +180,8 @@ private:
     float torque = 0.0f;
     float momentOfInertia = 0.0f;
     float inverseMomentOfInertia = 0.0f;
+    bool sleeping = false;
+    float sleepTime = 0.0f;
     uint32_t color = 0xFFFFFFFF; // cor padrão: branco
     bool collisionEnabled = true;
 };

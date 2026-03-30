@@ -5,17 +5,20 @@
 Entity3D &Scene3D::createEntity(const Entity3D &entity)
 {
     entities.push_back(entity);
+    ++revision;
     return entities.back();
 }
 
 void Scene3D::clearEntities()
 {
     entities.clear();
+    ++revision;
 }
 
 void Scene3D::appendEntitiesFrom(const Scene3D &other)
 {
     entities.insert(entities.end(), other.entities.begin(), other.entities.end());
+    ++revision;
 }
 
 void Scene3D::replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources)
@@ -40,6 +43,11 @@ std::vector<Entity3D> &Scene3D::getEntities()
 const std::vector<Entity3D> &Scene3D::getEntities() const
 {
     return entities;
+}
+
+uint64_t Scene3D::getRevision() const
+{
+    return revision;
 }
 
 AmbientLight &Scene3D::getAmbientLight()
@@ -74,6 +82,7 @@ void Scene3D::applyWireframeVisibilityOverride(bool visible)
     {
         entity.material.renderWireframe = visible;
     }
+    ++revision;
 }
 
 DirectionalLightHandle Scene3D::createDirectionalLight(const DirectionalLightDesc &desc)
@@ -83,6 +92,7 @@ DirectionalLightHandle Scene3D::createDirectionalLight(const DirectionalLightDes
     light.color = desc.color;
     light.intensity = desc.intensity;
     directionalLights.push_back(light);
+    ++revision;
     return DirectionalLightHandle{directionalLights.size() - 1};
 }
 
@@ -95,6 +105,7 @@ void Scene3D::destroyDirectionalLight(DirectionalLightHandle handle)
 
     directionalLights[handle.id].enabled = false;
     directionalLights[handle.id].intensity = 0.0f;
+    ++revision;
 }
 
 std::vector<DirectionalLight> &Scene3D::getDirectionalLights()
@@ -115,6 +126,7 @@ PointLightHandle Scene3D::createPointLight(const PointLightDesc &desc)
     light.intensity = desc.intensity;
     light.range = desc.range > 0.0f ? desc.range : 0.001f;
     pointLights.push_back(light);
+    ++revision;
     return PointLightHandle{pointLights.size() - 1};
 }
 
@@ -127,6 +139,7 @@ void Scene3D::destroyPointLight(PointLightHandle handle)
 
     pointLights[handle.id].enabled = false;
     pointLights[handle.id].intensity = 0.0f;
+    ++revision;
 }
 
 std::vector<PointLight> &Scene3D::getPointLights()
@@ -154,6 +167,7 @@ SpotLightHandle Scene3D::createSpotLight(const SpotLightDesc &desc)
         std::swap(light.innerConeCos, light.outerConeCos);
     }
     spotLights.push_back(light);
+    ++revision;
     return SpotLightHandle{spotLights.size() - 1};
 }
 
@@ -166,6 +180,7 @@ void Scene3D::destroySpotLight(SpotLightHandle handle)
 
     spotLights[handle.id].enabled = false;
     spotLights[handle.id].intensity = 0.0f;
+    ++revision;
 }
 
 std::vector<SpotLight> &Scene3D::getSpotLights()

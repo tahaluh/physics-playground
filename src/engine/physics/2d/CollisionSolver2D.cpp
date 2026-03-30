@@ -416,6 +416,11 @@ void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds
                 continue;
             }
 
+            if (bodyA.isSleeping() && bodyB.isSleeping())
+            {
+                continue;
+            }
+
             // The generic broadphase for RectShape is axis-aligned. Skip it for
             // border-circle vs rect so the manifold can use the rotation-aware path.
             if (!needsExplicitBorderCircleRectBroadphase(bodyA, bodyB) &&

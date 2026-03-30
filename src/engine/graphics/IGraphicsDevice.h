@@ -15,6 +15,7 @@ public:
 
     virtual GraphicsBackend getBackend() const = 0;
     virtual const char *getBackendName() const = 0;
+    virtual const char *getDeviceName() const = 0;
 
     virtual void configurePresentation(bool vsyncEnabled, int targetFrameRate) = 0;
     virtual bool initialize(IWindow &window) = 0;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -72,6 +73,7 @@ public:
 
     GraphicsBackend getBackend() const override;
     const char *getBackendName() const override;
+    const char *getDeviceName() const override;
 
     void configurePresentation(bool enabledVsync, int requestedTargetFrameRate) override
     {
@@ -135,6 +137,7 @@ private:
     bool swapchainDirty = false;
     bool frameBegun = false;
     bool commandBufferRecorded = false;
+    bool sceneBuffersDirty = true;
     bool triangleResourcesReady = false;
     bool triangleDrawLogged = false;
     bool vsyncEnabled = true;
@@ -145,6 +148,7 @@ private:
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    std::string deviceName;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     VkQueue presentQueue = VK_NULL_HANDLE;
@@ -224,6 +228,10 @@ private:
     std::vector<TriangleVertex> lineSceneVertices;
     std::vector<TriangleVertex> shadowSceneVertices;
     AmbientUniform ambientUniform = {};
+    const Scene3D *cachedScene = nullptr;
+    uint64_t cachedSceneRevision = 0;
+    Matrix4 cachedViewMatrix = Matrix4::identity();
+    Matrix4 cachedProjectionMatrix = Matrix4::identity();
     std::vector<Matrix4> currentDirectionalShadowViewProjections;
     std::vector<Matrix4> currentSpotShadowViewProjections;
     std::vector<Matrix4> currentPointShadowViewProjections;

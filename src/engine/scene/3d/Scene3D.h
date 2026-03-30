@@ -19,6 +19,7 @@ public:
     void replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources);
     std::vector<Entity3D> &getEntities();
     const std::vector<Entity3D> &getEntities() const;
+    uint64_t getRevision() const;
     AmbientLight &getAmbientLight();
     const AmbientLight &getAmbientLight() const;
     bool copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene3D *> sources);
@@ -38,6 +39,7 @@ public:
 
 private:
     std::vector<Entity3D> entities;
+    uint64_t revision = 1;
     AmbientLight ambientLight;
     std::vector<DirectionalLight> directionalLights;
     std::vector<PointLight> pointLights;

@@ -4,22 +4,30 @@
 
 namespace
 {
-    const Vector3 kRingWorldOffset(-5.0f, 0.0f, 0.0f);
-    const Vector3 kSphereWorldOffset(5.0f, 0.0f, 0.0f);
-    const Vector3 kPointLightPosition = kSphereWorldOffset + Vector3(2.8f, 0.5f, 0.0f);
-    const Vector3 kSpotLightPosition = kSphereWorldOffset + Vector3(-5.2f, 2.4f, 2.0f);
-    const Vector3 kSpotLightDirection = (kSphereWorldOffset - kSpotLightPosition).normalized();
+    constexpr bool kUseBenchmarkScene = true;
+    constexpr int kSimulationGridColumns = 10;
+    constexpr int kSimulationGridRows = 10;
+    constexpr float kRingGridSpacingX = 6.0f;
+    constexpr float kRingGridSpacingZ = 6.0f;
+    constexpr float kSphereGridSpacingX = 10.0f;
+    constexpr float kSphereGridSpacingZ = 10.0f;
+    constexpr float kSimulationGridCenterOffset = (kSimulationGridColumns - 1) * 0.5f;
+    const Vector3 kRingGridOrigin(-35.0f, 0.0f, -27.0f);
+    const Vector3 kSphereGridOrigin(35.0f, 0.0f, -45.0f);
+    const Vector3 kPointLightPosition(35.0f, 10.0f, 0.0f);
+    const Vector3 kSpotLightPosition(0.0f, 26.0f, 22.0f);
+    const Vector3 kSpotLightDirection = Vector3(0.0f, -0.65f, -0.76f).normalized();
     const float kSpotLightIntensity = 1.1f;
     const float kSpotLightRange = 10.0f;
     const float kSpotLightInnerConeCos = 0.96f;
     const float kSpotLightOuterConeCos = 0.86f;
     const uint32_t kSpotLightColor = 0xFFFFFFFF;
-    const Vector3 kShadowTestObjectOffset = kSphereWorldOffset + Vector3(1.6f, 0.2f, 5.0f);
+    const Vector3 kShadowTestObjectOffset(35.0f, 0.2f, 55.0f);
 
     RingObjectDesc makeRingObjectDesc()
     {
         RingObjectDesc desc;
-        desc.worldOffset = kRingWorldOffset;
+        desc.worldOffset = Vector3::zero();
         desc.center = Vector2(400.0f, 300.0f);
         desc.ballStartPosition = Vector2(540.0f, 300.0f);
         desc.ballStartVelocity = Vector2(110.0f, -40.0f);
@@ -30,8 +38,9 @@ namespace
         desc.ballOutlineThicknessWorld = 0.02f;
         desc.planeThicknessWorld = 0.04f;
         desc.planeZ = 0.0f;
-        desc.borderSegments = 96;
-        desc.ballSegments = 48;
+        desc.borderSegments = kUseBenchmarkScene ? 28 : 96;
+        desc.ballSegments = kUseBenchmarkScene ? 18 : 48;
+        desc.showRotationIndicators = !kUseBenchmarkScene;
         desc.borderColor = 0xFFFFFFFF;
         desc.ballColor = 0xFFFFFFFF;
         desc.borderSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
@@ -69,26 +78,26 @@ namespace
     SphereArenaObjectDesc makeSphereArenaObjectDesc()
     {
         SphereArenaObjectDesc desc;
-        desc.worldOffset = kSphereWorldOffset;
+        desc.worldOffset = Vector3::zero();
         desc.boundaryRadius = 4.0f;
         desc.ballRadius = 0.45f;
         desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
         desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
         desc.ballSurfaceMaterial = PhysicsSurfaceMaterial3D{0.55f, 0.68f, 0.6f};
         desc.ballRigidBodySettings = RigidBodySettings3D{0.025f, 0.03f, true, Vector3::zero()};
-        desc.boundarySphereRings = 10;
-        desc.boundarySphereSegments = 16;
-        desc.ballSphereRings = 16;
-        desc.ballSphereSegments = 24;
+        desc.boundarySphereRings = kUseBenchmarkScene ? 6 : 10;
+        desc.boundarySphereSegments = kUseBenchmarkScene ? 8 : 16;
+        desc.ballSphereRings = kUseBenchmarkScene ? 8 : 16;
+        desc.ballSphereSegments = kUseBenchmarkScene ? 12 : 24;
         desc.borderMaterial.solid = MaterialPresets3D::makePlastic(0xFF9AD1FF, 0.52f);
-        desc.borderMaterial.solid.opacity = 0.32f;
+        desc.borderMaterial.solid.opacity = kUseBenchmarkScene ? 1.0f : 0.32f;
         desc.borderMaterial.solid.diffuseFactor = 0.85f;
         desc.borderMaterial.solid.metallic = 0.0f;
         desc.borderMaterial.solid.doubleSidedLighting = true;
         desc.borderMaterial.wireframe.baseColor = 0xFFBFE6FF;
         desc.borderMaterial.wireframe.opacity = 0.35f;
         desc.borderMaterial.renderSolid = true;
-        desc.borderMaterial.renderWireframe = true;
+        desc.borderMaterial.renderWireframe = !kUseBenchmarkScene;
         desc.ballMaterial.solid = MaterialPresets3D::makeBrushedSteel(0xFFFFFFFF);
         desc.ballMaterial.solid.opacity = 1.0f;
         desc.ballMaterial.solid.emissiveColor = 0x00000000;
@@ -141,31 +150,63 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
     desc.ambientLight.intensity = 0.2f;
     desc.gravity2D = Vector2(0.0f, 980.0f);
     desc.gravity3D = Vector3(0.0f, -7.5f, 0.0f);
-    desc.cameraPosition = Vector3(0.0f, 3.5f, 22.0f);
-    desc.cameraRotation = Vector3(-0.12f, 0.0f, 0.0f);
+    desc.cameraPosition = Vector3(0.0f, 42.0f, 118.0f);
+    desc.cameraRotation = Vector3(-0.32f, 0.0f, 0.0f);
 
-    desc.ringObjects.push_back(makeRingObjectDesc());
-    desc.squareObjects.push_back(makeSquareObjectDesc());
-    desc.sphereArenaObjects.push_back(makeSphereArenaObjectDesc());
-    desc.composedObjects.push_back(makeShadowTestObjectDesc());
+    for (int row = 0; row < kSimulationGridRows; ++row)
+    {
+        for (int col = 0; col < kSimulationGridColumns; ++col)
+        {
+            RingObjectDesc ringDesc = makeRingObjectDesc();
+            ringDesc.worldOffset = Vector3(
+                kRingGridOrigin.x + col * kRingGridSpacingX,
+                0.0f,
+                kRingGridOrigin.z + row * kRingGridSpacingZ);
+            const std::size_t ringIndex = desc.ringObjects.size();
+            desc.ringObjects.push_back(ringDesc);
 
-    Camera3D lightProbeCamera;
-    lightProbeCamera.transform.position = desc.cameraPosition;
-    lightProbeCamera.transform.rotation = desc.cameraRotation;
-    const Vector3 initialCameraForward = lightProbeCamera.getForward();
-    desc.directionalLights.push_back({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
-                                      0xFFFFFFFF,
-                                      0.9f});
-    desc.pointLights.push_back({kPointLightPosition,
-                                0xFFFF4040,
-                                0.75f,
-                                8.0f});
-    desc.spotLights.push_back({kSpotLightPosition,
-                               kSpotLightDirection,
-                               kSpotLightColor,
-                               kSpotLightIntensity,
-                               kSpotLightRange,
-                               kSpotLightInnerConeCos,
-                               kSpotLightOuterConeCos});
+            SquareObjectDesc squareDesc = makeSquareObjectDesc();
+            squareDesc.ringObjectIndex = ringIndex;
+            desc.squareObjects.push_back(squareDesc);
+
+            SphereArenaObjectDesc sphereArenaDesc = makeSphereArenaObjectDesc();
+            sphereArenaDesc.worldOffset = Vector3(
+                kSphereGridOrigin.x + col * kSphereGridSpacingX,
+                0.0f,
+                kSphereGridOrigin.z + row * kSphereGridSpacingZ);
+            desc.sphereArenaObjects.push_back(sphereArenaDesc);
+        }
+    }
+
+    if (!kUseBenchmarkScene)
+    {
+        desc.composedObjects.push_back(makeShadowTestObjectDesc());
+    }
+
+    if (kUseBenchmarkScene)
+    {
+        desc.ambientLight.intensity = 0.9f;
+    }
+    else
+    {
+        Camera3D lightProbeCamera;
+        lightProbeCamera.transform.position = desc.cameraPosition;
+        lightProbeCamera.transform.rotation = desc.cameraRotation;
+        const Vector3 initialCameraForward = lightProbeCamera.getForward();
+        desc.directionalLights.push_back({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
+                                          0xFFFFFFFF,
+                                          0.9f});
+        desc.pointLights.push_back({kPointLightPosition,
+                                    0xFFFF4040,
+                                    0.75f,
+                                    8.0f});
+        desc.spotLights.push_back({kSpotLightPosition,
+                                   kSpotLightDirection,
+                                   kSpotLightColor,
+                                   kSpotLightIntensity,
+                                   kSpotLightRange,
+                                   kSpotLightInnerConeCos,
+                                   kSpotLightOuterConeCos});
+    }
     return desc;
 }

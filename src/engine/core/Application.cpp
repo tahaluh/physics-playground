@@ -262,13 +262,14 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             std::snprintf(
                 titleBuffer,
                 sizeof(titleBuffer),
-                "%s | %s | %s | %d target | %.1f FPS | %.2f ms | CPU %.1f%% | RAM %.1f MB",
+                "%s | %s | %s | %d target | %.1f FPS | %.2f ms | %s | CPU %.1f%% | RAM %.1f MB",
                 config.title,
                 graphicsDevice->getBackendName(),
                 config.vsyncEnabled ? "VSync On" : "VSync Off",
                 config.targetFrameRate,
                 fps,
                 averageFrameTime * 1000.0f,
+                graphicsDevice->getDeviceName(),
                 metrics.cpuPercent,
                 metrics.ramMegabytes);
             window->setTitle(titleBuffer);

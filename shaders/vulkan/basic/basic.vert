@@ -15,9 +15,21 @@ layout(location = 3) out vec3 fragWorldPosition;
 layout(location = 4) out vec4 fragMaterial;
 layout(location = 5) out vec4 fragLighting;
 
+layout(set = 0, binding = 0) uniform AmbientUniform
+{
+    vec4 ambientColorIntensity;
+    vec4 cameraWorldPosition;
+    vec4 shadowBiases;
+    vec4 shadowCounts;
+    mat4 viewMatrix;
+    mat4 projectionMatrix;
+} ambientLighting;
+
 void main()
 {
-    gl_Position = vec4(inPosition, 1.0);
+    mat4 viewMatrix = transpose(ambientLighting.viewMatrix);
+    mat4 projectionMatrix = transpose(ambientLighting.projectionMatrix);
+    gl_Position = projectionMatrix * viewMatrix * vec4(inWorldPosition.xyz, 1.0);
     fragColor = inColor;
     fragEmissive = inEmissive.rgb;
     fragNormal = inNormal.xyz;

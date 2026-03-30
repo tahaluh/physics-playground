@@ -20,6 +20,11 @@
 
 namespace
 {
+bool matricesEqual(const Matrix4 &a, const Matrix4 &b)
+{
+    return a.m == b.m;
+}
+
 struct QueueFamilySelection
 {
     uint32_t graphicsFamily = UINT32_MAX;
@@ -214,6 +219,39 @@ SceneBounds3D computeSceneBounds(const Scene3D &scene)
     return bounds;
 }
 
+float computeEntityApproximateRadius(const Entity3D &entity)
+{
+    float localRadiusSquared = 0.0f;
+    for (const Vector3 &vertex : entity.mesh.vertices)
+    {
+        localRadiusSquared = std::max(localRadiusSquared, vertex.lengthSquared());
+    }
+
+    const float maxScale = std::max(entity.transform.scale.x, std::max(entity.transform.scale.y, entity.transform.scale.z));
+    return std::sqrt(std::max(localRadiusSquared, 0.0f)) * std::max(maxScale, 0.0f);
+}
+
+bool isEntityRoughlyVisible(const Camera3D &camera, const Matrix4 &viewMatrix, const Entity3D &entity)
+{
+    const float radius = computeEntityApproximateRadius(entity);
+    const Vector3 viewCenter = viewMatrix.transformPoint(entity.transform.position);
+    const float depth = -viewCenter.z;
+    if (depth + radius < camera.nearPlane || depth - radius > camera.farPlane)
+    {
+        return false;
+    }
+
+    if (depth <= 0.0001f)
+    {
+        return true;
+    }
+
+    const float tanHalfFov = std::tan(camera.fovRadians * 0.5f);
+    const float halfHeight = depth * tanHalfFov + radius;
+    const float halfWidth = halfHeight * camera.aspectRatio;
+    return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
+}
+
 Matrix4 computeDirectionalShadowMatrix(const Scene3D &scene, const DirectionalLight &light)
 {
     const SceneBounds3D bounds = computeSceneBounds(scene);
@@ -317,6 +355,11 @@ GraphicsBackend VulkanGraphicsDevice::getBackend() const
 const char *VulkanGraphicsDevice::getBackendName() const
 {
     return "Vulkan";
+}
+
+const char *VulkanGraphicsDevice::getDeviceName() const
+{
+    return deviceName.empty() ? "Unknown GPU" : deviceName.c_str();
 }
 
 bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
@@ -424,16 +467,6 @@ void VulkanGraphicsDevice::beginFrame(uint32_t clearColor)
 
     vkResetCommandBuffer(commandBuffers[currentImageIndex], 0);
     currentClearColor = clearColor;
-    opaqueSceneVertices.clear();
-    transparentSceneVertices.clear();
-    lineSceneVertices.clear();
-    shadowSceneVertices.clear();
-    opaqueSceneVertexCount = 0;
-    transparentSceneVertexCount = 0;
-    lineSceneVertexCount = 0;
-    shadowSceneVertexCount = 0;
-    ambientUniform = {};
-    ambientUniform.ambientColorIntensity[3] = 0.0f;
     frameBegun = true;
     commandBufferRecorded = false;
 }
@@ -445,11 +478,40 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
+    const Matrix4 viewMatrix = camera.getViewMatrix();
+    const Matrix4 projectionMatrix = camera.getProjectionMatrix();
+    const bool sceneChanged = cachedScene != &scene || cachedSceneRevision != scene.getRevision();
+    const bool cameraChanged =
+        !matricesEqual(cachedViewMatrix, viewMatrix) ||
+        !matricesEqual(cachedProjectionMatrix, projectionMatrix);
+
+    if (!sceneChanged && !cameraChanged)
+    {
+        return;
+    }
+
+    opaqueSceneVertices.clear();
+    transparentSceneVertices.clear();
+    lineSceneVertices.clear();
+    shadowSceneVertices.clear();
+    opaqueSceneVertexCount = 0;
+    transparentSceneVertexCount = 0;
+    lineSceneVertexCount = 0;
+    shadowSceneVertexCount = 0;
+    ambientUniform = {};
+    ambientUniform.ambientColorIntensity[3] = 0.0f;
+
     if (!updateLightingBuffers(camera, scene))
     {
         return;
     }
     appendSceneVertices(camera, scene);
+
+    cachedScene = &scene;
+    cachedSceneRevision = scene.getRevision();
+    cachedViewMatrix = viewMatrix;
+    cachedProjectionMatrix = projectionMatrix;
+    sceneBuffersDirty = true;
 }
 
 void VulkanGraphicsDevice::endFrame()
@@ -459,10 +521,11 @@ void VulkanGraphicsDevice::endFrame()
 
     if (!commandBufferRecorded)
     {
-        if (!uploadSceneVertexBuffers())
+        if (sceneBuffersDirty && !uploadSceneVertexBuffers())
         {
             return;
         }
+        sceneBuffersDirty = false;
 
         const bool drawTriangle = triangleResourcesReady;
         recordCommandBuffer(commandBuffers[currentImageIndex], currentImageIndex, currentClearColor, drawTriangle);
@@ -569,6 +632,9 @@ bool VulkanGraphicsDevice::pickPhysicalDevice()
         if (queueFamilies.isComplete() && extensionsSupported && swapchainAdequate)
         {
             physicalDevice = candidate;
+            VkPhysicalDeviceProperties properties{};
+            vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+            deviceName = properties.deviceName;
             graphicsQueueFamilyIndex = queueFamilies.graphicsFamily;
             presentQueueFamilyIndex = queueFamilies.presentFamily;
             return true;
@@ -2216,12 +2282,20 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
     std::vector<TriangleVertex> lineVertices;
     const Matrix4 viewMatrix = camera.getViewMatrix();
-    const Matrix4 projectionMatrix = camera.getProjectionMatrix();
+    const bool hasShadowLights =
+        !scene.getDirectionalLights().empty() ||
+        !scene.getPointLights().empty() ||
+        !scene.getSpotLights().empty();
     std::vector<EntitySortItem> opaqueEntities;
     std::vector<EntitySortItem> transparentEntities;
 
     for (const Entity3D &entity : scene.getEntities())
     {
+        if (!isEntityRoughlyVisible(camera, viewMatrix, entity))
+        {
+            continue;
+        }
+
         EntitySortItem item;
         item.entity = &entity;
         item.distanceSquared = (entity.transform.position - camera.transform.position).lengthSquared();
@@ -2293,27 +2367,11 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
             const uint32_t triangleColor = entity.material.solid.resolveBaseColor(triangle.color);
             const std::array<float, 4> baseColor = colorToFloat4(triangleColor);
             const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
-            bool triangleVisible = true;
             std::array<Vector3, 3> worldVertices{};
-            std::array<Vector3, 3> ndcVertices{};
             for (size_t i = 0; i < 3; ++i)
             {
                 const Vector3 modelPosition = entity.mesh.vertices[triangle.indices[i]];
-                const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
-                worldVertices[i] = worldPosition;
-                const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
-                if (-viewPosition.z < camera.nearPlane)
-                {
-                    triangleVisible = false;
-                    break;
-                }
-
-                ndcVertices[i] = projectionMatrix.transformPoint(viewPosition);
-            }
-
-            if (!triangleVisible)
-            {
-                return;
+                worldVertices[i] = modelMatrix.transformPoint(modelPosition);
             }
 
             Vector3 surfaceNormal = (worldVertices[1] - worldVertices[0]).cross(worldVertices[2] - worldVertices[0]).normalized();
@@ -2322,13 +2380,22 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 surfaceNormal = Vector3::up();
             }
 
-            for (size_t vertexIndex = 0; vertexIndex < ndcVertices.size(); ++vertexIndex)
+            if (!entity.material.solid.doubleSidedLighting && !entity.material.solid.isTransparent())
             {
-                const Vector3 &positionValue = ndcVertices[vertexIndex];
+                const Vector3 triangleCenter = (worldVertices[0] + worldVertices[1] + worldVertices[2]) / 3.0f;
+                const Vector3 toCamera = camera.transform.position - triangleCenter;
+                if (surfaceNormal.dot(toCamera) <= 0.0f)
+                {
+                    return;
+                }
+            }
+
+            for (size_t vertexIndex = 0; vertexIndex < worldVertices.size(); ++vertexIndex)
+            {
                 TriangleVertex vertex{};
-                vertex.position[0] = positionValue.x;
-                vertex.position[1] = positionValue.y;
-                vertex.position[2] = positionValue.z;
+                vertex.position[0] = worldVertices[vertexIndex].x;
+                vertex.position[1] = worldVertices[vertexIndex].y;
+                vertex.position[2] = worldVertices[vertexIndex].z;
                 vertex.color[0] = baseColor[0];
                 vertex.color[1] = baseColor[1];
                 vertex.color[2] = baseColor[2];
@@ -2410,12 +2477,18 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     for (const EntitySortItem &item : opaqueEntities)
     {
         appendEntityTriangles(*item.entity, opaqueSceneVertices);
-        appendShadowCasterTriangles(*item.entity);
+        if (hasShadowLights)
+        {
+            appendShadowCasterTriangles(*item.entity);
+        }
     }
     for (const EntitySortItem &item : transparentEntities)
     {
         appendEntityTriangles(*item.entity, transparentSceneVertices);
-        appendShadowCasterTriangles(*item.entity);
+        if (hasShadowLights)
+        {
+            appendShadowCasterTriangles(*item.entity);
+        }
     }
 
     for (const Entity3D &entity : scene.getEntities())
@@ -2432,21 +2505,20 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
         for (const MeshEdge3D &edge : entity.mesh.edges)
         {
-            std::array<Vector3, 2> ndcPositions{};
+            std::array<Vector3, 2> worldPositions{};
             bool edgeVisible = true;
             const std::array<int, 2> indices = {edge.start, edge.end};
             for (size_t i = 0; i < indices.size(); ++i)
             {
                 const Vector3 modelPosition = entity.mesh.vertices[indices[i]];
                 const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
+                worldPositions[i] = worldPosition;
                 const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
                 if (-viewPosition.z < camera.nearPlane)
                 {
                     edgeVisible = false;
                     continue;
                 }
-
-                ndcPositions[i] = projectionMatrix.transformPoint(viewPosition);
             }
 
             if (!edgeVisible)
@@ -2454,12 +2526,12 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 continue;
             }
 
-            for (const Vector3 &ndcPosition : ndcPositions)
+            for (const Vector3 &worldPosition : worldPositions)
             {
                 TriangleVertex vertex{};
-                vertex.position[0] = ndcPosition.x;
-                vertex.position[1] = ndcPosition.y;
-                vertex.position[2] = ndcPosition.z;
+                vertex.position[0] = worldPosition.x;
+                vertex.position[1] = worldPosition.y;
+                vertex.position[2] = worldPosition.z;
                 vertex.color[0] = rgba[0];
                 vertex.color[1] = rgba[1];
                 vertex.color[2] = rgba[2];
@@ -2472,9 +2544,9 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.normal[1] = 0.0f;
                 vertex.normal[2] = 0.0f;
                 vertex.normal[3] = 0.0f;
-                vertex.worldPosition[0] = 0.0f;
-                vertex.worldPosition[1] = 0.0f;
-                vertex.worldPosition[2] = 0.0f;
+                vertex.worldPosition[0] = worldPosition.x;
+                vertex.worldPosition[1] = worldPosition.y;
+                vertex.worldPosition[2] = worldPosition.z;
                 vertex.worldPosition[3] = 1.0f;
                 vertex.material[0] = Vector3::clamp(entity.material.wireframe.ambientFactor, 0.0f, 1.0f);
                 vertex.material[1] = 0.0f;

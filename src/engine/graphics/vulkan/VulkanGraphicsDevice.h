@@ -93,6 +93,8 @@ public:
         std::string key;
         std::vector<InstancedMeshVertex> meshVertices;
         std::vector<InstancedMeshInstance> instances;
+        Vector3 boundsCenter = Vector3::zero();
+        float boundsRadius = 0.0f;
         BufferHandle meshVertexBuffer;
         BufferHandle instanceBuffer;
         VkDeviceSize meshVertexBufferSize = 0;
@@ -278,6 +280,11 @@ private:
     const Scene3D *cachedScene = nullptr;
     uint64_t cachedSceneRevision = 0;
     CachedSceneBounds cachedShadowSceneBounds;
+    Matrix4 currentCullViewMatrix = Matrix4::identity();
+    float currentCullFovRadians = 60.0f * 3.14159265f / 180.0f;
+    float currentCullAspectRatio = 4.0f / 3.0f;
+    float currentCullNearPlane = 0.1f;
+    float currentCullFarPlane = 100.0f;
     std::vector<Matrix4> currentDirectionalShadowViewProjections;
     std::vector<Matrix4> currentSpotShadowViewProjections;
     std::vector<Matrix4> currentPointShadowViewProjections;

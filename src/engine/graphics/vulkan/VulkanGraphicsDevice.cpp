@@ -25,6 +25,31 @@ bool matricesEqual(const Matrix4 &a, const Matrix4 &b)
     return a.m == b.m;
 }
 
+constexpr float kInstancedCullChunkSize = 16.0f;
+
+struct ChunkKey3D
+{
+    int x = 0;
+    int y = 0;
+    int z = 0;
+
+    bool operator==(const ChunkKey3D &other) const
+    {
+        return x == other.x && y == other.y && z == other.z;
+    }
+};
+
+struct ChunkKey3DHasher
+{
+    std::size_t operator()(const ChunkKey3D &key) const
+    {
+        std::size_t hash = static_cast<std::size_t>(static_cast<uint32_t>(key.x) * 73856093u);
+        hash ^= static_cast<std::size_t>(static_cast<uint32_t>(key.y) * 19349663u);
+        hash ^= static_cast<std::size_t>(static_cast<uint32_t>(key.z) * 83492791u);
+        return hash;
+    }
+};
+
 struct QueueFamilySelection
 {
     uint32_t graphicsFamily = UINT32_MAX;
@@ -249,6 +274,33 @@ bool isEntityRoughlyVisible(const Camera3D &camera, const Matrix4 &viewMatrix, c
     const float tanHalfFov = std::tan(camera.fovRadians * 0.5f);
     const float halfHeight = depth * tanHalfFov + radius;
     const float halfWidth = halfHeight * camera.aspectRatio;
+    return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
+}
+
+bool isSphereRoughlyVisible(
+    const Matrix4 &viewMatrix,
+    float fovRadians,
+    float aspectRatio,
+    float nearPlane,
+    float farPlane,
+    const Vector3 &center,
+    float radius)
+{
+    const Vector3 viewCenter = viewMatrix.transformPoint(center);
+    const float depth = -viewCenter.z;
+    if (depth + radius < nearPlane || depth - radius > farPlane)
+    {
+        return false;
+    }
+
+    if (depth <= 0.0001f)
+    {
+        return true;
+    }
+
+    const float tanHalfFov = std::tan(fovRadians * 0.5f);
+    const float halfHeight = depth * tanHalfFov + radius;
+    const float halfWidth = halfHeight * aspectRatio;
     return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
 }
 
@@ -478,6 +530,12 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
+    currentCullViewMatrix = camera.getViewMatrix();
+    currentCullFovRadians = camera.fovRadians;
+    currentCullAspectRatio = camera.aspectRatio;
+    currentCullNearPlane = camera.nearPlane;
+    currentCullFarPlane = camera.farPlane;
+
     const bool sceneChanged = cachedScene != &scene || cachedSceneRevision != scene.getRevision();
 
     if (!updateLightingBuffers(camera, scene))
@@ -505,7 +563,10 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
     cachedScene = &scene;
     cachedSceneRevision = scene.getRevision();
     sceneBuffersDirty = true;
-    shadowMapsDirty = true;
+    if (sceneChanged)
+    {
+        shadowMapsDirty = true;
+    }
 }
 
 void VulkanGraphicsDevice::endFrame()
@@ -2471,6 +2532,11 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         float distanceSquared = 0.0f;
     };
 
+    struct InstancedChunkBounds
+    {
+        SceneBounds3D bounds;
+    };
+
     std::vector<TriangleVertex> lineVertices;
     bool hasShadowLights = false;
     for (const DirectionalLight &light : scene.getDirectionalLights())
@@ -2506,7 +2572,8 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
     std::vector<EntitySortItem> opaqueEntities;
     std::vector<EntitySortItem> transparentEntities;
-    std::unordered_map<std::string, std::size_t> instancedBatchLookup;
+    std::unordered_map<std::string, std::unordered_map<ChunkKey3D, std::size_t, ChunkKey3DHasher>> instancedBatchLookup;
+    std::vector<InstancedChunkBounds> instancedBatchBounds;
 
     const auto appendInstancedMeshVertices =
         [&](InstancedBatch &batch, const Entity3D &entity)
@@ -2555,15 +2622,22 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         [&](const Entity3D &entity)
     {
         std::size_t batchIndex = opaqueInstancedBatches.size();
-        auto lookupIt = instancedBatchLookup.find(entity.instancingKey);
-        if (lookupIt == instancedBatchLookup.end())
+        const ChunkKey3D chunkKey = {
+            static_cast<int>(std::floor(entity.transform.position.x / kInstancedCullChunkSize)),
+            static_cast<int>(std::floor(entity.transform.position.y / kInstancedCullChunkSize)),
+            static_cast<int>(std::floor(entity.transform.position.z / kInstancedCullChunkSize))};
+
+        auto &chunkLookup = instancedBatchLookup[entity.instancingKey];
+        auto lookupIt = chunkLookup.find(chunkKey);
+        if (lookupIt == chunkLookup.end())
         {
             InstancedBatch batch;
             batch.key = entity.instancingKey;
             appendInstancedMeshVertices(batch, entity);
             batchIndex = opaqueInstancedBatches.size();
             opaqueInstancedBatches.push_back(std::move(batch));
-            instancedBatchLookup.emplace(entity.instancingKey, batchIndex);
+            instancedBatchBounds.push_back({});
+            chunkLookup.emplace(chunkKey, batchIndex);
         }
         else
         {
@@ -2591,6 +2665,14 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         instance.lighting[2] = 0.0f;
         instance.lighting[3] = 0.0f;
         batch.instances.push_back(instance);
+
+        const float radius = computeEntityApproximateRadius(entity);
+        expandBounds(
+            instancedBatchBounds[batchIndex].bounds,
+            entity.transform.position - Vector3(radius, radius, radius));
+        expandBounds(
+            instancedBatchBounds[batchIndex].bounds,
+            entity.transform.position + Vector3(radius, radius, radius));
     };
 
     const auto appendShadowCasterTriangles =
@@ -2644,6 +2726,18 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         {
             opaqueEntities.push_back(item);
         }
+    }
+
+    for (std::size_t batchIndex = 0; batchIndex < opaqueInstancedBatches.size() && batchIndex < instancedBatchBounds.size(); ++batchIndex)
+    {
+        const SceneBounds3D &bounds = instancedBatchBounds[batchIndex].bounds;
+        if (!bounds.valid)
+        {
+            continue;
+        }
+
+        opaqueInstancedBatches[batchIndex].boundsCenter = (bounds.min + bounds.max) * 0.5f;
+        opaqueInstancedBatches[batchIndex].boundsRadius = (bounds.max - bounds.min).length() * 0.5f;
     }
 
     std::sort(
@@ -2949,11 +3043,36 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
                 batch.instanceBufferSize);
     }
 
-    return instancedUploadSuccess &&
-           uploadVertices(opaqueSceneVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
-           uploadVertices(transparentSceneVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
-           uploadVertices(lineSceneVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize) &&
-           uploadVertices(shadowSceneVertices, shadowSceneVertexBuffer, shadowSceneVertexBufferSize);
+    const bool uploadSuccess =
+        instancedUploadSuccess &&
+        uploadVertices(opaqueSceneVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
+        uploadVertices(transparentSceneVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
+        uploadVertices(lineSceneVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize) &&
+        uploadVertices(shadowSceneVertices, shadowSceneVertexBuffer, shadowSceneVertexBufferSize);
+
+    if (!uploadSuccess)
+    {
+        return false;
+    }
+
+    opaqueSceneVertices.clear();
+    transparentSceneVertices.clear();
+    lineSceneVertices.clear();
+    shadowSceneVertices.clear();
+    opaqueSceneVertices.shrink_to_fit();
+    transparentSceneVertices.shrink_to_fit();
+    lineSceneVertices.shrink_to_fit();
+    shadowSceneVertices.shrink_to_fit();
+
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        batch.meshVertices.clear();
+        batch.instances.clear();
+        batch.meshVertices.shrink_to_fit();
+        batch.instances.shrink_to_fit();
+    }
+
+    return true;
 }
 
 void VulkanGraphicsDevice::destroyInstancedBatches()
@@ -3517,6 +3636,19 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             for (const InstancedBatch &batch : opaqueInstancedBatches)
             {
                 if (!batch.meshVertexBuffer.buffer || !batch.instanceBuffer.buffer || batch.meshVertexCount == 0 || batch.instanceCount == 0)
+                {
+                    continue;
+                }
+
+                if (batch.boundsRadius > 0.0f &&
+                    !isSphereRoughlyVisible(
+                        currentCullViewMatrix,
+                        currentCullFovRadians,
+                        currentCullAspectRatio,
+                        currentCullNearPlane,
+                        currentCullFarPlane,
+                        batch.boundsCenter,
+                        batch.boundsRadius))
                 {
                     continue;
                 }

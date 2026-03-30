@@ -1,44 +1,45 @@
-#include "engine/scene/objects/BodyObject3D.h"
+#include "engine/scene/objects/BodyObject.h"
 
 #include <memory>
 
-#include "engine/render/3d/mesh/MeshFactory3D.h"
-#include "engine/scene/3d/Entity3D.h"
-#include "engine/scene/3d/Scene3D.h"
+#include "engine/render/3d/mesh/MeshFactory.h"
+#include "engine/scene/3d/Entity.h"
+#include "engine/scene/3d/Scene.h"
 
 namespace
 {
-Mesh3D makeBodyMesh(const BodyObject3DDesc &desc)
+Mesh makeBodyMesh(const BodyObjectDesc &desc)
 {
     switch (desc.shapeType)
     {
-    case BodyShapeType3D::Sphere:
-        return MeshFactory3D::makeSphere(0.5f, desc.sphereRings, desc.sphereSegments, 0);
-    case BodyShapeType3D::Cube:
+    case BodyShapeType::Sphere:
+        return MeshFactory::makeSphere(0.5f, desc.sphereRings, desc.sphereSegments, 0);
+    case BodyShapeType::Cube:
     default:
-        return MeshFactory3D::makeCube(1.0f);
+        return MeshFactory::makeCube(1.0f);
     }
 }
 }
 
-BodyObject3D::~BodyObject3D() = default;
+BodyObject::~BodyObject() = default;
 
-std::unique_ptr<BodyObject3D> BodyObject3D::create(const BodyObject3DDesc &desc)
+std::unique_ptr<BodyObject> BodyObject::create(const BodyObjectDesc &desc)
 {
-    auto object = std::make_unique<BodyObject3D>();
+    auto object = std::make_unique<BodyObject>();
     object->config = desc;
-    object->renderScene = std::make_unique<Scene3D>();
+    object->physicsState = desc.physics;
+    object->renderScene = std::make_unique<Scene>();
 
     if (desc.renderEnabled)
     {
-        Entity3D entity;
+        Entity entity;
         entity.name = desc.name;
         switch (desc.shapeType)
         {
-        case BodyShapeType3D::Sphere:
+        case BodyShapeType::Sphere:
             entity.instancingKey = "body:sphere:" + std::to_string(desc.sphereRings) + ":" + std::to_string(desc.sphereSegments);
             break;
-        case BodyShapeType3D::Cube:
+        case BodyShapeType::Cube:
         default:
             entity.instancingKey = "body:cube";
             break;
@@ -55,44 +56,55 @@ std::unique_ptr<BodyObject3D> BodyObject3D::create(const BodyObject3DDesc &desc)
     return object;
 }
 
-bool BodyObject3D::isValid() const
+bool BodyObject::isValid() const
 {
     return static_cast<bool>(renderScene);
 }
 
-void BodyObject3D::destroy()
+void BodyObject::destroy()
 {
     renderScene.reset();
     entityIndex = static_cast<std::size_t>(-1);
 }
 
-Scene3D &BodyObject3D::getRenderScene()
+Scene &BodyObject::getRenderScene()
 {
     return *renderScene;
 }
 
-const Scene3D &BodyObject3D::getRenderScene() const
+const Scene &BodyObject::getRenderScene() const
 {
     return *renderScene;
 }
 
-const BodyObject3DDesc &BodyObject3D::getConfig() const
+const BodyObjectDesc &BodyObject::getConfig() const
 {
     return config;
 }
 
-void BodyObject3D::setTransform(const Transform3D &transform)
+const BodyPhysicsState &BodyObject::getPhysicsState() const
+{
+    return physicsState;
+}
+
+void BodyObject::setPhysicsState(const BodyPhysicsState &state)
+{
+    physicsState = state;
+    config.physics = state;
+}
+
+void BodyObject::setTransform(const Transform &transform)
 {
     config.transform = transform;
     syncRenderScene();
 }
 
-const Transform3D &BodyObject3D::getTransform() const
+const Transform &BodyObject::getTransform() const
 {
     return config.transform;
 }
 
-void BodyObject3D::syncRenderScene()
+void BodyObject::syncRenderScene()
 {
     if (!isValid())
     {

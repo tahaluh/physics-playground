@@ -6,24 +6,24 @@
 
 #include "engine/scene/3d/AmbientLight.h"
 #include "engine/scene/3d/DirectionalLight.h"
-#include "engine/scene/3d/Entity3D.h"
+#include "engine/scene/3d/Entity.h"
 #include "engine/scene/3d/PointLight.h"
 #include "engine/scene/3d/SpotLight.h"
 
-class Scene3D
+class Scene
 {
 public:
-    Entity3D &createEntity(const Entity3D &entity);
+    Entity &createEntity(const Entity &entity);
     void clearEntities();
-    void appendEntitiesFrom(const Scene3D &other);
-    void replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources);
-    std::vector<Entity3D> &getEntities();
-    const std::vector<Entity3D> &getEntities() const;
+    void appendEntitiesFrom(const Scene &other);
+    void replaceEntitiesFrom(std::initializer_list<const Scene *> sources);
+    std::vector<Entity> &getEntities();
+    const std::vector<Entity> &getEntities() const;
     uint64_t getRevision() const;
     void touch();
     AmbientLight &getAmbientLight();
     const AmbientLight &getAmbientLight() const;
-    bool copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene3D *> sources);
+    bool copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene *> sources);
     void applyWireframeVisibilityOverride(bool visible);
     DirectionalLightHandle createDirectionalLight(const DirectionalLightDesc &desc);
     void destroyDirectionalLight(DirectionalLightHandle handle);
@@ -39,7 +39,7 @@ public:
     const std::vector<SpotLight> &getSpotLights() const;
 
 private:
-    std::vector<Entity3D> entities;
+    std::vector<Entity> entities;
     uint64_t revision = 1;
     AmbientLight ambientLight;
     std::vector<DirectionalLight> directionalLights;

@@ -14,9 +14,9 @@
 
 #include "engine/math/Matrix4.h"
 #include "engine/platform/IWindow.h"
-#include "engine/render/3d/Camera3D.h"
-#include "engine/scene/3d/Entity3D.h"
-#include "engine/scene/3d/Scene3D.h"
+#include "engine/render/3d/Camera.h"
+#include "engine/scene/3d/Entity.h"
+#include "engine/scene/3d/Scene.h"
 
 namespace
 {
@@ -225,17 +225,24 @@ void expandBounds(SceneBounds3D &bounds, const Vector3 &point)
     bounds.max.z = std::max(bounds.max.z, point.z);
 }
 
-SceneBounds3D computeSceneBounds(const Scene3D &scene)
+Matrix4 composeModelMatrix(const Transform &transform)
+{
+    return Matrix4::translation(transform.position) *
+           transform.rotation.toMatrix() *
+           Matrix4::scale(transform.scale);
+}
+
+SceneBounds3D computeSceneBounds(const Scene &scene)
 {
     SceneBounds3D bounds;
-    for (const Entity3D &entity : scene.getEntities())
+    for (const Entity &entity : scene.getEntities())
     {
         if (!entity.material.renderSolid)
         {
             continue;
         }
 
-        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
         for (const Vector3 &vertex : entity.mesh.vertices)
         {
             expandBounds(bounds, modelMatrix.transformPoint(vertex));
@@ -244,7 +251,7 @@ SceneBounds3D computeSceneBounds(const Scene3D &scene)
     return bounds;
 }
 
-float computeEntityApproximateRadius(const Entity3D &entity)
+float computeEntityApproximateRadius(const Entity &entity)
 {
     float localRadiusSquared = 0.0f;
     for (const Vector3 &vertex : entity.mesh.vertices)
@@ -256,7 +263,7 @@ float computeEntityApproximateRadius(const Entity3D &entity)
     return std::sqrt(std::max(localRadiusSquared, 0.0f)) * std::max(maxScale, 0.0f);
 }
 
-bool isEntityRoughlyVisible(const Camera3D &camera, const Matrix4 &viewMatrix, const Entity3D &entity)
+bool isEntityRoughlyVisible(const Camera &camera, const Matrix4 &viewMatrix, const Entity &entity)
 {
     const float radius = computeEntityApproximateRadius(entity);
     const Vector3 viewCenter = viewMatrix.transformPoint(entity.transform.position);
@@ -523,7 +530,7 @@ void VulkanGraphicsDevice::beginFrame(uint32_t clearColor)
     commandBufferRecorded = false;
 }
 
-void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &scene)
+void VulkanGraphicsDevice::renderScene(const Camera &camera, const Scene &scene)
 {
     if (!initialized || !frameBegun || !triangleResourcesReady)
     {
@@ -1983,7 +1990,7 @@ bool VulkanGraphicsDevice::createShadowPipeline()
     return success;
 }
 
-bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const Scene3D &scene)
+bool VulkanGraphicsDevice::updateLightingBuffers(const Camera &camera, const Scene &scene)
 {
     const Matrix4 viewMatrix = camera.getViewMatrix();
     const Matrix4 projectionMatrix = camera.getProjectionMatrix();
@@ -2515,7 +2522,7 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     return true;
 }
 
-VulkanGraphicsDevice::CachedSceneBounds VulkanGraphicsDevice::getCachedSceneBounds(const Scene3D &scene)
+VulkanGraphicsDevice::CachedSceneBounds VulkanGraphicsDevice::getCachedSceneBounds(const Scene &scene)
 {
     if (cachedShadowSceneBounds.scene == &scene &&
         cachedShadowSceneBounds.revision == scene.getRevision())
@@ -2532,11 +2539,11 @@ VulkanGraphicsDevice::CachedSceneBounds VulkanGraphicsDevice::getCachedSceneBoun
     return cachedShadowSceneBounds;
 }
 
-void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Scene3D &scene)
+void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene &scene)
 {
     struct EntitySortItem
     {
-        const Entity3D *entity = nullptr;
+        const Entity *entity = nullptr;
         float distanceSquared = 0.0f;
     };
 
@@ -2584,10 +2591,10 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     std::vector<InstancedChunkBounds> instancedBatchBounds;
 
     const auto appendInstancedMeshVertices =
-        [&](InstancedBatch &batch, const Entity3D &entity)
+        [&](InstancedBatch &batch, const Entity &entity)
     {
         batch.meshVertices.reserve(entity.mesh.triangles.size() * 3);
-        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        for (const MeshTriangle &triangle : entity.mesh.triangles)
         {
             Vector3 localSurfaceNormal = (
                 entity.mesh.vertices[triangle.indices[1]] - entity.mesh.vertices[triangle.indices[0]])
@@ -2630,7 +2637,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     };
 
     const auto appendInstancedEntity =
-        [&](const Entity3D &entity)
+        [&](const Entity &entity)
     {
         std::size_t batchIndex = opaqueInstancedBatches.size();
         const ChunkKey3D chunkKey = {
@@ -2657,7 +2664,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
         InstancedBatch &batch = opaqueInstancedBatches[batchIndex];
         InstancedMeshInstance instance{};
-        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
         std::memcpy(instance.modelRow0, modelMatrix.m.data() + 0, sizeof(instance.modelRow0));
         std::memcpy(instance.modelRow1, modelMatrix.m.data() + 4, sizeof(instance.modelRow1));
         std::memcpy(instance.modelRow2, modelMatrix.m.data() + 8, sizeof(instance.modelRow2));
@@ -2687,15 +2694,15 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     };
 
     const auto appendShadowCasterTriangles =
-        [&](const Entity3D &entity)
+        [&](const Entity &entity)
     {
         if (!entity.material.renderSolid)
         {
             return;
         }
 
-        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+        for (const MeshTriangle &triangle : entity.mesh.triangles)
         {
             for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
             {
@@ -2710,7 +2717,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
     };
 
-    for (const Entity3D &entity : scene.getEntities())
+    for (const Entity &entity : scene.getEntities())
     {
         if (hasShadowLights)
         {
@@ -2760,26 +2767,26 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         });
 
     const auto appendEntityTriangles =
-        [&](const Entity3D &entity, std::vector<TriangleVertex> &vertices)
+        [&](const Entity &entity, std::vector<TriangleVertex> &vertices)
     {
         if (!entity.material.renderSolid)
         {
             return;
         }
 
-        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        std::vector<const MeshTriangle3D *> sortedTriangles;
+        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+        std::vector<const MeshTriangle *> sortedTriangles;
         if (entity.material.solid.isTransparent())
         {
             struct TriangleSortItem
             {
-                const MeshTriangle3D *triangle = nullptr;
+                const MeshTriangle *triangle = nullptr;
                 float distanceSquared = 0.0f;
             };
 
             std::vector<TriangleSortItem> triangleItems;
             triangleItems.reserve(entity.mesh.triangles.size());
-            for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+            for (const MeshTriangle &triangle : entity.mesh.triangles)
             {
                 const Vector3 a = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[0]]);
                 const Vector3 b = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[1]]);
@@ -2804,7 +2811,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
 
         const auto emitTriangle =
-            [&](const MeshTriangle3D &triangle)
+            [&](const MeshTriangle &triangle)
         {
             const uint32_t triangleColor = entity.material.solid.resolveBaseColor(triangle.color);
             const std::array<float, 4> baseColor = colorToFloat4(triangleColor);
@@ -2872,14 +2879,14 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
         if (!sortedTriangles.empty())
         {
-            for (const MeshTriangle3D *triangle : sortedTriangles)
+            for (const MeshTriangle *triangle : sortedTriangles)
             {
                 emitTriangle(*triangle);
             }
             return;
         }
 
-        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        for (const MeshTriangle &triangle : entity.mesh.triangles)
         {
             emitTriangle(triangle);
         }
@@ -2894,19 +2901,19 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         appendEntityTriangles(*item.entity, transparentSceneVertices);
     }
 
-    for (const Entity3D &entity : scene.getEntities())
+    for (const Entity &entity : scene.getEntities())
     {
         if (!entity.material.renderWireframe || entity.supportsInstancing)
         {
             continue;
         }
 
-        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
         const uint32_t lineColor = entity.material.wireframe.resolveBaseColor();
         const std::array<float, 4> rgba = colorToFloat4(lineColor);
         const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.wireframe.resolveEmissiveColor());
 
-        for (const MeshEdge3D &edge : entity.mesh.edges)
+        for (const MeshEdge &edge : entity.mesh.edges)
         {
             std::array<Vector3, 2> worldPositions{};
             const std::array<int, 2> indices = {edge.start, edge.end};

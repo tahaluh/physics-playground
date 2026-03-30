@@ -2,16 +2,16 @@
 
 #include <memory>
 
-#include "engine/render/3d/mesh/MeshFactory3D.h"
-#include "engine/scene/3d/Entity3D.h"
-#include "engine/scene/3d/Scene3D.h"
+#include "engine/render/3d/mesh/MeshFactory.h"
+#include "engine/scene/3d/Entity.h"
+#include "engine/scene/3d/Scene.h"
 
 SphereObject::~SphereObject() = default;
 
 SphereObjectDesc SphereObject::makeDefaultDesc()
 {
     SphereObjectDesc desc;
-    desc.material.solid = MaterialPresets3D::makePlastic(0xFF2F6BFF, 0.4f);
+    desc.material.solid = MaterialPresets::makePlastic(0xFF2F6BFF, 0.4f);
     desc.material.wireframe.baseColor = 0xFF7EA2FF;
     desc.material.renderSolid = true;
     desc.material.renderWireframe = false;
@@ -23,11 +23,11 @@ std::unique_ptr<SphereObject> SphereObject::create(const SphereObjectDesc &desc)
     auto object = std::make_unique<SphereObject>();
     object->config = desc;
     object->worldOffset = desc.worldOffset;
-    object->renderScene = std::make_unique<Scene3D>();
+    object->renderScene = std::make_unique<Scene>();
 
-    Entity3D sphere;
+    Entity sphere;
     sphere.name = "Sphere";
-    sphere.mesh = MeshFactory3D::makeSphere(desc.radius, desc.sphereRings, desc.sphereSegments, 0);
+    sphere.mesh = MeshFactory::makeSphere(desc.radius, desc.sphereRings, desc.sphereSegments, 0);
     sphere.material = desc.material;
     object->sphereEntityIndex = object->renderScene->getEntities().size();
     object->renderScene->createEntity(sphere);
@@ -51,8 +51,8 @@ bool SphereObject::isValid() const
 {
     return static_cast<bool>(renderScene);
 }
-Scene3D &SphereObject::getRenderScene() { return *renderScene; }
-const Scene3D &SphereObject::getRenderScene() const { return *renderScene; }
+Scene &SphereObject::getRenderScene() { return *renderScene; }
+const Scene &SphereObject::getRenderScene() const { return *renderScene; }
 
 void SphereObject::setWorldOffset(const Vector3 &offset)
 {
@@ -71,8 +71,7 @@ void SphereObject::syncRenderScene()
     if (sphereEntityIndex < entities.size())
     {
         entities[sphereEntityIndex].transform.position = worldOffset;
-        entities[sphereEntityIndex].transform.rotation = Vector3::zero();
-        entities[sphereEntityIndex].transform.clearCustomRotationMatrix();
+        entities[sphereEntityIndex].transform.rotation = Quaternion::identity();
         entities[sphereEntityIndex].transform.scale = Vector3::one();
     }
 }

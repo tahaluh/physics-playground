@@ -15,7 +15,7 @@ int parseFaceIndex(const std::string &token)
 }
 }
 
-bool ObjMeshLoader::loadFromFile(const std::string &path, Mesh3D &mesh)
+bool ObjMeshLoader::loadFromFile(const std::string &path, Mesh &mesh)
 {
     std::ifstream file(path);
     if (!file.is_open())
@@ -23,7 +23,7 @@ bool ObjMeshLoader::loadFromFile(const std::string &path, Mesh3D &mesh)
         return false;
     }
 
-    Mesh3D loadedMesh;
+    Mesh loadedMesh;
     std::string line;
     while (std::getline(file, line))
     {

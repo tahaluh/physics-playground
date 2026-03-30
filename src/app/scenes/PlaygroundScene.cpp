@@ -40,7 +40,7 @@ float hashToAngleRadians(uint32_t value)
     return (static_cast<float>(value) / 4294967295.0f) * kTau;
 }
 
-Vector3 makeCubeRotation(int column, int row, int layer)
+Quaternion makeCubeRotation(int column, int row, int layer)
 {
     uint32_t value = makeCubeSeed(column, row, layer);
     value = value * 1664525u + 1013904223u;
@@ -49,7 +49,7 @@ Vector3 makeCubeRotation(int column, int row, int layer)
     const float rotationY = hashToAngleRadians(value);
     value = value * 1664525u + 1013904223u;
     const float rotationZ = hashToAngleRadians(value);
-    return Vector3(rotationX, rotationY, rotationZ);
+    return Quaternion::fromEulerXYZ(Vector3(rotationX, rotationY, rotationZ));
 }
 
 uint32_t makeCubeColor(int column, int row, int layer)
@@ -64,16 +64,16 @@ uint32_t makeCubeColor(int column, int row, int layer)
            static_cast<uint32_t>(blue);
 }
 
-BodyObject3DDesc makeCubeDesc(int column, int row, int layer, const Vector3 &position)
+BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &position)
 {
-    BodyObject3DDesc desc;
+    BodyObjectDesc desc;
     desc.name = "GridCube_" + std::to_string(column) + "_" + std::to_string(row) + "_" + std::to_string(layer);
-    desc.motionType = BodyMotionType3D::Static;
-    desc.shapeType = BodyShapeType3D::Cube;
+    desc.motionType = BodyMotionType::Static;
+    desc.shapeType = BodyShapeType::Cube;
     desc.transform.position = position;
     desc.transform.rotation = makeCubeRotation(column, row, layer);
     desc.transform.scale = Vector3::one() * kCubeSize;
-    desc.material.solid = MaterialPresets3D::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
+    desc.material.solid = MaterialPresets::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
     desc.material.wireframe.baseColor = 0xFFFFFFFF;
     desc.material.wireframe.opacity = 1.0f;
     desc.material.wireframe.unlit = true;
@@ -91,7 +91,7 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
     desc.ambientLight.color = 0xFFFFFFFF;
     desc.ambientLight.intensity = 0.22f;
     desc.cameraPosition = Vector3::zero();
-    desc.cameraRotation = Vector3::zero();
+    desc.cameraRotation = Quaternion::identity();
 
     const Vector3 origin = getGridOrigin();
     const float step = getGridStep();

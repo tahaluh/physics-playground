@@ -5,47 +5,48 @@
 #include <string>
 #include <vector>
 
+#include "engine/math/Quaternion.h"
 #include "engine/math/Vector3.h"
-#include "engine/render/3d/Material3D.h"
-#include "engine/render/3d/mesh/Mesh3D.h"
+#include "engine/render/3d/Material.h"
+#include "engine/render/3d/mesh/Mesh.h"
 
-class Scene3D;
+class Scene;
 
-struct RenderNodeDesc3D
+struct RenderNodeDesc
 {
     bool enabled = true;
-    Mesh3D mesh;
-    Material3D material = Material3D{};
+    Mesh mesh;
+    Material material = Material{};
     Vector3 localPosition = Vector3::zero();
-    Vector3 localRotation = Vector3::zero();
+    Quaternion localRotation = Quaternion::identity();
     Vector3 localScale = Vector3::one();
 };
 
-struct SceneBodyNodeDesc3D
+struct SceneBodyNodeDesc
 {
     std::string name;
-    RenderNodeDesc3D render;
+    RenderNodeDesc render;
 };
 
-struct ComposedObject3DDesc
+struct ComposedObjectDesc
 {
     std::string name;
     Vector3 worldOffset = Vector3::zero();
-    std::vector<SceneBodyNodeDesc3D> nodes;
+    std::vector<SceneBodyNodeDesc> nodes;
 };
 
-class ComposedObject3D
+class ComposedObject
 {
 public:
-    ~ComposedObject3D();
+    ~ComposedObject();
 
-    static std::unique_ptr<ComposedObject3D> create(const ComposedObject3DDesc &desc);
+    static std::unique_ptr<ComposedObject> create(const ComposedObjectDesc &desc);
 
     bool isValid() const;
     void destroy();
 
-    Scene3D &getRenderScene();
-    const Scene3D &getRenderScene() const;
+    Scene &getRenderScene();
+    const Scene &getRenderScene() const;
 
     void setWorldOffset(const Vector3 &offset);
     const Vector3 &getWorldOffset() const;
@@ -56,7 +57,7 @@ private:
     {
         std::string name;
         Vector3 localPosition = Vector3::zero();
-        Vector3 localRotation = Vector3::zero();
+        Quaternion localRotation = Quaternion::identity();
         Vector3 localScale = Vector3::one();
         bool renderEnabled = false;
         std::size_t entityIndex = kInvalidIndex;
@@ -64,8 +65,8 @@ private:
 
     static constexpr std::size_t kInvalidIndex = static_cast<std::size_t>(-1);
 
-    std::unique_ptr<Scene3D> renderScene;
-    ComposedObject3DDesc config;
+    std::unique_ptr<Scene> renderScene;
+    ComposedObjectDesc config;
     Vector3 worldOffset = Vector3::zero();
     std::vector<NodeBinding> bindings;
 };

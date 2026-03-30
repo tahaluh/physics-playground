@@ -5,9 +5,10 @@
 
 #include "engine/core/ApplicationLayer.h"
 #include "engine/graphics/IGraphicsDevice.h"
-#include "engine/render/3d/Camera3D.h"
-#include "engine/scene/3d/Scene3D.h"
-#include "engine/scene/objects/BodyObject3D.h"
+#include "engine/math/Quaternion.h"
+#include "engine/render/3d/Camera.h"
+#include "engine/scene/3d/Scene.h"
+#include "engine/scene/3d/RuntimeScene.h"
 
 class Demo : public ApplicationLayer
 {
@@ -22,25 +23,18 @@ public:
     std::string getRuntimeStatusText() const override;
 
 private:
-    struct SceneEntityRange
-    {
-        std::size_t start = 0;
-        std::size_t count = 0;
-    };
-
     void updateCamera(float dt);
     void configureCamera(int viewportWidth, int viewportHeight);
     void rebuildCombinedScene();
-    void syncCombinedSceneEntities();
     void updateDebugToggles();
     void resetScene();
-    void appendSceneAndRecordRange(const Scene3D &sourceScene, std::vector<SceneEntityRange> &ranges);
-    void copySceneRange(const Scene3D &sourceScene, const SceneEntityRange &range);
 
-    std::unique_ptr<Camera3D> camera3D;
-    std::unique_ptr<Scene3D> combinedScene;
-    std::vector<std::unique_ptr<BodyObject3D>> bodyObjects;
-    std::vector<SceneEntityRange> bodyObjectRanges;
+    std::unique_ptr<Camera> camera3D;
+    std::unique_ptr<RuntimeScene> runtimeScene;
+    std::unique_ptr<Scene> combinedScene;
+    float cameraPitch = 0.0f;
+    float cameraYaw = 0.0f;
+    Quaternion initialCameraRotation = Quaternion::identity();
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
     int viewportWidth = 0;

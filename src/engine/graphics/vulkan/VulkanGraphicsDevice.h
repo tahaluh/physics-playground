@@ -107,7 +107,7 @@ public:
 
     struct CachedSceneBounds
     {
-        const Scene3D *scene = nullptr;
+        const Scene *scene = nullptr;
         uint64_t revision = 0;
         Vector3 min = Vector3::zero();
         Vector3 max = Vector3::zero();
@@ -131,7 +131,7 @@ public:
     int getHeight() const override;
 
     void beginFrame(uint32_t clearColor) override;
-    void renderScene3D(const Camera3D &camera, const Scene3D &scene) override;
+    void renderScene(const Camera &camera, const Scene &scene) override;
     void endFrame() override;
     void present() override;
 
@@ -151,9 +151,9 @@ private:
     bool createInstancedTrianglePipeline();
     bool createLinePipeline();
     bool createShadowPipeline();
-    void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
-    bool updateLightingBuffers(const Camera3D &camera, const Scene3D &scene);
-    CachedSceneBounds getCachedSceneBounds(const Scene3D &scene);
+    void appendSceneVertices(const Camera &camera, const Scene &scene);
+    bool updateLightingBuffers(const Camera &camera, const Scene &scene);
+    CachedSceneBounds getCachedSceneBounds(const Scene &scene);
     bool uploadSceneVertexBuffers();
     void destroyInstancedBatches();
     bool createFramebuffers();
@@ -279,7 +279,7 @@ private:
     std::vector<TriangleVertex> shadowSceneVertices;
     std::vector<InstancedBatch> opaqueInstancedBatches;
     AmbientUniform ambientUniform = {};
-    const Scene3D *cachedScene = nullptr;
+    const Scene *cachedScene = nullptr;
     uint64_t cachedSceneRevision = 0;
     CachedSceneBounds cachedShadowSceneBounds;
     Matrix4 currentCullViewMatrix = Matrix4::identity();

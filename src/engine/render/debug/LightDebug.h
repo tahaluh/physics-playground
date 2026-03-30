@@ -4,20 +4,20 @@
 #include <cmath>
 #include <vector>
 
-#include "engine/math/Matrix4.h"
+#include "engine/math/Quaternion.h"
 #include "engine/math/Vector3.h"
-#include "engine/render/3d/mesh/MeshFactory3D.h"
-#include "engine/scene/3d/Scene3D.h"
+#include "engine/render/3d/mesh/MeshFactory.h"
+#include "engine/scene/3d/Scene.h"
 #include "engine/scene/3d/DirectionalLight.h"
-#include "engine/scene/3d/Entity3D.h"
+#include "engine/scene/3d/Entity.h"
 #include "engine/scene/3d/PointLight.h"
 #include "engine/scene/3d/SpotLight.h"
 
-namespace LightDebug3D
+namespace LightDebug
 {
-inline Material3D makeUnlitDebugMaterial(uint32_t color, bool wireframeOnly = false, float wireOpacity = 0.35f)
+inline Material makeUnlitDebugMaterial(uint32_t color, bool wireframeOnly = false, float wireOpacity = 0.35f)
 {
-    Material3D material;
+    Material material;
     material.solid.baseColor = 0xFF000000;
     material.solid.emissiveColor = color;
     material.solid.ambientFactor = 0.0f;
@@ -34,25 +34,13 @@ inline Material3D makeUnlitDebugMaterial(uint32_t color, bool wireframeOnly = fa
     return material;
 }
 
-inline Matrix4 getRotationFromForward(const Vector3 &direction)
+inline Quaternion getRotationFromForward(const Vector3 &direction)
 {
-    const Vector3 from = Vector3::forward();
-    const Vector3 to = direction.lengthSquared() > 0.0f ? direction.normalized() : from;
-    const float dotValue = Vector3::clamp(from.dot(to), -1.0f, 1.0f);
-
-    if (dotValue > 0.9999f)
-    {
-        return Matrix4::identity();
-    }
-
-    if (dotValue < -0.9999f)
-    {
-        return Matrix4::axisAngle(Vector3::up(), 3.14159265f);
-    }
-
-    const Vector3 axis = from.cross(to).normalized();
-    const float angle = std::acos(dotValue);
-    return Matrix4::axisAngle(axis, angle);
+    const Vector3 forward = direction.lengthSquared() > 0.0f ? direction.normalized() : Vector3::forward();
+    const float planarLength = std::sqrt(forward.x * forward.x + forward.z * forward.z);
+    const float pitch = std::atan2(-forward.y, planarLength);
+    const float yaw = std::atan2(forward.x, forward.z);
+    return Quaternion::fromEulerXYZ(Vector3(pitch, yaw, 0.0f));
 }
 
 inline float getConeRadius(float length, float coneCos)
@@ -62,51 +50,50 @@ inline float getConeRadius(float length, float coneCos)
     return std::tan(angle) * length;
 }
 
-inline Entity3D makePointLightMarker(const PointLight &light)
+inline Entity makePointLightMarker(const PointLight &light)
 {
-    Entity3D marker;
+    Entity marker;
     marker.name = "PointLightDebug";
     marker.transform.position = light.position;
-    marker.mesh = MeshFactory3D::makeSphere(0.16f, 10, 16, 0);
+    marker.mesh = MeshFactory::makeSphere(0.16f, 10, 16, 0);
     marker.material = makeUnlitDebugMaterial(light.color, false);
     return marker;
 }
 
-inline std::vector<Entity3D> makeSpotLightMarkers(const SpotLight &light)
+inline std::vector<Entity> makeSpotLightMarkers(const SpotLight &light)
 {
-    std::vector<Entity3D> markers;
+    std::vector<Entity> markers;
     if (!light.enabled)
     {
         return markers;
     }
 
     const Vector3 direction = light.direction.lengthSquared() > 0.0f ? light.direction.normalized() : Vector3::forward();
-    const Matrix4 rotation = getRotationFromForward(direction);
 
-    Entity3D rangeCone;
+    Entity rangeCone;
     rangeCone.name = "SpotLightDebugRange";
     rangeCone.transform.position = light.position;
-    rangeCone.transform.setCustomRotationMatrix(rotation);
-    rangeCone.mesh = MeshFactory3D::makeCone(getConeRadius(light.range, light.outerConeCos), light.range, 24, 0);
+    rangeCone.transform.rotation = getRotationFromForward(direction);
+    rangeCone.mesh = MeshFactory::makeCone(getConeRadius(light.range, light.outerConeCos), light.range, 24, 0);
     rangeCone.material = makeUnlitDebugMaterial(light.color, true, 0.35f);
     markers.push_back(rangeCone);
 
     return markers;
 }
 
-inline Entity3D makeDirectionalLightMarker(const DirectionalLight &light, const Vector3 &origin, float length = 1.4f)
+inline Entity makeDirectionalLightMarker(const DirectionalLight &light, const Vector3 &origin, float length = 1.4f)
 {
     const Vector3 direction = light.direction.lengthSquared() > 0.0f ? light.direction.normalized() : Vector3::forward();
-    Entity3D marker;
+    Entity marker;
     marker.name = "DirectionalLightDebug";
     marker.transform.position = origin + direction * (length * 0.5f);
-    marker.transform.setCustomRotationMatrix(getRotationFromForward(direction));
-    marker.mesh = MeshFactory3D::makeCone(length * 0.18f, length, 20, 0);
+    marker.transform.rotation = getRotationFromForward(direction);
+    marker.mesh = MeshFactory::makeCone(length * 0.18f, length, 20, 0);
     marker.material = makeUnlitDebugMaterial(light.color, true, 0.65f);
     return marker;
 }
 
-inline void appendLightMarkers(const Scene3D &sourceScene, Scene3D &targetScene)
+inline void appendLightMarkers(const Scene &sourceScene, Scene &targetScene)
 {
     for (const PointLight &light : sourceScene.getPointLights())
     {
@@ -125,8 +112,8 @@ inline void appendLightMarkers(const Scene3D &sourceScene, Scene3D &targetScene)
             continue;
         }
 
-        const std::vector<Entity3D> markers = makeSpotLightMarkers(light);
-        for (const Entity3D &marker : markers)
+        const std::vector<Entity> markers = makeSpotLightMarkers(light);
+        for (const Entity &marker : markers)
         {
             targetScene.createEntity(marker);
         }

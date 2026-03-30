@@ -2,7 +2,7 @@
 
 #include "engine/render/RenderMaterial.h"
 
-struct Material3D
+struct Material
 {
     RenderMaterial solid = {0xFF3A86FF, 1.0f, 0xFF000000, 1.0f, 1.0f, 0.0f, 1.0f, false, false};
     RenderMaterial wireframe = {0xFF44AAFF, 1.0f, 0xFF000000, 1.0f, 0.0f, 0.0f, 1.0f, true, false};
@@ -16,7 +16,7 @@ struct Material3D
     }
 };
 
-namespace MaterialPresets3D
+namespace MaterialPresets
 {
 inline RenderMaterial makePlastic(uint32_t baseColor, float roughness = 0.45f)
 {

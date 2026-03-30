@@ -4,9 +4,9 @@
 
 #include "engine/graphics/GraphicsBackend.h"
 
-class Camera3D;
+class Camera;
 class IWindow;
-class Scene3D;
+class Scene;
 
 class IGraphicsDevice
 {
@@ -24,7 +24,7 @@ public:
     virtual int getHeight() const = 0;
 
     virtual void beginFrame(uint32_t clearColor) = 0;
-    virtual void renderScene3D(const Camera3D &camera, const Scene3D &scene) = 0;
+    virtual void renderScene(const Camera &camera, const Scene &scene) = 0;
     virtual void endFrame() = 0;
     virtual void present() = 0;
 };

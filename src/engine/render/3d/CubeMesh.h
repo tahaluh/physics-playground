@@ -5,13 +5,13 @@
 
 #include "engine/math/Vector3.h"
 
-struct CubeFace3D
+struct CubeFace
 {
     std::array<int, 3> indices;
     uint32_t color;
 };
 
-struct CubeMesh3D
+struct CubeMesh
 {
     static std::array<Vector3, 8> makeVertices(float size)
     {
@@ -33,7 +33,7 @@ struct CubeMesh3D
         {0, 4}, {1, 5}, {2, 6}, {3, 7},
     }};
 
-    static constexpr std::array<CubeFace3D, 12> faces = {{
+    static constexpr std::array<CubeFace, 12> faces = {{
         {{{0, 1, 2}}, 0xFF3A86FF}, {{{0, 2, 3}}, 0xFF3A86FF},
         {{{4, 5, 6}}, 0xFF4CC9F0}, {{{4, 6, 7}}, 0xFF4CC9F0},
         {{{0, 1, 5}}, 0xFF4361EE}, {{{0, 5, 4}}, 0xFF4361EE},

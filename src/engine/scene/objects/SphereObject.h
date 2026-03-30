@@ -4,9 +4,9 @@
 #include <memory>
 
 #include "engine/math/Vector3.h"
-#include "engine/render/3d/Material3D.h"
+#include "engine/render/3d/Material.h"
 
-class Scene3D;
+class Scene;
 
 struct SphereObjectDesc
 {
@@ -14,7 +14,7 @@ struct SphereObjectDesc
     float radius = 1.0f;
     int sphereRings = 16;
     int sphereSegments = 24;
-    Material3D material = Material3D{};
+    Material material = Material{};
 };
 
 class SphereObject
@@ -28,8 +28,8 @@ public:
     void destroy();
     bool isValid() const;
 
-    Scene3D &getRenderScene();
-    const Scene3D &getRenderScene() const;
+    Scene &getRenderScene();
+    const Scene &getRenderScene() const;
     void setWorldOffset(const Vector3 &offset);
     const Vector3 &getWorldOffset() const;
     void syncRenderScene();
@@ -37,7 +37,7 @@ public:
 private:
     static constexpr std::size_t kInvalidIndex = static_cast<std::size_t>(-1);
 
-    std::unique_ptr<Scene3D> renderScene;
+    std::unique_ptr<Scene> renderScene;
     std::size_t sphereEntityIndex = kInvalidIndex;
     Vector3 worldOffset = Vector3::zero();
     SphereObjectDesc config;

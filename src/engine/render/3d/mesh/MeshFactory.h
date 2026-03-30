@@ -4,13 +4,13 @@
 #include <cstdint>
 #include <unordered_map>
 
-#include "engine/render/3d/mesh/Mesh3D.h"
+#include "engine/render/3d/mesh/Mesh.h"
 
-namespace MeshFactory3D
+namespace MeshFactory
 {
-inline Mesh3D makeDisc(float radius, int segments = 48, uint32_t color = 0xFFFFFFFF)
+inline Mesh makeDisc(float radius, int segments = 48, uint32_t color = 0xFFFFFFFF)
 {
-    Mesh3D mesh;
+    Mesh mesh;
     mesh.vertices.reserve(static_cast<size_t>(segments) + 1);
     mesh.vertexNormals.reserve(static_cast<size_t>(segments) + 1);
     mesh.vertices.push_back(Vector3(0.0f, 0.0f, 0.0f));
@@ -35,9 +35,9 @@ inline Mesh3D makeDisc(float radius, int segments = 48, uint32_t color = 0xFFFFF
     return mesh;
 }
 
-inline Mesh3D makeRing(float innerRadius, float outerRadius, int segments = 64, uint32_t color = 0xFFFFFFFF)
+inline Mesh makeRing(float innerRadius, float outerRadius, int segments = 64, uint32_t color = 0xFFFFFFFF)
 {
-    Mesh3D mesh;
+    Mesh mesh;
     mesh.vertices.reserve(static_cast<size_t>(segments) * 2);
     mesh.vertexNormals.reserve(static_cast<size_t>(segments) * 2);
 
@@ -70,14 +70,14 @@ inline Mesh3D makeRing(float innerRadius, float outerRadius, int segments = 64, 
     return mesh;
 }
 
-inline Mesh3D makeDoubleSidedRing(
+inline Mesh makeDoubleSidedRing(
     float innerRadius,
     float outerRadius,
     float thickness,
     int segments = 64,
     uint32_t color = 0xFFFFFFFF)
 {
-    Mesh3D mesh;
+    Mesh mesh;
     const float halfThickness = thickness * 0.5f;
     mesh.vertices.reserve(static_cast<size_t>(segments) * 4);
 
@@ -131,11 +131,11 @@ inline Mesh3D makeDoubleSidedRing(
     return mesh;
 }
 
-inline Mesh3D makeCube(float size, uint32_t color = 0)
+inline Mesh makeCube(float size, uint32_t color = 0)
 {
     const float halfSize = size * 0.5f;
 
-    Mesh3D mesh;
+    Mesh mesh;
     mesh.vertices = {
         Vector3(-halfSize, -halfSize, -halfSize),
         Vector3(halfSize, -halfSize, -halfSize),
@@ -165,9 +165,9 @@ inline Mesh3D makeCube(float size, uint32_t color = 0)
     return mesh;
 }
 
-inline Mesh3D makeCone(float radius, float height, int segments = 24, uint32_t color = 0xFFFFFFFF)
+inline Mesh makeCone(float radius, float height, int segments = 24, uint32_t color = 0xFFFFFFFF)
 {
-    Mesh3D mesh;
+    Mesh mesh;
     mesh.vertices.reserve(static_cast<size_t>(segments) + 2);
 
     const int tipIndex = 0;
@@ -196,9 +196,9 @@ inline Mesh3D makeCone(float radius, float height, int segments = 24, uint32_t c
     return mesh;
 }
 
-inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeSegments = 24, uint32_t color = 0xFFFFFFFF)
+inline Mesh makeSphere(float radius, int latitudeSegments = 12, int longitudeSegments = 24, uint32_t color = 0xFFFFFFFF)
 {
-    Mesh3D mesh;
+    Mesh mesh;
     mesh.vertices.reserve(static_cast<size_t>(latitudeSegments + 1) * static_cast<size_t>(longitudeSegments + 1));
     mesh.vertexNormals.reserve(static_cast<size_t>(latitudeSegments + 1) * static_cast<size_t>(longitudeSegments + 1));
 
@@ -242,9 +242,9 @@ inline Mesh3D makeSphere(float radius, int latitudeSegments = 12, int longitudeS
     return mesh;
 }
 
-inline Mesh3D makeIcoSphere(float radius, int subdivisions = 2, uint32_t color = 0xFFFFFFFF)
+inline Mesh makeIcoSphere(float radius, int subdivisions = 2, uint32_t color = 0xFFFFFFFF)
 {
-    Mesh3D mesh;
+    Mesh mesh;
 
     const float t = (1.0f + std::sqrt(5.0f)) * 0.5f;
     mesh.vertices = {
@@ -258,7 +258,7 @@ inline Mesh3D makeIcoSphere(float radius, int subdivisions = 2, uint32_t color =
         vertex = vertex.normalized() * radius;
     }
 
-    std::vector<MeshTriangle3D> triangles = {
+    std::vector<MeshTriangle> triangles = {
         {{0, 11, 5}, color}, {{0, 5, 1}, color}, {{0, 1, 7}, color}, {{0, 7, 10}, color}, {{0, 10, 11}, color},
         {{1, 5, 9}, color}, {{5, 11, 4}, color}, {{11, 10, 2}, color}, {{10, 7, 6}, color}, {{7, 1, 8}, color},
         {{3, 9, 4}, color}, {{3, 4, 2}, color}, {{3, 2, 6}, color}, {{3, 6, 8}, color}, {{3, 8, 9}, color},
@@ -275,7 +275,7 @@ inline Mesh3D makeIcoSphere(float radius, int subdivisions = 2, uint32_t color =
     for (int subdivision = 0; subdivision < subdivisions; ++subdivision)
     {
         std::unordered_map<uint64_t, int> midpointCache;
-        std::vector<MeshTriangle3D> subdividedTriangles;
+        std::vector<MeshTriangle> subdividedTriangles;
         subdividedTriangles.reserve(triangles.size() * 4);
 
         const auto getMidpointIndex = [&](int a, int b) -> int
@@ -294,7 +294,7 @@ inline Mesh3D makeIcoSphere(float radius, int subdivisions = 2, uint32_t color =
             return index;
         };
 
-        for (const MeshTriangle3D &triangle : triangles)
+        for (const MeshTriangle &triangle : triangles)
         {
             const int a = triangle.indices[0];
             const int b = triangle.indices[1];
@@ -321,7 +321,7 @@ inline Mesh3D makeIcoSphere(float radius, int subdivisions = 2, uint32_t color =
     mesh.triangles = triangles;
 
     std::unordered_map<uint64_t, bool> uniqueEdges;
-    for (const MeshTriangle3D &triangle : mesh.triangles)
+    for (const MeshTriangle &triangle : mesh.triangles)
     {
         for (int edgeIndex = 0; edgeIndex < 3; ++edgeIndex)
         {

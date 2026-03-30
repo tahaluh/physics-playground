@@ -1,18 +1,18 @@
-#include "engine/scene/objects/ComposedObject3D.h"
+#include "engine/scene/objects/ComposedObject.h"
 
-#include "engine/scene/3d/Entity3D.h"
-#include "engine/scene/3d/Scene3D.h"
+#include "engine/scene/3d/Entity.h"
+#include "engine/scene/3d/Scene.h"
 
-ComposedObject3D::~ComposedObject3D() = default;
+ComposedObject::~ComposedObject() = default;
 
-std::unique_ptr<ComposedObject3D> ComposedObject3D::create(const ComposedObject3DDesc &desc)
+std::unique_ptr<ComposedObject> ComposedObject::create(const ComposedObjectDesc &desc)
 {
-    auto object = std::make_unique<ComposedObject3D>();
+    auto object = std::make_unique<ComposedObject>();
     object->config = desc;
     object->worldOffset = desc.worldOffset;
-    object->renderScene = std::make_unique<Scene3D>();
+    object->renderScene = std::make_unique<Scene>();
 
-    for (const SceneBodyNodeDesc3D &node : desc.nodes)
+    for (const SceneBodyNodeDesc &node : desc.nodes)
     {
         NodeBinding binding;
         binding.name = node.name;
@@ -23,7 +23,7 @@ std::unique_ptr<ComposedObject3D> ComposedObject3D::create(const ComposedObject3
 
         if (node.render.enabled)
         {
-            Entity3D entity;
+            Entity entity;
             entity.name = node.name;
             entity.mesh = node.render.mesh;
             entity.material = node.render.material;
@@ -41,39 +41,39 @@ std::unique_ptr<ComposedObject3D> ComposedObject3D::create(const ComposedObject3
     return object;
 }
 
-bool ComposedObject3D::isValid() const
+bool ComposedObject::isValid() const
 {
     return static_cast<bool>(renderScene);
 }
 
-void ComposedObject3D::destroy()
+void ComposedObject::destroy()
 {
     renderScene.reset();
     bindings.clear();
 }
 
-Scene3D &ComposedObject3D::getRenderScene()
+Scene &ComposedObject::getRenderScene()
 {
     return *renderScene;
 }
 
-const Scene3D &ComposedObject3D::getRenderScene() const
+const Scene &ComposedObject::getRenderScene() const
 {
     return *renderScene;
 }
 
-void ComposedObject3D::setWorldOffset(const Vector3 &offset)
+void ComposedObject::setWorldOffset(const Vector3 &offset)
 {
     worldOffset = offset;
     syncRenderScene();
 }
 
-const Vector3 &ComposedObject3D::getWorldOffset() const
+const Vector3 &ComposedObject::getWorldOffset() const
 {
     return worldOffset;
 }
 
-void ComposedObject3D::syncRenderScene()
+void ComposedObject::syncRenderScene()
 {
     if (!isValid())
     {
@@ -89,11 +89,10 @@ void ComposedObject3D::syncRenderScene()
             continue;
         }
 
-        Entity3D &entity = entities[binding.entityIndex];
+        Entity &entity = entities[binding.entityIndex];
         entity.transform.scale = binding.localScale;
 
         entity.transform.position = worldOffset + binding.localPosition;
         entity.transform.rotation = binding.localRotation;
-        entity.transform.clearCustomRotationMatrix();
     }
 }

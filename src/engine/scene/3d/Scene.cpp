@@ -1,30 +1,30 @@
-#include "engine/scene/3d/Scene3D.h"
+#include "engine/scene/3d/Scene.h"
 
 #include <algorithm>
 
-Entity3D &Scene3D::createEntity(const Entity3D &entity)
+Entity &Scene::createEntity(const Entity &entity)
 {
     entities.push_back(entity);
     ++revision;
     return entities.back();
 }
 
-void Scene3D::clearEntities()
+void Scene::clearEntities()
 {
     entities.clear();
     ++revision;
 }
 
-void Scene3D::appendEntitiesFrom(const Scene3D &other)
+void Scene::appendEntitiesFrom(const Scene &other)
 {
     entities.insert(entities.end(), other.entities.begin(), other.entities.end());
     ++revision;
 }
 
-void Scene3D::replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources)
+void Scene::replaceEntitiesFrom(std::initializer_list<const Scene *> sources)
 {
     clearEntities();
-    for (const Scene3D *source : sources)
+    for (const Scene *source : sources)
     {
         if (!source)
         {
@@ -35,39 +35,39 @@ void Scene3D::replaceEntitiesFrom(std::initializer_list<const Scene3D *> sources
     }
 }
 
-std::vector<Entity3D> &Scene3D::getEntities()
+std::vector<Entity> &Scene::getEntities()
 {
     return entities;
 }
 
-const std::vector<Entity3D> &Scene3D::getEntities() const
+const std::vector<Entity> &Scene::getEntities() const
 {
     return entities;
 }
 
-uint64_t Scene3D::getRevision() const
+uint64_t Scene::getRevision() const
 {
     return revision;
 }
 
-void Scene3D::touch()
+void Scene::touch()
 {
     ++revision;
 }
 
-AmbientLight &Scene3D::getAmbientLight()
+AmbientLight &Scene::getAmbientLight()
 {
     return ambientLight;
 }
 
-const AmbientLight &Scene3D::getAmbientLight() const
+const AmbientLight &Scene::getAmbientLight() const
 {
     return ambientLight;
 }
 
-bool Scene3D::copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene3D *> sources)
+bool Scene::copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene *> sources)
 {
-    for (const Scene3D *source : sources)
+    for (const Scene *source : sources)
     {
         if (!source)
         {
@@ -81,16 +81,16 @@ bool Scene3D::copyAmbientLightFromFirstAvailable(std::initializer_list<const Sce
     return false;
 }
 
-void Scene3D::applyWireframeVisibilityOverride(bool visible)
+void Scene::applyWireframeVisibilityOverride(bool visible)
 {
-    for (Entity3D &entity : entities)
+    for (Entity &entity : entities)
     {
         entity.material.renderWireframe = visible;
     }
     ++revision;
 }
 
-DirectionalLightHandle Scene3D::createDirectionalLight(const DirectionalLightDesc &desc)
+DirectionalLightHandle Scene::createDirectionalLight(const DirectionalLightDesc &desc)
 {
     DirectionalLight light;
     light.direction = desc.direction.lengthSquared() > 0.0f ? desc.direction.normalized() : Vector3(0.0f, -1.0f, 0.0f);
@@ -102,7 +102,7 @@ DirectionalLightHandle Scene3D::createDirectionalLight(const DirectionalLightDes
     return DirectionalLightHandle{directionalLights.size() - 1};
 }
 
-void Scene3D::destroyDirectionalLight(DirectionalLightHandle handle)
+void Scene::destroyDirectionalLight(DirectionalLightHandle handle)
 {
     if (!handle.isValid() || handle.id >= directionalLights.size())
     {
@@ -114,17 +114,17 @@ void Scene3D::destroyDirectionalLight(DirectionalLightHandle handle)
     ++revision;
 }
 
-std::vector<DirectionalLight> &Scene3D::getDirectionalLights()
+std::vector<DirectionalLight> &Scene::getDirectionalLights()
 {
     return directionalLights;
 }
 
-const std::vector<DirectionalLight> &Scene3D::getDirectionalLights() const
+const std::vector<DirectionalLight> &Scene::getDirectionalLights() const
 {
     return directionalLights;
 }
 
-PointLightHandle Scene3D::createPointLight(const PointLightDesc &desc)
+PointLightHandle Scene::createPointLight(const PointLightDesc &desc)
 {
     PointLight light;
     light.position = desc.position;
@@ -137,7 +137,7 @@ PointLightHandle Scene3D::createPointLight(const PointLightDesc &desc)
     return PointLightHandle{pointLights.size() - 1};
 }
 
-void Scene3D::destroyPointLight(PointLightHandle handle)
+void Scene::destroyPointLight(PointLightHandle handle)
 {
     if (!handle.isValid() || handle.id >= pointLights.size())
     {
@@ -149,17 +149,17 @@ void Scene3D::destroyPointLight(PointLightHandle handle)
     ++revision;
 }
 
-std::vector<PointLight> &Scene3D::getPointLights()
+std::vector<PointLight> &Scene::getPointLights()
 {
     return pointLights;
 }
 
-const std::vector<PointLight> &Scene3D::getPointLights() const
+const std::vector<PointLight> &Scene::getPointLights() const
 {
     return pointLights;
 }
 
-SpotLightHandle Scene3D::createSpotLight(const SpotLightDesc &desc)
+SpotLightHandle Scene::createSpotLight(const SpotLightDesc &desc)
 {
     SpotLight light;
     light.position = desc.position;
@@ -179,7 +179,7 @@ SpotLightHandle Scene3D::createSpotLight(const SpotLightDesc &desc)
     return SpotLightHandle{spotLights.size() - 1};
 }
 
-void Scene3D::destroySpotLight(SpotLightHandle handle)
+void Scene::destroySpotLight(SpotLightHandle handle)
 {
     if (!handle.isValid() || handle.id >= spotLights.size())
     {
@@ -191,12 +191,12 @@ void Scene3D::destroySpotLight(SpotLightHandle handle)
     ++revision;
 }
 
-std::vector<SpotLight> &Scene3D::getSpotLights()
+std::vector<SpotLight> &Scene::getSpotLights()
 {
     return spotLights;
 }
 
-const std::vector<SpotLight> &Scene3D::getSpotLights() const
+const std::vector<SpotLight> &Scene::getSpotLights() const
 {
     return spotLights;
 }

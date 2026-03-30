@@ -1,14 +1,14 @@
 #pragma once
 
 #include "engine/math/Matrix4.h"
-#include "engine/math/Transform3D.h"
+#include "engine/math/Transform.h"
 #include "engine/math/Vector2.h"
 #include "engine/math/Vector3.h"
 
-class Camera3D
+class Camera
 {
 public:
-    Transform3D transform;
+    Transform transform;
     float fovRadians = 60.0f * 3.14159265f / 180.0f;
     float aspectRatio = 4.0f / 3.0f;
     float nearPlane = 0.1f;
@@ -47,12 +47,12 @@ public:
 
     Vector3 getForward() const
     {
-        return Matrix4::rotationXYZ(transform.rotation).transformVector(Vector3(0.0f, 0.0f, -1.0f)).normalized();
+        return transform.rotation.toMatrix().transformVector(Vector3(0.0f, 0.0f, -1.0f)).normalized();
     }
 
     Vector3 getRight() const
     {
-        return Matrix4::rotationXYZ(transform.rotation).transformVector(Vector3::right()).normalized();
+        return transform.rotation.toMatrix().transformVector(Vector3::right()).normalized();
     }
 
     Vector3 getUp() const

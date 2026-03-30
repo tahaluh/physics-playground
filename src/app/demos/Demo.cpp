@@ -6,14 +6,19 @@
 #include "engine/input/Input.h"
 #include "engine/input/InputAction.h"
 #include "engine/math/Vector3.h"
-#include "engine/render/debug/LightDebug3D.h"
+#include "engine/render/debug/LightDebug.h"
 
 namespace
 {
 const float kMoveSpeed = 4.0f;
 const float kMouseLookSensitivity = 0.0025f;
 
-Vector3 getPlanarForward(const Camera3D &camera)
+Quaternion makeCameraRotation(float pitch, float yaw)
+{
+    return Quaternion::fromEulerXYZ(Vector3(pitch, yaw, 0.0f));
+}
+
+Vector3 getPlanarForward(const Camera &camera)
 {
     Vector3 forward = camera.getForward();
     forward.y = 0.0f;
@@ -24,69 +29,13 @@ Vector3 getPlanarForward(const Camera3D &camera)
     return forward.normalized();
 }
 
-Vector3 getPlanarRight(const Camera3D &camera)
+Vector3 getPlanarRight(const Camera &camera)
 {
     return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
 }
 }
 
 Demo::~Demo() = default;
-
-void Demo::appendSceneAndRecordRange(const Scene3D &sourceScene, std::vector<SceneEntityRange> &ranges)
-{
-    if (!combinedScene)
-    {
-        return;
-    }
-
-    SceneEntityRange range;
-    range.start = combinedScene->getEntities().size();
-    range.count = sourceScene.getEntities().size();
-    combinedScene->appendEntitiesFrom(sourceScene);
-    ranges.push_back(range);
-}
-
-void Demo::copySceneRange(const Scene3D &sourceScene, const SceneEntityRange &range)
-{
-    if (!combinedScene || range.count == 0)
-    {
-        return;
-    }
-
-    std::vector<Entity3D> &targetEntities = combinedScene->getEntities();
-    const std::vector<Entity3D> &sourceEntities = sourceScene.getEntities();
-    if (sourceEntities.size() != range.count || range.start + range.count > targetEntities.size())
-    {
-        return;
-    }
-
-    for (std::size_t i = 0; i < range.count; ++i)
-    {
-        Entity3D &target = targetEntities[range.start + i];
-        const Entity3D &source = sourceEntities[i];
-        target.transform = source.transform;
-        target.material = source.material;
-        target.material.renderWireframe = showWireframes;
-    }
-}
-
-void Demo::syncCombinedSceneEntities()
-{
-    if (!combinedScene)
-    {
-        return;
-    }
-
-    for (std::size_t i = 0; i < bodyObjects.size() && i < bodyObjectRanges.size(); ++i)
-    {
-        if (bodyObjects[i])
-        {
-            copySceneRange(bodyObjects[i]->getRenderScene(), bodyObjectRanges[i]);
-        }
-    }
-
-    combinedScene->touch();
-}
 
 void Demo::onAttach(int viewportWidth, int viewportHeight)
 {
@@ -95,29 +44,32 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
 
     const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
 
-    bodyObjects.clear();
-    for (const BodyObject3DDesc &bodyDesc : sceneDesc.bodies)
+    runtimeScene = std::make_unique<RuntimeScene>();
+    for (const BodyObjectDesc &bodyDesc : sceneDesc.bodies)
     {
-        bodyObjects.push_back(BodyObject3D::create(bodyDesc));
+        runtimeScene->addBody(bodyDesc);
     }
 
-    camera3D = std::make_unique<Camera3D>();
+    camera3D = std::make_unique<Camera>();
     camera3D->transform.position = sceneDesc.cameraPosition;
     camera3D->transform.rotation = sceneDesc.cameraRotation;
+    cameraPitch = 0.0f;
+    cameraYaw = 0.0f;
+    initialCameraRotation = sceneDesc.cameraRotation;
 
-    combinedScene = std::make_unique<Scene3D>();
-    combinedScene->getAmbientLight() = sceneDesc.ambientLight;
+    combinedScene = std::make_unique<Scene>();
+    runtimeScene->getRenderScene().getAmbientLight() = sceneDesc.ambientLight;
     for (const DirectionalLightDesc &lightDesc : sceneDesc.directionalLights)
     {
-        combinedScene->createDirectionalLight(lightDesc);
+        runtimeScene->getRenderScene().createDirectionalLight(lightDesc);
     }
     for (const PointLightDesc &lightDesc : sceneDesc.pointLights)
     {
-        combinedScene->createPointLight(lightDesc);
+        runtimeScene->getRenderScene().createPointLight(lightDesc);
     }
     for (const SpotLightDesc &lightDesc : sceneDesc.spotLights)
     {
-        combinedScene->createSpotLight(lightDesc);
+        runtimeScene->getRenderScene().createSpotLight(lightDesc);
     }
 
     rebuildCombinedScene();
@@ -167,9 +119,10 @@ void Demo::updateCamera(float dt)
         camera3D->transform.position += movement.normalized() * (kMoveSpeed * dt);
     }
 
-    camera3D->transform.rotation.y -= Input::getMouseDeltaX() * kMouseLookSensitivity;
-    camera3D->transform.rotation.x -= Input::getMouseDeltaY() * kMouseLookSensitivity;
-    camera3D->transform.rotation.x = Vector3::clamp(camera3D->transform.rotation.x, -1.4f, 1.4f);
+    cameraYaw -= Input::getMouseDeltaX() * kMouseLookSensitivity;
+    cameraPitch -= Input::getMouseDeltaY() * kMouseLookSensitivity;
+    cameraPitch = Vector3::clamp(cameraPitch, -1.4f, 1.4f);
+    camera3D->transform.rotation = (makeCameraRotation(cameraPitch, cameraYaw) * initialCameraRotation).normalized();
 }
 
 void Demo::updateDebugToggles()
@@ -191,6 +144,10 @@ void Demo::updateDebugToggles()
     if (Input::wasActionPressed(EngineInputAction::ToggleWireframe))
     {
         showWireframes = !showWireframes;
+        if (runtimeScene)
+        {
+            runtimeScene->getRenderScene().applyWireframeVisibilityOverride(showWireframes);
+        }
         changed = true;
     }
 
@@ -203,7 +160,10 @@ void Demo::updateDebugToggles()
 void Demo::resetScene()
 {
     Vector3 preservedCameraPosition = Vector3::zero();
-    Vector3 preservedCameraRotation = Vector3::zero();
+    Quaternion preservedCameraRotation = Quaternion::identity();
+    const float preservedCameraPitch = cameraPitch;
+    const float preservedCameraYaw = cameraYaw;
+    const Quaternion preservedInitialCameraRotation = initialCameraRotation;
     const bool hadCamera = static_cast<bool>(camera3D);
     if (hadCamera)
     {
@@ -217,11 +177,18 @@ void Demo::resetScene()
     {
         camera3D->transform.position = preservedCameraPosition;
         camera3D->transform.rotation = preservedCameraRotation;
+        cameraPitch = preservedCameraPitch;
+        cameraYaw = preservedCameraYaw;
+        initialCameraRotation = preservedInitialCameraRotation;
     }
 }
 
-void Demo::onFixedUpdate(float)
+void Demo::onFixedUpdate(float dt)
 {
+    if (runtimeScene)
+    {
+        runtimeScene->step(dt);
+    }
 }
 
 void Demo::onUpdate(float dt)
@@ -232,12 +199,18 @@ void Demo::onUpdate(float dt)
 
 void Demo::onRender(IGraphicsDevice &graphicsDevice) const
 {
-    if (!camera3D || !combinedScene)
+    if (!camera3D || !runtimeScene)
     {
         return;
     }
 
-    graphicsDevice.renderScene3D(*camera3D, *combinedScene);
+    if (showLightDebugMarkers && combinedScene)
+    {
+        graphicsDevice.renderScene(*camera3D, *combinedScene);
+        return;
+    }
+
+    graphicsDevice.renderScene(*camera3D, runtimeScene->getRenderScene());
 }
 
 std::string Demo::getRuntimeStatusText() const
@@ -247,30 +220,22 @@ std::string Demo::getRuntimeStatusText() const
 
 void Demo::rebuildCombinedScene()
 {
-    if (!combinedScene)
+    if (!combinedScene || !runtimeScene)
     {
         return;
     }
 
+    combinedScene->getAmbientLight() = runtimeScene->getRenderScene().getAmbientLight();
+    combinedScene->getDirectionalLights() = runtimeScene->getRenderScene().getDirectionalLights();
+    combinedScene->getPointLights() = runtimeScene->getRenderScene().getPointLights();
+    combinedScene->getSpotLights() = runtimeScene->getRenderScene().getSpotLights();
     combinedScene->clearEntities();
-    bodyObjectRanges.clear();
-
-    for (const auto &bodyObject : bodyObjects)
-    {
-        if (bodyObject)
-        {
-            appendSceneAndRecordRange(bodyObject->getRenderScene(), bodyObjectRanges);
-        }
-        else
-        {
-            bodyObjectRanges.push_back({});
-        }
-    }
+    combinedScene->appendEntitiesFrom(runtimeScene->getRenderScene());
 
     combinedScene->applyWireframeVisibilityOverride(showWireframes);
 
     if (showLightDebugMarkers)
     {
-        LightDebug3D::appendLightMarkers(*combinedScene, *combinedScene);
+        LightDebug::appendLightMarkers(*combinedScene, *combinedScene);
     }
 }

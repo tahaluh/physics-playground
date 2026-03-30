@@ -34,8 +34,10 @@ namespace
         desc.ballSegments = 48;
         desc.borderColor = 0xFFFFFFFF;
         desc.ballColor = 0xFFFFFFFF;
-        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.68f, 0.6f};
-        desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
+        desc.borderSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.08f, 0.02f};
+        desc.borderRigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, false};
+        desc.ballSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
+        desc.ballRigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
         desc.borderMaterial.solid.baseColor = desc.borderColor;
         desc.borderMaterial.wireframe.baseColor = desc.borderColor;
         desc.borderMaterial.renderSolid = true;
@@ -55,7 +57,7 @@ namespace
         desc.startVelocity = Vector2::zero();
         desc.sizePixels = 44.0f;
         desc.color = 0xFFFF8A5B;
-        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.68f, 0.6f};
+        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
         desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
         desc.material.solid.baseColor = desc.color;
         desc.material.wireframe.baseColor = desc.color;

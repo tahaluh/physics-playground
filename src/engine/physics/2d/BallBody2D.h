@@ -13,8 +13,8 @@ public:
               vel,
               color,
               1.0f,
-              PhysicsSurfaceMaterial2D{0.9f, 0.14f, 0.08f},
-              RigidBodySettings2D{0.0f, 0.0f, true}) {}
+              PhysicsSurfaceMaterial2D{},
+              RigidBodySettings2D{}) {}
 
     void onCollision(const Contact2D &contact) override
     {

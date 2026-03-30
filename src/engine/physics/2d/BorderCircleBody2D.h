@@ -14,7 +14,7 @@ public:
               Vector2::zero(),
               0xFFFFFFFF,
               0.0f,
-              PhysicsSurfaceMaterial2D{0.2f, 0.8f, 0.55f},
+              PhysicsSurfaceMaterial2D{0.2f, 0.24f, 0.08f},
               RigidBodySettings2D{0.0f, 0.0f, false}),
           innerRadius(std::max(0.0f, std::min(innerRadius, outerRadius))),
           outerRadius(std::max(0.0f, outerRadius)) {}

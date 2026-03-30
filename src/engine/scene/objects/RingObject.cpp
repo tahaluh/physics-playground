@@ -78,10 +78,13 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
     object->renderScene->getAmbientLight().intensity = 1.0f;
 
     object->borderBodyIndex = object->physicsScene->getBodies().size();
-    object->physicsScene->addBody(std::make_unique<BorderCircleBody2D>(
+    auto borderBody = std::make_unique<BorderCircleBody2D>(
         desc.center,
         std::max(0.0f, desc.borderRadiusPixels - desc.borderThicknessPixels),
-        desc.borderRadiusPixels));
+        desc.borderRadiusPixels);
+    borderBody->getSurfaceMaterial() = desc.borderSurfaceMaterial;
+    borderBody->getRigidBodySettings() = desc.borderRigidBodySettings;
+    object->physicsScene->addBody(std::move(borderBody));
 
     object->controlledBodyIndex = object->physicsScene->getBodies().size();
     auto ballBody = std::make_unique<BallBody2D>(
@@ -89,8 +92,8 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
         desc.ballStartPosition,
         desc.ballStartVelocity,
         desc.ballColor);
-    ballBody->getSurfaceMaterial() = desc.physicsSurfaceMaterial;
-    ballBody->getRigidBodySettings() = desc.rigidBodySettings;
+    ballBody->getSurfaceMaterial() = desc.ballSurfaceMaterial;
+    ballBody->getRigidBodySettings() = desc.ballRigidBodySettings;
     object->physicsScene->addBody(std::move(ballBody));
 
     Shape2DIn3DDesc borderDesc;

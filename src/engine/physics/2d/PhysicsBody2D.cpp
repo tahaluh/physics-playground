@@ -12,6 +12,7 @@ namespace
 constexpr float kPositionCorrectionSlop2D = 0.01f;
 constexpr float kPositionCorrectionPercent2D = 0.2f;
 constexpr float kBorderRestitutionThreshold2D = 55.0f;
+constexpr float kBorderRectCorrectionPercent2D = 0.35f;
 
 CircleShape *getCircleShape(PhysicsBody2D &body)
 {
@@ -39,6 +40,27 @@ Vector2 getFarthestRectCorner(const RectShape &rect, const Vector2 &position, co
     }
     return farthestCorner;
 }
+
+void steerCircleTowardRolling2D(PhysicsBody2D &body, const CircleShape &circle, const Vector2 &normal, float frictionStrength)
+{
+    if (circle.getRadius() <= 0.0f || frictionStrength <= 0.0f)
+    {
+        return;
+    }
+
+    const Vector2 tangentialVelocity = body.getVelocity() - normal * body.getVelocity().dot(normal);
+    const float tangentialSpeed = tangentialVelocity.length();
+    if (tangentialSpeed <= 0.0001f)
+    {
+        return;
+    }
+
+    const Vector2 tangent = Vector2::perpendicularLeft(normal);
+    const float tangentialComponent = tangentialVelocity.dot(tangent);
+    const float desiredAngularVelocity = tangentialComponent / circle.getRadius();
+    const float blend = Vector2::clamp(0.35f + frictionStrength * 0.65f, 0.0f, 1.0f);
+    body.setAngularVelocity(body.getAngularVelocity() * (1.0f - blend) + desiredAngularVelocity * blend);
+}
 }
 
 bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float stopThreshold)
@@ -55,22 +77,30 @@ bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float
 
     const float combinedRestitution =
         std::min(surfaceMaterial.restitution, borderCircle->getSurfaceMaterial().restitution);
-    // Use the geometric mean so a smooth wall stays smooth even if the moving
-    // body has high friction on its own.
+    // Match the 3D arena feel more closely by combining friction as a simple
+    // average instead of the geometric mean. This keeps the border from feeling
+    // artificially sticky when dynamic bodies have moderate/high friction.
     const float combinedStaticFriction =
-        std::sqrt(std::max(0.0f, surfaceMaterial.staticFriction) *
-                  std::max(0.0f, borderCircle->getSurfaceMaterial().staticFriction));
+        std::max(
+            0.0f,
+            (surfaceMaterial.staticFriction + borderCircle->getSurfaceMaterial().staticFriction) * 0.5f);
     const float combinedDynamicFriction =
-        std::sqrt(std::max(0.0f, surfaceMaterial.dynamicFriction) *
-                  std::max(0.0f, borderCircle->getSurfaceMaterial().dynamicFriction));
+        std::max(
+            0.0f,
+            (surfaceMaterial.dynamicFriction + borderCircle->getSurfaceMaterial().dynamicFriction) * 0.5f);
 
     Vector2 contactOffset = Vector2::zero();
+    float normalImpulseMagnitude = 0.0f;
     if (circle)
     {
-        const Vector2 radialDirection = (position - borderCircle->getCenter()).lengthSquared() > 0.0f
-                                            ? (position - borderCircle->getCenter()).normalized()
+        const Vector2 relativeToCenter = position - borderCircle->getCenter();
+        const Vector2 radialDirection = relativeToCenter.lengthSquared() > 0.0f
+                                            ? relativeToCenter.normalized()
                                             : normal;
-        const bool collidedWithInnerFace = normal.dot(radialDirection) >= 0.0f;
+        const float centerDistance = relativeToCenter.length();
+        // For the ring-as-arena case, objects inside the outer boundary must
+        // resolve against the inner face; otherwise they get incorrectly ejected.
+        const bool collidedWithInnerFace = centerDistance < borderCircle->getOuterRadius();
         const float resolvedRadius = collidedWithInnerFace
                                          ? std::max(0.0f, borderCircle->getInnerRadius() - circle->getRadius())
                                          : borderCircle->getOuterRadius() + circle->getRadius();
@@ -103,7 +133,8 @@ bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float
             return true;
         }
 
-        const float correction = std::max(0.0f, contact.penetration - kPositionCorrectionSlop2D) * kPositionCorrectionPercent2D;
+        const float correction =
+            std::max(0.0f, contact.penetration - kPositionCorrectionSlop2D) * kBorderRectCorrectionPercent2D;
         if (correction > 0.0f)
         {
             position -= normal * correction;
@@ -139,9 +170,38 @@ bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float
     {
         const float effectiveRestitution =
             outwardSpeed > kBorderRestitutionThreshold2D ? combinedRestitution : 0.0f;
-        velocity -= normal * ((1.0f + effectiveRestitution) * outwardSpeed);
+        const float velocityChange = (1.0f + effectiveRestitution) * outwardSpeed;
+        velocity -= normal * velocityChange;
+        if (inverseMass > 0.0f)
+        {
+            normalImpulseMagnitude = velocityChange / inverseMass;
+        }
     }
-    applySurfaceFrictionAlongNormal(normal, contactOffset, combinedStaticFriction, combinedDynamicFriction);
+    else if (!circle)
+    {
+        const Vector2 contactVelocity =
+            velocity + Vector2::perpendicularLeft(contactOffset) * angularVelocity;
+        const float approachSpeed = contactVelocity.dot(normal);
+        if (approachSpeed > 0.0f)
+        {
+            const float radiusCrossNormal = Vector2::cross(contactOffset, normal);
+            const float denominator =
+                inverseMass + (radiusCrossNormal * radiusCrossNormal) * inverseMomentOfInertia;
+            if (denominator > 0.0f)
+            {
+                const float effectiveRestitution =
+                    approachSpeed > kBorderRestitutionThreshold2D ? combinedRestitution : 0.0f;
+                normalImpulseMagnitude = ((1.0f + effectiveRestitution) * approachSpeed) / denominator;
+            }
+        }
+    }
+    applySurfaceFrictionAlongNormal(normal, contactOffset, combinedStaticFriction, combinedDynamicFriction, normalImpulseMagnitude);
+    if (circle)
+    {
+        const float frictionStrength =
+            std::max(0.0f, (combinedStaticFriction + combinedDynamicFriction) * 0.25f);
+        steerCircleTowardRolling2D(*this, *circle, normal, frictionStrength);
+    }
 
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
@@ -178,7 +238,12 @@ bool PhysicsBody2D::resolveBorderBoxCollision(const Contact2D &contact, float st
     {
         velocity -= normal * ((1.0f + surfaceMaterial.restitution) * outwardSpeed);
     }
-    applySurfaceFrictionAlongNormal(normal, normal * -radius);
+    float normalImpulseMagnitude = 0.0f;
+    if (outwardSpeed > 0.0f && inverseMass > 0.0f)
+    {
+        normalImpulseMagnitude = ((1.0f + surfaceMaterial.restitution) * outwardSpeed) / inverseMass;
+    }
+    applySurfaceFrictionAlongNormal(normal, normal * -radius, normalImpulseMagnitude);
     if (stopThreshold > 0.0f && velocity.length() < stopThreshold)
     {
         velocity = Vector2::zero();
@@ -187,20 +252,22 @@ bool PhysicsBody2D::resolveBorderBoxCollision(const Contact2D &contact, float st
     return true;
 }
 
-void PhysicsBody2D::applySurfaceFrictionAlongNormal(const Vector2 &normal, const Vector2 &contactOffset)
+void PhysicsBody2D::applySurfaceFrictionAlongNormal(const Vector2 &normal, const Vector2 &contactOffset, float normalImpulseMagnitude)
 {
     applySurfaceFrictionAlongNormal(
         normal,
         contactOffset,
         surfaceMaterial.staticFriction,
-        surfaceMaterial.dynamicFriction);
+        surfaceMaterial.dynamicFriction,
+        normalImpulseMagnitude);
 }
 
 void PhysicsBody2D::applySurfaceFrictionAlongNormal(
     const Vector2 &normal,
     const Vector2 &contactOffset,
     float staticFriction,
-    float dynamicFriction)
+    float dynamicFriction,
+    float normalImpulseMagnitude)
 {
     if (staticFriction <= 0.0f && dynamicFriction <= 0.0f)
         return;
@@ -225,9 +292,15 @@ void PhysicsBody2D::applySurfaceFrictionAlongNormal(
     }
 
     const float targetImpulseMagnitude = tangentialSpeed / denominator;
-    const float referenceSpeed = std::max(std::abs(normalSpeed), tangentialSpeed);
-    float frictionLimit = Vector2::clamp(dynamicFriction, 0.0f, 1.0f) * referenceSpeed;
-    if (targetImpulseMagnitude <= Vector2::clamp(staticFriction, 0.0f, 1.0f) * referenceSpeed)
+    if (normalImpulseMagnitude <= 0.0f)
+    {
+        return;
+    }
+
+    const float clampedStaticFriction = Vector2::clamp(staticFriction, 0.0f, 1.0f);
+    const float clampedDynamicFriction = Vector2::clamp(dynamicFriction, 0.0f, 1.0f);
+    float frictionLimit = clampedDynamicFriction * normalImpulseMagnitude;
+    if (targetImpulseMagnitude <= clampedStaticFriction * normalImpulseMagnitude)
     {
         frictionLimit = targetImpulseMagnitude;
     }
@@ -256,10 +329,12 @@ bool PhysicsBody2D::resolveBorderCircleAxisInvertCollision(const Contact2D &cont
     Vector2 normal = contact.normal;
     if (normal.lengthSquared() <= 0.0f)
         return false;
-    const Vector2 radialDirection = (position - borderCircle->getCenter()).lengthSquared() > 0.0f
-                                        ? (position - borderCircle->getCenter()).normalized()
+    const Vector2 relativeToCenter = position - borderCircle->getCenter();
+    const Vector2 radialDirection = relativeToCenter.lengthSquared() > 0.0f
+                                        ? relativeToCenter.normalized()
                                         : normal;
-    const bool collidedWithInnerFace = normal.dot(radialDirection) >= 0.0f;
+    const float centerDistance = relativeToCenter.length();
+    const bool collidedWithInnerFace = centerDistance < borderCircle->getOuterRadius();
     const float resolvedRadius = collidedWithInnerFace
                                      ? std::max(0.0f, borderCircle->getInnerRadius() - circle->getRadius())
                                      : borderCircle->getOuterRadius() + circle->getRadius();

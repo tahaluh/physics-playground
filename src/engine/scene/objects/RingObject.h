@@ -44,8 +44,10 @@ struct RingObjectDesc
     uint32_t rotationIndicatorColor = 0xFFFFD166;
     uint32_t borderColor = 0xFFFFFFFF;
     uint32_t ballColor = 0xFFFFFFFF;
-    PhysicsSurfaceMaterial2D physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.9f, 0.03f, 0.012f};
-    RigidBodySettings2D rigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, true};
+    PhysicsSurfaceMaterial2D borderSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.45f, 0.25f};
+    RigidBodySettings2D borderRigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, false};
+    PhysicsSurfaceMaterial2D ballSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.68f, 0.6f};
+    RigidBodySettings2D ballRigidBodySettings = RigidBodySettings2D{0.01f, 0.015f, true};
     Material3D borderMaterial = Material3D{};
     Material3D ballMaterial = Material3D{};
 };

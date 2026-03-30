@@ -31,23 +31,31 @@ void PhysicsSystem::addBody(BodyObject &body)
     }
 
     bodies.push_back(&body);
+    sweepAndPruneOrder.push_back(&body);
 }
 
 void PhysicsSystem::removeBody(const BodyObject &body)
 {
     bodies.erase(std::remove(bodies.begin(), bodies.end(), &body), bodies.end());
+    sweepAndPruneOrder.erase(std::remove(sweepAndPruneOrder.begin(), sweepAndPruneOrder.end(), &body), sweepAndPruneOrder.end());
 }
 
 void PhysicsSystem::clearBodies()
 {
     bodies.clear();
+    sweepAndPruneOrder.clear();
     activeCollisions.clear();
 }
 
 bool PhysicsSystem::step(float dt)
 {
     bool anyBodyMoved = false;
-    for (BodyObject *body : bodies)
+    if (sweepAndPruneOrder.size() != bodies.size())
+    {
+        sweepAndPruneOrder = bodies;
+    }
+
+    for (BodyObject *body : sweepAndPruneOrder)
     {
         if (!body)
         {
@@ -138,12 +146,24 @@ void PhysicsSystem::resolveCollisions(float dt)
         entries.push_back({body, collider, bounds});
     }
 
-    std::sort(
-        entries.begin(),
-        entries.end(),
-        [](const SweepEntry &a, const SweepEntry &b) {
-            return a.bounds.min.x < b.bounds.min.x;
-        });
+    for (std::size_t index = 1; index < entries.size(); ++index)
+    {
+        SweepEntry entry = entries[index];
+        std::size_t insertIndex = index;
+        while (insertIndex > 0 && entries[insertIndex - 1].bounds.min.x > entry.bounds.min.x)
+        {
+            entries[insertIndex] = entries[insertIndex - 1];
+            --insertIndex;
+        }
+        entries[insertIndex] = entry;
+    }
+
+    sweepAndPruneOrder.clear();
+    sweepAndPruneOrder.reserve(entries.size());
+    for (const SweepEntry &entry : entries)
+    {
+        sweepAndPruneOrder.push_back(entry.body);
+    }
 
     std::vector<std::size_t> activeEntries;
     activeEntries.reserve(entries.size());

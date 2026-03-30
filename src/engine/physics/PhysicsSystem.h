@@ -36,6 +36,7 @@ private:
     };
 
     std::vector<BodyObject *> bodies;
+    std::vector<BodyObject *> sweepAndPruneOrder;
     std::unordered_set<BodyPair, BodyPairHasher> activeCollisions;
 
     bool integrateBody(BodyObject &body, float dt);

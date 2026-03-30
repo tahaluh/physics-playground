@@ -57,36 +57,32 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     this->viewportHeight = viewportHeight;
 
     const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
-    collisionCounts.clear();
+    collidingBodies.clear();
 
     runtimeScene = std::make_unique<RuntimeScene>();
     for (const BodyObjectDesc &bodyDesc : sceneDesc.bodies)
     {
         BodyObject &body = runtimeScene->addBody(bodyDesc);
-        body.onCollisionEnter = [this](BodyObject &self, BodyObject &, const CollisionPoints &) {
-            const int nextCount = ++collisionCounts[&self];
-            if (nextCount > 0)
-            {
-                self.setMaterial(makeCubeMaterial(kCollisionCubeColor));
-            }
+        body.onCollisionEnter = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
+            collidingBodies[&self].insert(&other);
+            self.setMaterial(makeCubeMaterial(kCollisionCubeColor));
         };
-        body.onCollision = [this](BodyObject &self, BodyObject &, const CollisionPoints &) {
-            if (collisionCounts[&self] > 0)
-            {
-                self.setMaterial(makeCubeMaterial(kCollisionCubeColor));
-            }
+        body.onCollision = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
+            collidingBodies[&self].insert(&other);
+            self.setMaterial(makeCubeMaterial(kCollisionCubeColor));
         };
-        body.onCollisionExit = [this](BodyObject &self, BodyObject &, const CollisionPoints &) {
-            auto it = collisionCounts.find(&self);
-            if (it == collisionCounts.end())
+        body.onCollisionExit = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
+            auto it = collidingBodies.find(&self);
+            if (it == collidingBodies.end())
             {
                 self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
                 return;
             }
 
-            it->second = std::max(0, it->second - 1);
-            if (it->second == 0)
+            it->second.erase(&other);
+            if (it->second.empty())
             {
+                collidingBodies.erase(it);
                 self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
             }
         };

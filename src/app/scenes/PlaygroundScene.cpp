@@ -6,7 +6,7 @@
 
 namespace
 {
-constexpr int kCubeGridSize = 5;
+constexpr int kCubeGridSize = 10;
 constexpr float kCubeSize = 1.0f;
 constexpr float kCubeNonTouchMargin = 0.1f;
 constexpr float kCubeSpacing = (std::sqrt(3.0f) - kCubeSize) + kCubeNonTouchMargin;

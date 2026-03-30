@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "engine/core/ApplicationLayer.h"
@@ -34,6 +35,8 @@ private:
     Quaternion initialCameraRotation = Quaternion::identity();
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
+    bool simulationPaused = false;
+    std::unordered_map<const BodyObject *, int> collisionCounts;
     int viewportWidth = 0;
     int viewportHeight = 0;
 };

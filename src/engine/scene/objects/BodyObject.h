@@ -1,11 +1,14 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 
 #include "engine/math/Transform.h"
+#include "engine/physics/CollisionPoints.h"
 #include "engine/render/3d/Material.h"
 
+class Collider;
 class Scene;
 
 enum class BodyMotionType
@@ -35,6 +38,7 @@ struct BodyObjectDesc
     BodyShapeType shapeType = BodyShapeType::Cube;
     bool simulateOnGpu = false;
     Transform transform;
+    std::shared_ptr<Collider> collider;
     BodyPhysicsState physics;
     Material material = Material{};
     bool renderEnabled = true;
@@ -45,6 +49,8 @@ struct BodyObjectDesc
 class BodyObject
 {
 public:
+    using CollisionCallback = std::function<void(BodyObject &, BodyObject &, const CollisionPoints &)>;
+
     ~BodyObject();
 
     static std::unique_ptr<BodyObject> create(const BodyObjectDesc &desc);
@@ -56,11 +62,22 @@ public:
     const Scene &getRenderScene() const;
 
     const BodyObjectDesc &getConfig() const;
+    const Collider *getCollider() const;
+    const Material &getMaterial() const;
     const BodyPhysicsState &getPhysicsState() const;
     void setPhysicsState(const BodyPhysicsState &state);
+    void setCollider(const std::shared_ptr<Collider> &collider);
+    void setMaterial(const Material &material);
     void setTransform(const Transform &transform);
     const Transform &getTransform() const;
     void syncRenderScene();
+    void notifyCollisionEnter(BodyObject &other, const CollisionPoints &collision);
+    void notifyCollisionStay(BodyObject &other, const CollisionPoints &collision);
+    void notifyCollisionExit(BodyObject &other, const CollisionPoints &collision);
+
+    CollisionCallback onCollisionEnter;
+    CollisionCallback onCollision;
+    CollisionCallback onCollisionExit;
 
 private:
     std::unique_ptr<Scene> renderScene;

@@ -6,13 +6,14 @@
 
 namespace
 {
-constexpr int kCubeGridSize = 10;
+constexpr int kCubeGridSize = 5;
 constexpr float kCubeSize = 1.0f;
 constexpr float kCubeNonTouchMargin = 0.1f;
 constexpr float kCubeSpacing = (std::sqrt(3.0f) - kCubeSize) + kCubeNonTouchMargin;
 constexpr float kTau = 6.28318530718f;
 constexpr float kGridFrontDistance = 8.0f;
 constexpr float kMaxAngularSpeed = 1.0f;
+constexpr float kMaxLinearSpeed = 0.15f;
 
 float getGridStep()
 {
@@ -58,6 +59,11 @@ float hashToUnitFloat(uint32_t value)
     return static_cast<float>(value) / 4294967295.0f;
 }
 
+float hashToSignedUnitFloat(uint32_t value)
+{
+    return hashToUnitFloat(value) * 2.0f - 1.0f;
+}
+
 Vector3 makeCubeAngularVelocity(int column, int row, int layer)
 {
     uint32_t value = makeCubeSeed(column, row, layer);
@@ -70,16 +76,16 @@ Vector3 makeCubeAngularVelocity(int column, int row, int layer)
     return Vector3(angularVelocityX, angularVelocityY, angularVelocityZ);
 }
 
-uint32_t makeCubeColor(int column, int row, int layer)
+Vector3 makeCubeLinearVelocity(int column, int row, int layer)
 {
-    const uint32_t seed = makeCubeSeed(column, row, layer);
-    const uint8_t red = static_cast<uint8_t>(60 + (seed & 0x7F));
-    const uint8_t green = static_cast<uint8_t>(60 + ((seed >> 8) & 0x7F));
-    const uint8_t blue = static_cast<uint8_t>(60 + ((seed >> 16) & 0x7F));
-    return 0xFF000000u |
-           (static_cast<uint32_t>(red) << 16) |
-           (static_cast<uint32_t>(green) << 8) |
-           static_cast<uint32_t>(blue);
+    uint32_t value = makeCubeSeed(column, row, layer) ^ 0x9E3779B9u;
+    value = value * 1103515245u + 12345u;
+    const float velocityX = hashToSignedUnitFloat(value) * kMaxLinearSpeed;
+    value = value * 1103515245u + 12345u;
+    const float velocityY = hashToSignedUnitFloat(value) * kMaxLinearSpeed;
+    value = value * 1103515245u + 12345u;
+    const float velocityZ = hashToSignedUnitFloat(value) * kMaxLinearSpeed;
+    return Vector3(velocityX, velocityY, velocityZ);
 }
 
 BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &position)
@@ -87,13 +93,14 @@ BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &posit
     BodyObjectDesc desc;
     desc.name = "GridCube_" + std::to_string(column) + "_" + std::to_string(row) + "_" + std::to_string(layer);
     desc.motionType = BodyMotionType::Dynamic;
-    desc.simulateOnGpu = true;
+    desc.simulateOnGpu = false;
     desc.shapeType = BodyShapeType::Cube;
     desc.transform.position = position;
     desc.transform.rotation = makeCubeRotation(column, row, layer);
     desc.transform.scale = Vector3::one() * kCubeSize;
+    desc.physics.linearVelocity = makeCubeLinearVelocity(column, row, layer);
     desc.physics.angularVelocity = makeCubeAngularVelocity(column, row, layer);
-    desc.material.solid = MaterialPresets::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
+    desc.material.solid = MaterialPresets::makePlastic(0xFF555555, 0.42f);
     desc.material.wireframe.baseColor = 0xFFFFFFFF;
     desc.material.wireframe.opacity = 1.0f;
     desc.material.wireframe.unlit = true;

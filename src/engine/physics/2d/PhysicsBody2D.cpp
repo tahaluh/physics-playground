@@ -1,6 +1,8 @@
 #include "engine/physics/2d/PhysicsBody2D.h"
 
+#include <array>
 #include <cmath>
+#include <limits>
 
 #include "engine/physics/2d/BorderBoxBody2D.h"
 #include "engine/physics/2d/BorderCircleBody2D.h"
@@ -19,26 +21,58 @@ CircleShape *getCircleShape(PhysicsBody2D &body)
     return dynamic_cast<CircleShape *>(body.getShape());
 }
 
-Vector2 getFarthestRectCorner(const RectShape &rect, const Vector2 &position, const Vector2 &referencePoint)
+std::array<Vector2, 4> getRotatedRectCorners(const RectShape &rect, const Vector2 &position, const Vector2 &rotation)
 {
-    const Vector2 corners[] = {
-        position,
-        position + Vector2(rect.getWidth(), 0.0f),
-        position + Vector2(rect.getWidth(), rect.getHeight()),
-        position + Vector2(0.0f, rect.getHeight())};
+    const Vector2 center = position + Vector2(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
+    const Vector2 axisX = rotation.lengthSquared() > 0.0f ? rotation.normalized() : Vector2(1.0f, 0.0f);
+    const Vector2 axisY = Vector2::perpendicularLeft(axisX);
+    const Vector2 halfExtents(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
 
-    Vector2 farthestCorner = corners[0];
-    float farthestDistanceSquared = (corners[0] - referencePoint).lengthSquared();
-    for (int i = 1; i < 4; ++i)
+    return {
+        center - axisX * halfExtents.x - axisY * halfExtents.y,
+        center + axisX * halfExtents.x - axisY * halfExtents.y,
+        center + axisX * halfExtents.x + axisY * halfExtents.y,
+        center - axisX * halfExtents.x + axisY * halfExtents.y};
+}
+
+Vector2 getClosestPointOnSegment(const Vector2 &point, const Vector2 &segmentStart, const Vector2 &segmentEnd)
+{
+    const Vector2 segment = segmentEnd - segmentStart;
+    const float segmentLengthSquared = segment.lengthSquared();
+    if (segmentLengthSquared <= 0.0f)
     {
-        const float distanceSquared = (corners[i] - referencePoint).lengthSquared();
-        if (distanceSquared > farthestDistanceSquared)
-        {
-            farthestDistanceSquared = distanceSquared;
-            farthestCorner = corners[i];
-        }
+        return segmentStart;
     }
-    return farthestCorner;
+
+    const float t = Vector2::clamp((point - segmentStart).dot(segment) / segmentLengthSquared, 0.0f, 1.0f);
+    return segmentStart + segment * t;
+}
+
+void getRectRingDistanceExtents(
+    const RectShape &rect,
+    const Vector2 &position,
+    const Vector2 &rotation,
+    const Vector2 &ringCenter,
+    float &outFarthestDistance,
+    float &outNearestDistance)
+{
+    const auto corners = getRotatedRectCorners(rect, position, rotation);
+
+    float farthestDistanceSquared = 0.0f;
+    float nearestDistanceSquared = std::numeric_limits<float>::max();
+    for (const Vector2 &corner : corners)
+    {
+        farthestDistanceSquared = std::max(farthestDistanceSquared, (corner - ringCenter).lengthSquared());
+    }
+
+    for (int i = 0; i < 4; ++i)
+    {
+        const Vector2 closestPoint = getClosestPointOnSegment(ringCenter, corners[i], corners[(i + 1) % 4]);
+        nearestDistanceSquared = std::min(nearestDistanceSquared, (closestPoint - ringCenter).lengthSquared());
+    }
+
+    outFarthestDistance = std::sqrt(std::max(farthestDistanceSquared, 0.0f));
+    outNearestDistance = std::sqrt(std::max(nearestDistanceSquared, 0.0f));
 }
 
 void steerCircleTowardRolling2D(PhysicsBody2D &body, const CircleShape &circle, const Vector2 &normal, float frictionStrength)
@@ -109,26 +143,13 @@ bool PhysicsBody2D::resolveBorderCircleCollision(const Contact2D &contact, float
     }
     else
     {
-        const Vector2 centerOfMass = getCenterOfMassPosition();
-        Vector2 radialDirection = centerOfMass - borderCircle->getCenter();
-        if (radialDirection.lengthSquared() <= 0.0f)
-        {
-            radialDirection = Vector2(0.0f, -1.0f);
-        }
-        radialDirection = radialDirection.normalized();
+        float farthestDistance = 0.0f;
+        float nearestDistance = 0.0f;
+        getRectRingDistanceExtents(*rect, position, rotation, borderCircle->getCenter(), farthestDistance, nearestDistance);
 
-        const Vector2 axisX = rotation.lengthSquared() > 0.0f ? rotation.normalized() : Vector2(1.0f, 0.0f);
-        const Vector2 axisY = Vector2::perpendicularLeft(axisX);
-        const Vector2 halfExtents(rect->getWidth() * 0.5f, rect->getHeight() * 0.5f);
-        const float supportRadius =
-            std::abs(radialDirection.dot(axisX)) * halfExtents.x +
-            std::abs(radialDirection.dot(axisY)) * halfExtents.y;
-        const float centerDistance = (centerOfMass - borderCircle->getCenter()).length();
-
-        // Defensive guard: if the box is fully inside the inner hole or fully
-        // outside the outer circle, ignore any stale/incorrect border contact.
-        if (centerDistance + supportRadius <= borderCircle->getInnerRadius() ||
-            centerDistance - supportRadius >= borderCircle->getOuterRadius())
+        // Ignore stale border contacts unless the OBB really intersects the solid annulus.
+        if (farthestDistance <= borderCircle->getInnerRadius() ||
+            nearestDistance >= borderCircle->getOuterRadius())
         {
             return true;
         }

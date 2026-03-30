@@ -34,7 +34,7 @@ namespace
         desc.ballSegments = 48;
         desc.borderColor = 0xFFFFFFFF;
         desc.ballColor = 0xFFFFFFFF;
-        desc.borderSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.08f, 0.02f};
+        desc.borderSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
         desc.borderRigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, false};
         desc.ballSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
         desc.ballRigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};

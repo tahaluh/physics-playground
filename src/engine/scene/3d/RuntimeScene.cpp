@@ -12,6 +12,7 @@ BodyObject &RuntimeScene::addBody(std::unique_ptr<BodyObject> body)
 {
     bodies.push_back(std::move(body));
     BodyObject &addedBody = *bodies.back();
+    hasGpuSimulatedBodies = hasGpuSimulatedBodies || addedBody.getConfig().simulateOnGpu;
     physicsSystem.addBody(addedBody);
     appendBodyRenderScene(addedBody);
     renderScene.touch();
@@ -39,11 +40,18 @@ void RuntimeScene::clearBodies()
     bodyRanges.clear();
     physicsSystem.clearBodies();
     renderScene.clearEntities();
+    hasGpuSimulatedBodies = false;
 }
 
 void RuntimeScene::step(float dt)
 {
-    if (!physicsSystem.step(dt))
+    const bool cpuMovedBodies = physicsSystem.step(dt);
+    if (hasGpuSimulatedBodies)
+    {
+        renderScene.touchSimulation(dt);
+    }
+
+    if (!cpuMovedBodies)
     {
         return;
     }

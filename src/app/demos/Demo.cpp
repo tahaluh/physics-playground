@@ -6,8 +6,6 @@
 #include "engine/input/Input.h"
 #include "engine/input/InputAction.h"
 #include "engine/math/Vector3.h"
-#include "engine/render/debug/LightDebug.h"
-
 namespace
 {
 const float kMoveSpeed = 4.0f;
@@ -57,7 +55,6 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     cameraYaw = 0.0f;
     initialCameraRotation = sceneDesc.cameraRotation;
 
-    combinedScene = std::make_unique<Scene>();
     runtimeScene->getRenderScene().getAmbientLight() = sceneDesc.ambientLight;
     for (const DirectionalLightDesc &lightDesc : sceneDesc.directionalLights)
     {
@@ -71,8 +68,6 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     {
         runtimeScene->getRenderScene().createSpotLight(lightDesc);
     }
-
-    rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }
 
@@ -133,27 +128,14 @@ void Demo::updateDebugToggles()
         return;
     }
 
-    bool changed = false;
-
     if (Input::wasActionPressed(EngineInputAction::ToggleLightDebug))
     {
         showLightDebugMarkers = !showLightDebugMarkers;
-        changed = true;
     }
 
     if (Input::wasActionPressed(EngineInputAction::ToggleWireframe))
     {
         showWireframes = !showWireframes;
-        if (runtimeScene)
-        {
-            runtimeScene->setWireframeVisible(showWireframes);
-        }
-        changed = true;
-    }
-
-    if (changed)
-    {
-        rebuildCombinedScene();
     }
 }
 
@@ -188,10 +170,6 @@ void Demo::onFixedUpdate(float dt)
     if (runtimeScene)
     {
         runtimeScene->step(dt);
-        if (showLightDebugMarkers)
-        {
-            rebuildCombinedScene();
-        }
     }
 }
 
@@ -208,38 +186,12 @@ void Demo::onRender(IGraphicsDevice &graphicsDevice) const
         return;
     }
 
-    if (showLightDebugMarkers && combinedScene)
-    {
-        graphicsDevice.renderScene(*camera3D, *combinedScene);
-        return;
-    }
-
+    graphicsDevice.setLightDebugOverlayEnabled(showLightDebugMarkers);
+    graphicsDevice.setWireframeOverlayEnabled(showWireframes);
     graphicsDevice.renderScene(*camera3D, runtimeScene->getRenderScene());
 }
 
 std::string Demo::getRuntimeStatusText() const
 {
     return {};
-}
-
-void Demo::rebuildCombinedScene()
-{
-    if (!combinedScene || !runtimeScene)
-    {
-        return;
-    }
-
-    combinedScene->getAmbientLight() = runtimeScene->getRenderScene().getAmbientLight();
-    combinedScene->getDirectionalLights() = runtimeScene->getRenderScene().getDirectionalLights();
-    combinedScene->getPointLights() = runtimeScene->getRenderScene().getPointLights();
-    combinedScene->getSpotLights() = runtimeScene->getRenderScene().getSpotLights();
-    combinedScene->clearEntities();
-    combinedScene->appendEntitiesFrom(runtimeScene->getRenderScene());
-
-    combinedScene->applyWireframeVisibilityOverride(showWireframes);
-
-    if (showLightDebugMarkers)
-    {
-        LightDebug::appendLightMarkers(*combinedScene, *combinedScene);
-    }
 }

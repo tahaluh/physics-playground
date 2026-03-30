@@ -45,6 +45,9 @@ std::unique_ptr<BodyObject> BodyObject::create(const BodyObjectDesc &desc)
             break;
         }
         entity.supportsInstancing = true;
+        entity.simulateOnGpu = desc.simulateOnGpu;
+        entity.linearVelocity = desc.physics.linearVelocity;
+        entity.angularVelocity = desc.physics.angularVelocity;
         entity.mesh = makeBodyMesh(desc);
         entity.material = desc.material;
         entity.transform = desc.transform;
@@ -118,5 +121,8 @@ void BodyObject::syncRenderScene()
     }
 
     entities[entityIndex].transform = config.transform;
+    entities[entityIndex].linearVelocity = physicsState.linearVelocity;
+    entities[entityIndex].angularVelocity = physicsState.angularVelocity;
+    entities[entityIndex].simulateOnGpu = config.simulateOnGpu;
     entities[entityIndex].material = config.material;
 }

@@ -39,4 +39,5 @@ private:
     std::vector<SceneEntityRange> bodyRanges;
     PhysicsSystem physicsSystem;
     bool wireframeVisible = false;
+    bool hasGpuSimulatedBodies = false;
 };

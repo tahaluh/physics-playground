@@ -87,6 +87,7 @@ BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &posit
     BodyObjectDesc desc;
     desc.name = "GridCube_" + std::to_string(column) + "_" + std::to_string(row) + "_" + std::to_string(layer);
     desc.motionType = BodyMotionType::Dynamic;
+    desc.simulateOnGpu = true;
     desc.shapeType = BodyShapeType::Cube;
     desc.transform.position = position;
     desc.transform.rotation = makeCubeRotation(column, row, layer);

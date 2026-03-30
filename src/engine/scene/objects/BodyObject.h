@@ -33,6 +33,7 @@ struct BodyObjectDesc
     std::string name;
     BodyMotionType motionType = BodyMotionType::Static;
     BodyShapeType shapeType = BodyShapeType::Cube;
+    bool simulateOnGpu = false;
     Transform transform;
     BodyPhysicsState physics;
     Material material = Material{};

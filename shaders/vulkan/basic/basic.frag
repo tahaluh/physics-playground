@@ -41,6 +41,7 @@ layout(set = 0, binding = 0) uniform AmbientUniform
     vec4 shadowCounts;
     mat4 viewMatrix;
     mat4 projectionMatrix;
+    vec4 debugFlags;
 } ambientLighting;
 
 layout(std430, set = 0, binding = 1) readonly buffer DirectionalLightBuffer
@@ -456,7 +457,7 @@ void main()
     }
 
     vec3 finalColor = clamp(result, 0.0, 1.0);
-    if (fragLighting.z > 0.5)
+    if (fragLighting.z > 0.5 || ambientLighting.debugFlags.x > 0.5)
     {
         float wireframeMask = fragLighting.w > 0.5
             ? computeCubeFaceWireframeMask(fragLocalPosition)

@@ -58,6 +58,16 @@ uint64_t Scene::getTransformRevision() const
     return transformRevision;
 }
 
+uint64_t Scene::getSimulationRevision() const
+{
+    return simulationRevision;
+}
+
+float Scene::getLastSimulationDeltaTime() const
+{
+    return lastSimulationDeltaTime;
+}
+
 void Scene::touch()
 {
     ++revision;
@@ -67,6 +77,12 @@ void Scene::touch()
 void Scene::touchTransforms()
 {
     ++transformRevision;
+}
+
+void Scene::touchSimulation(float dt)
+{
+    ++simulationRevision;
+    lastSimulationDeltaTime = dt;
 }
 
 AmbientLight &Scene::getAmbientLight()

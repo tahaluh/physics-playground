@@ -53,7 +53,7 @@ bool PhysicsSystem::integrateBody(BodyObject &body, float dt) const
     }
 
     const BodyObjectDesc &config = body.getConfig();
-    if (config.motionType == BodyMotionType::Static)
+    if (config.motionType == BodyMotionType::Static || config.simulateOnGpu)
     {
         return false;
     }

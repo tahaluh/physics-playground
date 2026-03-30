@@ -7,7 +7,6 @@
 #include "engine/graphics/IGraphicsDevice.h"
 #include "engine/math/Quaternion.h"
 #include "engine/render/3d/Camera.h"
-#include "engine/scene/3d/Scene.h"
 #include "engine/scene/3d/RuntimeScene.h"
 
 class Demo : public ApplicationLayer
@@ -25,13 +24,11 @@ public:
 private:
     void updateCamera(float dt);
     void configureCamera(int viewportWidth, int viewportHeight);
-    void rebuildCombinedScene();
     void updateDebugToggles();
     void resetScene();
 
     std::unique_ptr<Camera> camera3D;
     std::unique_ptr<RuntimeScene> runtimeScene;
-    std::unique_ptr<Scene> combinedScene;
     float cameraPitch = 0.0f;
     float cameraYaw = 0.0f;
     Quaternion initialCameraRotation = Quaternion::identity();

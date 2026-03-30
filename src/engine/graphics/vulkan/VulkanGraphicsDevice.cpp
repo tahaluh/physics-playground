@@ -14,6 +14,7 @@
 
 #include "engine/math/Matrix4.h"
 #include "engine/platform/IWindow.h"
+#include "engine/render/debug/LightDebug.h"
 #include "engine/render/3d/Camera.h"
 #include "engine/scene/3d/Entity.h"
 #include "engine/scene/3d/Scene.h"
@@ -514,6 +515,8 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
         return false;
     if (!createLightingResources())
         return false;
+    if (!createSimulationResources())
+        return false;
     if (!createFramebuffers())
         return false;
     if (!createCommandPool())
@@ -528,6 +531,7 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
     triangleResourcesReady = triangleResourcesReady && createLinePipeline();
     triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
     triangleResourcesReady = triangleResourcesReady && createInstancedShadowPipeline();
+    triangleResourcesReady = triangleResourcesReady && createSimulationPipeline();
     if (!triangleResourcesReady)
     {
         std::fprintf(
@@ -612,15 +616,53 @@ void VulkanGraphicsDevice::renderScene(const Camera &camera, const Scene &scene)
 
     const bool sceneChanged = cachedScene != &scene || cachedSceneRevision != scene.getRevision();
     const bool transformChanged = cachedScene != &scene || cachedSceneTransformRevision != scene.getTransformRevision();
+    const bool simulationChanged = cachedScene != &scene || cachedSceneSimulationRevision != scene.getSimulationRevision();
+    const bool lightDebugChanged =
+        cachedLightDebugScene != &scene ||
+        cachedLightDebugSceneRevision != scene.getRevision() ||
+        cachedLightDebugOverlayEnabled != lightDebugOverlayEnabled;
 
     if (!updateLightingBuffers(camera, scene))
     {
         return;
     }
 
-    if (!sceneChanged && !transformChanged)
+    if (lightDebugChanged && !updateLightDebugVertexBuffer(camera, scene))
     {
         return;
+    }
+
+    if (simulationChanged)
+    {
+        cachedSceneSimulationRevision = scene.getSimulationRevision();
+        currentSimulationDeltaTime = scene.getLastSimulationDeltaTime();
+        simulationDispatchDirty = true;
+        shadowMapsDirty = true;
+    }
+
+    if (!sceneChanged && !transformChanged && !simulationChanged && !lightDebugChanged)
+    {
+        return;
+    }
+
+    if (!sceneChanged && !transformChanged && simulationChanged)
+    {
+        return;
+    }
+
+    if (!sceneChanged && !transformChanged && !simulationChanged && lightDebugChanged)
+    {
+        return;
+    }
+
+    if (sceneChanged && !transformChanged && !simulationChanged)
+    {
+        if (updateSceneMaterialBuffers(scene))
+        {
+            cachedScene = &scene;
+            cachedSceneRevision = scene.getRevision();
+            return;
+        }
     }
 
     if (!sceneChanged && transformChanged)
@@ -650,9 +692,10 @@ void VulkanGraphicsDevice::renderScene(const Camera &camera, const Scene &scene)
     cachedScene = &scene;
     cachedSceneRevision = scene.getRevision();
     cachedSceneTransformRevision = scene.getTransformRevision();
+    cachedSceneSimulationRevision = scene.getSimulationRevision();
     sceneBuffersDirty = true;
     sceneTransformBuffersDirty = false;
-    if (sceneChanged)
+    if (sceneChanged || simulationChanged)
     {
         shadowMapsDirty = true;
     }
@@ -665,6 +708,52 @@ void VulkanGraphicsDevice::endFrame()
 
     if (!commandBufferRecorded)
     {
+        if (lightDebugBufferDirty)
+        {
+            if (lightDebugLineVertexCount == 0)
+            {
+                lightDebugLineVertices.clear();
+            }
+            else
+            {
+                const VkDeviceSize requiredSize = sizeof(TriangleVertex) * static_cast<VkDeviceSize>(lightDebugLineVertices.size());
+                if (!lightDebugLineVertexBuffer.buffer || lightDebugLineVertexBufferSize < requiredSize)
+                {
+                    if (lightDebugLineVertexBuffer.buffer)
+                    {
+                        vkDestroyBuffer(device, lightDebugLineVertexBuffer.buffer, nullptr);
+                        lightDebugLineVertexBuffer.buffer = VK_NULL_HANDLE;
+                    }
+                    if (lightDebugLineVertexBuffer.memory)
+                    {
+                        vkFreeMemory(device, lightDebugLineVertexBuffer.memory, nullptr);
+                        lightDebugLineVertexBuffer.memory = VK_NULL_HANDLE;
+                    }
+
+                    if (!createBuffer(
+                            requiredSize,
+                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                            lightDebugLineVertexBuffer))
+                    {
+                        return;
+                    }
+                    lightDebugLineVertexBufferSize = requiredSize;
+                }
+
+                void *mappedData = nullptr;
+                if (vkMapMemory(device, lightDebugLineVertexBuffer.memory, 0, requiredSize, 0, &mappedData) != VK_SUCCESS)
+                {
+                    return;
+                }
+                std::memcpy(mappedData, lightDebugLineVertices.data(), static_cast<size_t>(requiredSize));
+                vkUnmapMemory(device, lightDebugLineVertexBuffer.memory);
+                lightDebugLineVertices.clear();
+                lightDebugLineVertices.shrink_to_fit();
+            }
+            lightDebugBufferDirty = false;
+        }
+
         if (sceneBuffersDirty && !uploadSceneVertexBuffers())
         {
             return;
@@ -678,6 +767,7 @@ void VulkanGraphicsDevice::endFrame()
 
         const bool drawTriangle = triangleResourcesReady;
         recordCommandBuffer(commandBuffers[currentImageIndex], currentImageIndex, currentClearColor, drawTriangle);
+        simulationDispatchDirty = false;
         commandBufferRecorded = true;
         if (drawTriangle && !triangleDrawLogged)
         {
@@ -1399,6 +1489,36 @@ bool VulkanGraphicsDevice::createLightingResources()
     }
 
     return true;
+}
+
+bool VulkanGraphicsDevice::createSimulationResources()
+{
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &binding;
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &simulationDescriptorSetLayout) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSize.descriptorCount = 4096;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 4096;
+    return vkCreateDescriptorPool(device, &poolInfo, nullptr, &simulationDescriptorPool) == VK_SUCCESS;
 }
 
 bool VulkanGraphicsDevice::createTrianglePipeline()
@@ -2205,6 +2325,61 @@ bool VulkanGraphicsDevice::createInstancedShadowPipeline()
     return success;
 }
 
+bool VulkanGraphicsDevice::createSimulationPipeline()
+{
+    const std::vector<char> computeShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/simulation/simulate_instances.comp.spv",
+        "shaders/vulkan/simulation/simulate_instances.comp.spv"});
+    if (computeShaderCode.empty())
+    {
+        return false;
+    }
+
+    const VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
+    if (!computeShaderModule)
+    {
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStageInfo{};
+    shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    shaderStageInfo.module = computeShaderModule;
+    shaderStageInfo.pName = "main";
+
+    struct SimulationPushConstants
+    {
+        float deltaTime;
+        uint32_t instanceCount;
+    };
+
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(SimulationPushConstants);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &simulationDescriptorSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &simulationPipelineLayout) != VK_SUCCESS)
+    {
+        vkDestroyShaderModule(device, computeShaderModule, nullptr);
+        return false;
+    }
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = shaderStageInfo;
+    pipelineInfo.layout = simulationPipelineLayout;
+
+    const bool success = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &simulationPipeline) == VK_SUCCESS;
+    vkDestroyShaderModule(device, computeShaderModule, nullptr);
+    return success;
+}
+
 bool VulkanGraphicsDevice::updateLightingBuffers(const Camera &camera, const Scene &scene)
 {
     const Matrix4 viewMatrix = camera.getViewMatrix();
@@ -2271,6 +2446,10 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera &camera, const Sce
     ambientUniform.shadowBiases[1] = 0.0065f;
     ambientUniform.shadowBiases[2] = 0.0025f;
     ambientUniform.shadowBiases[3] = 0.0f;
+    ambientUniform.debugFlags[0] = wireframeOverlayEnabled ? 1.0f : 0.0f;
+    ambientUniform.debugFlags[1] = 0.0f;
+    ambientUniform.debugFlags[2] = 0.0f;
+    ambientUniform.debugFlags[3] = 0.0f;
     std::memcpy(ambientUniform.viewMatrix, viewMatrix.m.data(), sizeof(ambientUniform.viewMatrix));
     std::memcpy(ambientUniform.projectionMatrix, projectionMatrix.m.data(), sizeof(ambientUniform.projectionMatrix));
 
@@ -2737,6 +2916,85 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera &camera, const Sce
     return true;
 }
 
+bool VulkanGraphicsDevice::updateLightDebugVertexBuffer(const Camera &camera, const Scene &scene)
+{
+    lightDebugLineVertices.clear();
+
+    if (lightDebugOverlayEnabled)
+    {
+        Scene debugScene;
+        const CachedSceneBounds bounds = getCachedSceneBounds(scene);
+        const Vector3 directionalMarkerOrigin = bounds.valid
+            ? (bounds.min + bounds.max) * 0.5f
+            : (camera.transform.position + camera.getForward() * 2.0f);
+
+        for (const DirectionalLight &light : scene.getDirectionalLights())
+        {
+            if (!light.enabled)
+            {
+                continue;
+            }
+
+            debugScene.createEntity(LightDebug::makeDirectionalLightMarker(light, directionalMarkerOrigin));
+        }
+
+        LightDebug::appendLightMarkers(scene, debugScene);
+
+        for (const Entity &entity : debugScene.getEntities())
+        {
+            const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+            const RenderMaterial &debugMaterial = entity.material.renderWireframe ? entity.material.wireframe : entity.material.solid;
+            const std::array<float, 4> rgba = colorToFloat4(debugMaterial.resolveBaseColor());
+            const std::array<float, 4> emissiveColor = colorToFloat4(debugMaterial.resolveEmissiveColor());
+
+            for (const MeshEdge &edge : entity.mesh.edges)
+            {
+                const std::array<int, 2> indices = {edge.start, edge.end};
+                for (int vertexIndex : indices)
+                {
+                    const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[vertexIndex]);
+                    TriangleVertex vertex{};
+                    vertex.position[0] = worldPosition.x;
+                    vertex.position[1] = worldPosition.y;
+                    vertex.position[2] = worldPosition.z;
+                    vertex.color[0] = rgba[0];
+                    vertex.color[1] = rgba[1];
+                    vertex.color[2] = rgba[2];
+                    vertex.color[3] = rgba[3];
+                    vertex.emissive[0] = emissiveColor[0];
+                    vertex.emissive[1] = emissiveColor[1];
+                    vertex.emissive[2] = emissiveColor[2];
+                    vertex.emissive[3] = 0.0f;
+                    vertex.normal[0] = 0.0f;
+                    vertex.normal[1] = 0.0f;
+                    vertex.normal[2] = 0.0f;
+                    vertex.normal[3] = 0.0f;
+                    vertex.worldPosition[0] = worldPosition.x;
+                    vertex.worldPosition[1] = worldPosition.y;
+                    vertex.worldPosition[2] = worldPosition.z;
+                    vertex.worldPosition[3] = 1.0f;
+                    vertex.material[0] = 0.0f;
+                    vertex.material[1] = 0.0f;
+                    vertex.material[2] = 1.0f;
+                    vertex.material[3] = 1.0f;
+                    vertex.lighting[0] = 0.0f;
+                    vertex.lighting[1] = 1.0f;
+                    vertex.lighting[2] = 0.0f;
+                    vertex.lighting[3] = 0.0f;
+                    lightDebugLineVertices.push_back(vertex);
+                }
+            }
+        }
+    }
+
+    lightDebugLineVertexCount = static_cast<uint32_t>(lightDebugLineVertices.size());
+    cachedLightDebugScene = &scene;
+    cachedLightDebugSceneRevision = scene.getRevision();
+    cachedLightDebugOverlayEnabled = lightDebugOverlayEnabled;
+    lightDebugBufferDirty = true;
+    return true;
+}
+
 VulkanGraphicsDevice::CachedSceneBounds VulkanGraphicsDevice::getCachedSceneBounds(const Scene &scene)
 {
     if (cachedShadowSceneBounds.scene == &scene &&
@@ -2900,6 +3158,27 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
         instance.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
         instance.lighting[2] = entity.material.renderWireframe ? 1.0f : 0.0f;
         instance.lighting[3] = entity.instancingKey == "body:cube" ? 1.0f : 0.0f;
+        instance.position[0] = entity.transform.position.x;
+        instance.position[1] = entity.transform.position.y;
+        instance.position[2] = entity.transform.position.z;
+        instance.position[3] = 1.0f;
+        instance.rotation[0] = entity.transform.rotation.w;
+        instance.rotation[1] = entity.transform.rotation.x;
+        instance.rotation[2] = entity.transform.rotation.y;
+        instance.rotation[3] = entity.transform.rotation.z;
+        instance.scale[0] = entity.transform.scale.x;
+        instance.scale[1] = entity.transform.scale.y;
+        instance.scale[2] = entity.transform.scale.z;
+        instance.scale[3] = 0.0f;
+        instance.linearVelocity[0] = entity.linearVelocity.x;
+        instance.linearVelocity[1] = entity.linearVelocity.y;
+        instance.linearVelocity[2] = entity.linearVelocity.z;
+        instance.linearVelocity[3] = 0.0f;
+        instance.angularVelocity[0] = entity.angularVelocity.x;
+        instance.angularVelocity[1] = entity.angularVelocity.y;
+        instance.angularVelocity[2] = entity.angularVelocity.z;
+        instance.angularVelocity[3] = 0.0f;
+        batch.simulateOnGpu = batch.simulateOnGpu || entity.simulateOnGpu;
         batch.instances.push_back(instance);
 
         const float radius = computeEntityApproximateRadius(entity);
@@ -3316,6 +3595,27 @@ bool VulkanGraphicsDevice::updateSceneTransformBuffers(const Camera &, const Sce
         instance.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
         instance.lighting[2] = entity.material.renderWireframe ? 1.0f : 0.0f;
         instance.lighting[3] = entity.instancingKey == "body:cube" ? 1.0f : 0.0f;
+        instance.position[0] = entity.transform.position.x;
+        instance.position[1] = entity.transform.position.y;
+        instance.position[2] = entity.transform.position.z;
+        instance.position[3] = 1.0f;
+        instance.rotation[0] = entity.transform.rotation.w;
+        instance.rotation[1] = entity.transform.rotation.x;
+        instance.rotation[2] = entity.transform.rotation.y;
+        instance.rotation[3] = entity.transform.rotation.z;
+        instance.scale[0] = entity.transform.scale.x;
+        instance.scale[1] = entity.transform.scale.y;
+        instance.scale[2] = entity.transform.scale.z;
+        instance.scale[3] = 0.0f;
+        instance.linearVelocity[0] = entity.linearVelocity.x;
+        instance.linearVelocity[1] = entity.linearVelocity.y;
+        instance.linearVelocity[2] = entity.linearVelocity.z;
+        instance.linearVelocity[3] = 0.0f;
+        instance.angularVelocity[0] = entity.angularVelocity.x;
+        instance.angularVelocity[1] = entity.angularVelocity.y;
+        instance.angularVelocity[2] = entity.angularVelocity.z;
+        instance.angularVelocity[3] = 0.0f;
+        matchedBatch->simulateOnGpu = matchedBatch->simulateOnGpu || entity.simulateOnGpu;
         matchedBatch->instances.push_back(instance);
 
         const float radius = computeEntityApproximateRadius(entity);
@@ -3347,9 +3647,87 @@ bool VulkanGraphicsDevice::updateSceneTransformBuffers(const Camera &, const Sce
     return true;
 }
 
+bool VulkanGraphicsDevice::updateSceneMaterialBuffers(const Scene &scene)
+{
+    const auto isInstancedOpaqueEntity = [](const Entity &entity) {
+        return entity.supportsInstancing &&
+               entity.material.renderSolid &&
+               !entity.material.isTransparent() &&
+               !entity.instancingKey.empty();
+    };
+
+    for (const Entity &entity : scene.getEntities())
+    {
+        if (!isInstancedOpaqueEntity(entity))
+        {
+            return false;
+        }
+    }
+
+    std::vector<uint32_t> batchWriteIndices(opaqueInstancedBatches.size(), 0);
+    for (const Entity &entity : scene.getEntities())
+    {
+        const ChunkKey3D chunkKey = {
+            static_cast<int>(std::floor(entity.transform.position.x / kInstancedCullChunkSize)),
+            static_cast<int>(std::floor(entity.transform.position.y / kInstancedCullChunkSize)),
+            static_cast<int>(std::floor(entity.transform.position.z / kInstancedCullChunkSize))};
+
+        InstancedBatch *matchedBatch = nullptr;
+        std::size_t matchedBatchIndex = 0;
+        for (std::size_t batchIndex = 0; batchIndex < opaqueInstancedBatches.size(); ++batchIndex)
+        {
+            InstancedBatch &batch = opaqueInstancedBatches[batchIndex];
+            if (batch.key == entity.instancingKey &&
+                batch.chunkX == chunkKey.x &&
+                batch.chunkY == chunkKey.y &&
+                batch.chunkZ == chunkKey.z)
+            {
+                matchedBatch = &batch;
+                matchedBatchIndex = batchIndex;
+                break;
+            }
+        }
+
+        if (!matchedBatch || !matchedBatch->instanceBuffer.buffer || !matchedBatch->instanceBuffer.memory)
+        {
+            return false;
+        }
+
+        const uint32_t instanceIndex = batchWriteIndices[matchedBatchIndex]++;
+        if (instanceIndex >= matchedBatch->instanceCount)
+        {
+            return false;
+        }
+
+        void *mappedMemory = nullptr;
+        const VkDeviceSize offset = sizeof(InstancedMeshInstance) * static_cast<VkDeviceSize>(instanceIndex);
+        if (vkMapMemory(device, matchedBatch->instanceBuffer.memory, offset, sizeof(InstancedMeshInstance), 0, &mappedMemory) != VK_SUCCESS)
+        {
+            return false;
+        }
+
+        auto *instance = reinterpret_cast<InstancedMeshInstance *>(mappedMemory);
+        const std::array<float, 4> baseColor = colorToFloat4(entity.material.solid.resolveBaseColor());
+        const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
+        std::memcpy(instance->color, baseColor.data(), sizeof(instance->color));
+        std::memcpy(instance->emissive, emissiveColor.data(), sizeof(instance->emissive));
+        instance->material[0] = Vector3::clamp(entity.material.solid.ambientFactor, 0.0f, 1.0f);
+        instance->material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
+        instance->material[2] = entity.material.solid.unlit ? 1.0f : 0.0f;
+        instance->material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
+        instance->lighting[0] = Vector3::clamp(entity.material.solid.metallic, 0.0f, 1.0f);
+        instance->lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
+        instance->lighting[2] = entity.material.renderWireframe ? 1.0f : 0.0f;
+        instance->lighting[3] = entity.instancingKey == "body:cube" ? 1.0f : 0.0f;
+        vkUnmapMemory(device, matchedBatch->instanceBuffer.memory);
+    }
+
+    return true;
+}
+
 bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
 {
-    const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
+    const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize, VkBufferUsageFlags usageFlags) -> bool
     {
         if (!source || requiredSize == 0)
         {
@@ -3371,7 +3749,7 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
 
             if (!createBuffer(
                     requiredSize,
-                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    usageFlags,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                     bufferHandle))
             {
@@ -3400,7 +3778,7 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
             return true;
         }
 
-        return uploadRawBuffer(vertices.data(), sizeof(TriangleVertex) * static_cast<VkDeviceSize>(vertices.size()), bufferHandle, bufferSize);
+        return uploadRawBuffer(vertices.data(), sizeof(TriangleVertex) * static_cast<VkDeviceSize>(vertices.size()), bufferHandle, bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     };
 
     opaqueSceneVertexCount = static_cast<uint32_t>(opaqueSceneVertices.size());
@@ -3441,12 +3819,14 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
                 batch.meshVertices.data(),
                 sizeof(InstancedMeshVertex) * static_cast<VkDeviceSize>(batch.meshVertices.size()),
                 batch.meshVertexBuffer,
-                batch.meshVertexBufferSize) &&
+                batch.meshVertexBufferSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT) &&
             uploadRawBuffer(
                 batch.instances.data(),
                 sizeof(InstancedMeshInstance) * static_cast<VkDeviceSize>(batch.instances.size()),
                 batch.instanceBuffer,
-                batch.instanceBufferSize);
+                batch.instanceBufferSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     }
 
     const bool uploadSuccess =
@@ -3476,6 +3856,36 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
         batch.instances.clear();
         batch.meshVertices.shrink_to_fit();
         batch.instances.shrink_to_fit();
+
+        if (batch.simulateOnGpu && simulationDescriptorPool && simulationDescriptorSetLayout && batch.instanceBuffer.buffer)
+        {
+            if (!batch.simulationDescriptorSet)
+            {
+                VkDescriptorSetAllocateInfo allocInfo{};
+                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                allocInfo.descriptorPool = simulationDescriptorPool;
+                allocInfo.descriptorSetCount = 1;
+                allocInfo.pSetLayouts = &simulationDescriptorSetLayout;
+                if (vkAllocateDescriptorSets(device, &allocInfo, &batch.simulationDescriptorSet) != VK_SUCCESS)
+                {
+                    return false;
+                }
+            }
+
+            VkDescriptorBufferInfo bufferInfo{};
+            bufferInfo.buffer = batch.instanceBuffer.buffer;
+            bufferInfo.offset = 0;
+            bufferInfo.range = batch.instanceBufferSize;
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = batch.simulationDescriptorSet;
+            write.dstBinding = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.descriptorCount = 1;
+            write.pBufferInfo = &bufferInfo;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
     }
 
     return true;
@@ -3483,7 +3893,7 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
 
 bool VulkanGraphicsDevice::uploadSceneTransformBuffers()
 {
-    const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
+    const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize, VkBufferUsageFlags usageFlags) -> bool
     {
         if (!source || requiredSize == 0)
         {
@@ -3505,7 +3915,7 @@ bool VulkanGraphicsDevice::uploadSceneTransformBuffers()
 
             if (!createBuffer(
                     requiredSize,
-                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    usageFlags,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                     bufferHandle))
             {
@@ -3542,7 +3952,38 @@ bool VulkanGraphicsDevice::uploadSceneTransformBuffers()
                 batch.instances.data(),
                 sizeof(InstancedMeshInstance) * static_cast<VkDeviceSize>(batch.instances.size()),
                 batch.instanceBuffer,
-                batch.instanceBufferSize);
+                batch.instanceBufferSize,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+
+        if (instancedUploadSuccess && batch.simulateOnGpu && simulationDescriptorPool && simulationDescriptorSetLayout && batch.instanceBuffer.buffer)
+        {
+            if (!batch.simulationDescriptorSet)
+            {
+                VkDescriptorSetAllocateInfo allocInfo{};
+                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+                allocInfo.descriptorPool = simulationDescriptorPool;
+                allocInfo.descriptorSetCount = 1;
+                allocInfo.pSetLayouts = &simulationDescriptorSetLayout;
+                if (vkAllocateDescriptorSets(device, &allocInfo, &batch.simulationDescriptorSet) != VK_SUCCESS)
+                {
+                    return false;
+                }
+            }
+
+            VkDescriptorBufferInfo bufferInfo{};
+            bufferInfo.buffer = batch.instanceBuffer.buffer;
+            bufferInfo.offset = 0;
+            bufferInfo.range = batch.instanceBufferSize;
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = batch.simulationDescriptorSet;
+            write.dstBinding = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.descriptorCount = 1;
+            write.pBufferInfo = &bufferInfo;
+            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+        }
     }
 
     shadowSceneVertexCount = static_cast<uint32_t>(shadowSceneVertices.size());
@@ -3552,7 +3993,8 @@ bool VulkanGraphicsDevice::uploadSceneTransformBuffers()
             shadowSceneVertices.data(),
             sizeof(TriangleVertex) * static_cast<VkDeviceSize>(shadowSceneVertices.size()),
             shadowSceneVertexBuffer,
-            shadowSceneVertexBufferSize);
+            shadowSceneVertexBufferSize,
+            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
 
     if (!instancedUploadSuccess || !shadowUploadSuccess)
     {
@@ -3580,6 +4022,11 @@ void VulkanGraphicsDevice::destroyInstancedBatches()
 
     for (InstancedBatch &batch : opaqueInstancedBatches)
     {
+        if (simulationDescriptorPool && batch.simulationDescriptorSet)
+        {
+            vkFreeDescriptorSets(device, simulationDescriptorPool, 1, &batch.simulationDescriptorSet);
+            batch.simulationDescriptorSet = VK_NULL_HANDLE;
+        }
         if (batch.meshVertexBuffer.buffer)
         {
             vkDestroyBuffer(device, batch.meshVertexBuffer.buffer, nullptr);
@@ -3782,6 +4229,14 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, lineSceneVertexBuffer.memory, nullptr);
         }
+        if (lightDebugLineVertexBuffer.buffer)
+        {
+            vkDestroyBuffer(device, lightDebugLineVertexBuffer.buffer, nullptr);
+        }
+        if (lightDebugLineVertexBuffer.memory)
+        {
+            vkFreeMemory(device, lightDebugLineVertexBuffer.memory, nullptr);
+        }
         if (shadowSceneVertexBuffer.buffer)
         {
             vkDestroyBuffer(device, shadowSceneVertexBuffer.buffer, nullptr);
@@ -3952,6 +4407,10 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipeline(device, shadowInstancedPipeline, nullptr);
         }
+        if (simulationPipeline)
+        {
+            vkDestroyPipeline(device, simulationPipeline, nullptr);
+        }
         if (trianglePipelineLayout)
         {
             vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
@@ -3964,13 +4423,25 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipelineLayout(device, shadowPipelineLayout, nullptr);
         }
+        if (simulationPipelineLayout)
+        {
+            vkDestroyPipelineLayout(device, simulationPipelineLayout, nullptr);
+        }
         if (lightingDescriptorPool)
         {
             vkDestroyDescriptorPool(device, lightingDescriptorPool, nullptr);
         }
+        if (simulationDescriptorPool)
+        {
+            vkDestroyDescriptorPool(device, simulationDescriptorPool, nullptr);
+        }
         if (lightingDescriptorSetLayout)
         {
             vkDestroyDescriptorSetLayout(device, lightingDescriptorSetLayout, nullptr);
+        }
+        if (simulationDescriptorSetLayout)
+        {
+            vkDestroyDescriptorSetLayout(device, simulationDescriptorSetLayout, nullptr);
         }
         if (renderPass)
         {
@@ -4003,6 +4474,67 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
     {
         std::fprintf(stderr, "vkBeginCommandBuffer failed.\n");
         return;
+    }
+
+    if (simulationDispatchDirty && simulationPipeline && simulationPipelineLayout)
+    {
+        struct SimulationPushConstants
+        {
+            float deltaTime;
+            uint32_t instanceCount;
+        };
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, simulationPipeline);
+        for (const InstancedBatch &batch : opaqueInstancedBatches)
+        {
+            if (!batch.simulateOnGpu || !batch.simulationDescriptorSet || batch.instanceCount == 0)
+            {
+                continue;
+            }
+
+            SimulationPushConstants pushConstants{};
+            pushConstants.deltaTime = currentSimulationDeltaTime;
+            pushConstants.instanceCount = batch.instanceCount;
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, simulationPipelineLayout, 0, 1, &batch.simulationDescriptorSet, 0, nullptr);
+            vkCmdPushConstants(commandBuffer, simulationPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SimulationPushConstants), &pushConstants);
+            vkCmdDispatch(commandBuffer, (batch.instanceCount + 63u) / 64u, 1, 1);
+        }
+
+        std::vector<VkBufferMemoryBarrier> simulationBarriers;
+        simulationBarriers.reserve(opaqueInstancedBatches.size());
+        for (const InstancedBatch &batch : opaqueInstancedBatches)
+        {
+            if (!batch.simulateOnGpu || !batch.instanceBuffer.buffer)
+            {
+                continue;
+            }
+
+            VkBufferMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.buffer = batch.instanceBuffer.buffer;
+            barrier.offset = 0;
+            barrier.size = VK_WHOLE_SIZE;
+            simulationBarriers.push_back(barrier);
+        }
+
+        if (!simulationBarriers.empty())
+        {
+            vkCmdPipelineBarrier(
+                commandBuffer,
+                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+                0,
+                0,
+                nullptr,
+                static_cast<uint32_t>(simulationBarriers.size()),
+                simulationBarriers.data(),
+                0,
+                nullptr);
+        }
     }
 
     if (drawTriangle && shadowMapsDirty)
@@ -4068,7 +4600,8 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
                     {
                         continue;
                     }
-                    if (batch.boundsRadius > 0.0f &&
+                    if (!batch.simulateOnGpu &&
+                        batch.boundsRadius > 0.0f &&
                         !isSphereVisibleInShadowClip(shadowMatrix, batch.boundsCenter, batch.boundsRadius))
                     {
                         continue;
@@ -4166,7 +4699,8 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
                     continue;
                 }
 
-                if (batch.boundsRadius > 0.0f &&
+                if (!batch.simulateOnGpu &&
+                    batch.boundsRadius > 0.0f &&
                     !isSphereRoughlyVisible(
                         currentCullViewMatrix,
                         currentCullFovRadians,
@@ -4204,6 +4738,16 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             }
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, &lineSceneVertexBuffer.buffer, offsets);
             vkCmdDraw(commandBuffer, lineSceneVertexCount, 1, 0, 0);
+        }
+        if (linePipeline && lightDebugLineVertexBuffer.buffer && lightDebugLineVertexCount > 0)
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipeline);
+            if (lightingDescriptorSet)
+            {
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, linePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);
+            }
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &lightDebugLineVertexBuffer.buffer, offsets);
+            vkCmdDraw(commandBuffer, lightDebugLineVertexCount, 1, 0, 0);
         }
     }
     vkCmdEndRenderPass(commandBuffer);

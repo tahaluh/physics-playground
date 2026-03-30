@@ -44,6 +44,11 @@ public:
         float emissive[4];
         float material[4];
         float lighting[4];
+        float position[4];
+        float rotation[4];
+        float scale[4];
+        float linearVelocity[4];
+        float angularVelocity[4];
     };
 
     struct GpuDirectionalLight
@@ -74,6 +79,7 @@ public:
         float shadowCounts[4];
         float viewMatrix[16];
         float projectionMatrix[16];
+        float debugFlags[4];
     };
 
     struct LightStorageHeader
@@ -106,6 +112,8 @@ public:
         VkDeviceSize instanceBufferSize = 0;
         uint32_t meshVertexCount = 0;
         uint32_t instanceCount = 0;
+        bool simulateOnGpu = false;
+        VkDescriptorSet simulationDescriptorSet = VK_NULL_HANDLE;
     };
 
     struct CachedSceneBounds
@@ -127,6 +135,14 @@ public:
     {
         vsyncEnabled = enabledVsync;
         targetFrameRate = requestedTargetFrameRate;
+    }
+    void setLightDebugOverlayEnabled(bool enabled) override
+    {
+        lightDebugOverlayEnabled = enabled;
+    }
+    void setWireframeOverlayEnabled(bool enabled) override
+    {
+        wireframeOverlayEnabled = enabled;
     }
     bool initialize(IWindow &window) override;
     void resize(int width, int height) override;
@@ -155,8 +171,12 @@ private:
     bool createLinePipeline();
     bool createShadowPipeline();
     bool createInstancedShadowPipeline();
+    bool createSimulationResources();
+    bool createSimulationPipeline();
     void appendSceneVertices(const Camera &camera, const Scene &scene);
+    bool updateLightDebugVertexBuffer(const Camera &camera, const Scene &scene);
     bool updateSceneTransformBuffers(const Camera &camera, const Scene &scene);
+    bool updateSceneMaterialBuffers(const Scene &scene);
     bool updateLightingBuffers(const Camera &camera, const Scene &scene);
     CachedSceneBounds getCachedSceneBounds(const Scene &scene);
     bool uploadSceneVertexBuffers();
@@ -193,10 +213,15 @@ private:
     bool commandBufferRecorded = false;
     bool sceneBuffersDirty = true;
     bool sceneTransformBuffersDirty = false;
+    bool simulationDispatchDirty = false;
     bool shadowMapsDirty = true;
     bool triangleResourcesReady = false;
     bool triangleDrawLogged = false;
+    bool lightDebugOverlayEnabled = false;
+    bool cachedLightDebugOverlayEnabled = false;
+    bool lightDebugBufferDirty = true;
     bool vsyncEnabled = true;
+    bool wireframeOverlayEnabled = false;
     int targetFrameRate = 60;
     uint32_t currentImageIndex = 0;
     uint32_t currentClearColor = 0xFF000000;
@@ -242,22 +267,27 @@ private:
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkRenderPass shadowRenderPass = VK_NULL_HANDLE;
     VkDescriptorSetLayout lightingDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout simulationDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool lightingDescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorPool simulationDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet lightingDescriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout shadowPipelineLayout = VK_NULL_HANDLE;
+    VkPipelineLayout simulationPipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline opaqueInstancedTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline linePipeline = VK_NULL_HANDLE;
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
     VkPipeline shadowInstancedPipeline = VK_NULL_HANDLE;
+    VkPipeline simulationPipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     BufferHandle opaqueSceneVertexBuffer;
     BufferHandle transparentSceneVertexBuffer;
     BufferHandle lineSceneVertexBuffer;
+    BufferHandle lightDebugLineVertexBuffer;
     BufferHandle shadowSceneVertexBuffer;
     BufferHandle ambientUniformBuffer;
     BufferHandle directionalLightStorageBuffer;
@@ -276,20 +306,27 @@ private:
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;
+    VkDeviceSize lightDebugLineVertexBufferSize = 0;
     VkDeviceSize shadowSceneVertexBufferSize = 0;
     uint32_t opaqueSceneVertexCount = 0;
     uint32_t transparentSceneVertexCount = 0;
     uint32_t lineSceneVertexCount = 0;
+    uint32_t lightDebugLineVertexCount = 0;
     uint32_t shadowSceneVertexCount = 0;
     std::vector<TriangleVertex> opaqueSceneVertices;
     std::vector<TriangleVertex> transparentSceneVertices;
     std::vector<TriangleVertex> lineSceneVertices;
+    std::vector<TriangleVertex> lightDebugLineVertices;
     std::vector<TriangleVertex> shadowSceneVertices;
     std::vector<InstancedBatch> opaqueInstancedBatches;
     AmbientUniform ambientUniform = {};
     const Scene *cachedScene = nullptr;
+    const Scene *cachedLightDebugScene = nullptr;
     uint64_t cachedSceneRevision = 0;
     uint64_t cachedSceneTransformRevision = 0;
+    uint64_t cachedSceneSimulationRevision = 0;
+    uint64_t cachedLightDebugSceneRevision = 0;
+    float currentSimulationDeltaTime = 0.0f;
     CachedSceneBounds cachedShadowSceneBounds;
     Matrix4 currentCullViewMatrix = Matrix4::identity();
     float currentCullFovRadians = 60.0f * 3.14159265f / 180.0f;

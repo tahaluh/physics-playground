@@ -97,6 +97,7 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
 
     physicsWorld2D = std::make_unique<PhysicsWorld2D>();
     physicsWorld2D->setGravity(sceneDesc.gravity2D);
+    physicsWorld2D->setSolverIterations(8);
 
     physicsWorld3D = std::make_unique<PhysicsWorld3D>();
     physicsWorld3D->setGravity(sceneDesc.gravity3D);

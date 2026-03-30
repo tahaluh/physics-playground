@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "engine/physics/2d/BorderBoxBody2D.h"
@@ -17,370 +18,408 @@
 
 namespace
 {
-// Keep these local and easy to tweak. Lower correction percent helps reduce jitter.
-constexpr float kPositionCorrectionSlop2D = 0.01f;
-constexpr float kPositionCorrectionPercent2D = 0.2f;
-constexpr float kDynamicContactCorrectionPercent2D = 0.5f;
-constexpr float kRestitutionThreshold2D = 45.0f;
+    // Keep these local and easy to tweak. Lower correction percent helps reduce jitter.
+    constexpr float kPositionCorrectionSlop2D = 0.01f;
+    constexpr float kPositionCorrectionPercent2D = 0.2f;
+    constexpr float kDynamicContactCorrectionPercent2D = 0.22f;
+    constexpr float kRestitutionThreshold2D = 45.0f;
 
-enum class CollisionPairKind2D
-{
-    Unsupported,
-    CircleCircle,
-    CircleRect
-};
-
-Vector2 getBodyCenter(PhysicsBody2D &body)
-{
-    // Rect bodies use top-left as their body position in this engine.
-    // For torque/contact math we consistently use the geometric center.
-    if (auto *rect = dynamic_cast<RectShape *>(body.getShape()))
+    enum class CollisionPairKind2D
     {
-        return body.getPosition() + Vector2(rect->getWidth() * 0.5f, rect->getHeight() * 0.5f);
-    }
-    return body.getPosition();
-}
+        Unsupported,
+        CircleCircle,
+        CircleRect
+    };
 
-std::array<Vector2, 4> getRotatedRectCorners(const RectShape &rect, const Vector2 &position, const Vector2 &rotation)
-{
-    const Vector2 center = position + Vector2(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
-    const Vector2 axisX = rotation.lengthSquared() > 0.0f ? rotation.normalized() : Vector2(1.0f, 0.0f);
-    const Vector2 axisY = Vector2::perpendicularLeft(axisX);
-    const Vector2 halfExtents(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
-
-    return {
-        center - axisX * halfExtents.x - axisY * halfExtents.y,
-        center + axisX * halfExtents.x - axisY * halfExtents.y,
-        center + axisX * halfExtents.x + axisY * halfExtents.y,
-        center - axisX * halfExtents.x + axisY * halfExtents.y};
-}
-
-struct BorderCircleRectContact2D
-{
-    bool intersects = false;
-    Vector2 normal = Vector2::zero();
-    Vector2 contactPoint = Vector2::zero();
-    float penetration = 0.0f;
-};
-
-BorderCircleRectContact2D buildBorderCircleRectContact(
-    const BorderCircleBody2D &borderCircle,
-    const RectShape &rect,
-    const Vector2 &rectPosition,
-    const Vector2 &rectRotation)
-{
-    BorderCircleRectContact2D result;
-
-    const Vector2 circleCenter = borderCircle.getCenter();
-    const Vector2 rectCenter = rectPosition + Vector2(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
-    Vector2 radialDirection = rectCenter - circleCenter;
-    if (radialDirection.lengthSquared() <= 0.0001f)
+    Vector2 getBodyCenter(PhysicsBody2D &body)
     {
-        radialDirection = Vector2(0.0f, -1.0f);
-    }
-    radialDirection = radialDirection.normalized();
-
-    const Vector2 axisX = rectRotation.lengthSquared() > 0.0f ? rectRotation.normalized() : Vector2(1.0f, 0.0f);
-    const Vector2 axisY = Vector2::perpendicularLeft(axisX);
-    const Vector2 halfExtents(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
-
-    const float innerRadius = borderCircle.getInnerRadius();
-    const float outerRadius = borderCircle.getOuterRadius();
-
-    const float centerDistance = (rectCenter - circleCenter).length();
-    const float supportRadius =
-        std::abs(radialDirection.dot(axisX)) * halfExtents.x +
-        std::abs(radialDirection.dot(axisY)) * halfExtents.y;
-    const float minRadialDistance = std::max(0.0f, centerDistance - supportRadius);
-    const float maxRadialDistance = centerDistance + supportRadius;
-
-    // The ring collides only with the solid annulus between inner and outer.
-    if (maxRadialDistance <= innerRadius || minRadialDistance >= outerRadius)
-    {
-        return result;
-    }
-
-    const float innerPenetration = std::max(0.0f, maxRadialDistance - innerRadius);
-    const float outerPenetration = std::max(0.0f, outerRadius - minRadialDistance);
-    const bool preferInnerFace = centerDistance <= innerRadius;
-    const bool preferOuterFace = centerDistance >= outerRadius;
-
-    if (innerPenetration > 0.0f && (outerPenetration <= 0.0f || preferInnerFace || (!preferOuterFace && innerPenetration <= outerPenetration)))
-    {
-        result.intersects = true;
-        result.normal = radialDirection;
-        result.penetration = innerPenetration;
-        result.contactPoint = circleCenter + radialDirection * innerRadius;
-        return result;
-    }
-
-    result.intersects = true;
-    result.normal = radialDirection * -1.0f;
-    result.penetration = outerPenetration;
-    result.contactPoint = circleCenter + radialDirection * outerRadius;
-    return result;
-}
-
-Vector2 getContactVelocity(PhysicsBody2D &body, const Vector2 &contactPoint)
-{
-    const Vector2 offset = contactPoint - getBodyCenter(body);
-    return body.getVelocity() + Vector2::perpendicularLeft(offset) * body.getAngularVelocity();
-}
-
-bool isCircleCirclePair(const Shape *shapeA, const Shape *shapeB)
-{
-    return dynamic_cast<const CircleShape *>(shapeA) && dynamic_cast<const CircleShape *>(shapeB);
-}
-
-bool isCircleRectPair(const Shape *shapeA, const Shape *shapeB)
-{
-    return (dynamic_cast<const CircleShape *>(shapeA) && dynamic_cast<const RectShape *>(shapeB)) ||
-           (dynamic_cast<const RectShape *>(shapeA) && dynamic_cast<const CircleShape *>(shapeB));
-}
-
-CollisionPairKind2D getPairKind(const Shape *shapeA, const Shape *shapeB)
-{
-    if (isCircleCirclePair(shapeA, shapeB))
-    {
-        return CollisionPairKind2D::CircleCircle;
-    }
-    if (isCircleRectPair(shapeA, shapeB))
-    {
-        return CollisionPairKind2D::CircleRect;
-    }
-    return CollisionPairKind2D::Unsupported;
-}
-
-bool needsExplicitBorderCircleRectBroadphase(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB)
-{
-    return (dynamic_cast<BorderCircleBody2D *>(&bodyA) && dynamic_cast<RectShape *>(bodyB.getShape())) ||
-           (dynamic_cast<RectShape *>(bodyA.getShape()) && dynamic_cast<BorderCircleBody2D *>(&bodyB));
-}
-
-void applyPositionCorrection(
-    PhysicsBody2D &bodyA,
-    PhysicsBody2D &bodyB,
-    const Vector2 &normal,
-    float penetration,
-    float correctionPercent)
-{
-    if (normal.lengthSquared() <= 0.0f || penetration <= 0.0f)
-    {
-        return;
-    }
-
-    const float inverseMassSum = bodyA.getInverseMass() + bodyB.getInverseMass();
-    if (inverseMassSum <= 0.0f)
-    {
-        return;
-    }
-
-    const float correctedPenetration =
-        std::max(0.0f, penetration - kPositionCorrectionSlop2D) * correctionPercent;
-    if (correctedPenetration <= 0.0f)
-    {
-        return;
-    }
-
-    bodyA.setPosition(bodyA.getPosition() - normal * (correctedPenetration * (bodyA.getInverseMass() / inverseMassSum)));
-    bodyB.setPosition(bodyB.getPosition() + normal * (correctedPenetration * (bodyB.getInverseMass() / inverseMassSum)));
-}
-
-void applyPositionCorrection(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Vector2 &normal, float penetration)
-{
-    applyPositionCorrection(bodyA, bodyB, normal, penetration, kPositionCorrectionPercent2D);
-}
-
-void applyDynamicFrictionImpulse(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, float normalImpulseMagnitude)
-{
-    const Vector2 contactVelocityA = getContactVelocity(bodyA, contactA.contactPoint);
-    const Vector2 contactVelocityB = getContactVelocity(bodyB, contactA.contactPoint);
-    const Vector2 relativeVelocity = contactVelocityB - contactVelocityA;
-    const float normalSpeed = relativeVelocity.dot(contactA.normal);
-    const Vector2 tangentialVelocity = relativeVelocity - contactA.normal * normalSpeed;
-    const float tangentialSpeed = tangentialVelocity.length();
-    if (tangentialSpeed <= 0.0f)
-    {
-        return;
-    }
-
-    const float staticFriction =
-        (bodyA.getSurfaceMaterial().staticFriction + bodyB.getSurfaceMaterial().staticFriction) * 0.5f;
-    const float dynamicFriction =
-        (bodyA.getSurfaceMaterial().dynamicFriction + bodyB.getSurfaceMaterial().dynamicFriction) * 0.5f;
-
-    const Vector2 tangent = tangentialVelocity / tangentialSpeed;
-    const Vector2 offsetA = contactA.contactPoint - getBodyCenter(bodyA);
-    const Vector2 offsetB = contactA.contactPoint - getBodyCenter(bodyB);
-    const float radiusCrossTangentA = Vector2::cross(offsetA, tangent);
-    const float radiusCrossTangentB = Vector2::cross(offsetB, tangent);
-    const float denominator =
-        bodyA.getInverseMass() +
-        bodyB.getInverseMass() +
-        radiusCrossTangentA * radiusCrossTangentA * bodyA.getInverseMomentOfInertia() +
-        radiusCrossTangentB * radiusCrossTangentB * bodyB.getInverseMomentOfInertia();
-    if (denominator <= 0.0f)
-    {
-        return;
-    }
-
-    const float desiredImpulseMagnitude = tangentialSpeed / denominator;
-    const float staticLimit = staticFriction * normalImpulseMagnitude;
-    const float dynamicLimit = dynamicFriction * normalImpulseMagnitude;
-
-    float signedImpulseMagnitude = 0.0f;
-    if (desiredImpulseMagnitude <= staticLimit)
-    {
-        // Static friction can fully cancel the tangential motion at the contact.
-        signedImpulseMagnitude = -desiredImpulseMagnitude;
-    }
-    else
-    {
-        // Dynamic friction opposes sliding but is limited by the kinetic coefficient.
-        signedImpulseMagnitude = -dynamicLimit;
-    }
-
-    const Vector2 impulse = tangent * signedImpulseMagnitude;
-    bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
-    bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
-    bodyA.setAngularVelocity(bodyA.getAngularVelocity() - Vector2::cross(offsetA, impulse) * bodyA.getInverseMomentOfInertia());
-    bodyB.setAngularVelocity(bodyB.getAngularVelocity() + Vector2::cross(offsetB, impulse) * bodyB.getInverseMomentOfInertia());
-}
-
-float computeEffectiveRestitution2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, float impactSpeed)
-{
-    float restitution = (bodyA.getSurfaceMaterial().restitution + bodyB.getSurfaceMaterial().restitution) * 0.5f;
-    if (impactSpeed < kRestitutionThreshold2D)
-    {
-        restitution = 0.0f;
-    }
-    return restitution;
-}
-
-float computeCombinedFrictionStrength2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB)
-{
-    return std::max(
-        0.0f,
-        (bodyA.getSurfaceMaterial().staticFriction +
-         bodyA.getSurfaceMaterial().dynamicFriction +
-         bodyB.getSurfaceMaterial().staticFriction +
-         bodyB.getSurfaceMaterial().dynamicFriction) *
-            0.25f);
-}
-
-bool resolveDynamicContactImpulse2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, float *outNormalImpulseMagnitude = nullptr)
-{
-    if (bodyA.isStatic() || bodyB.isStatic() || contactA.penetration <= 0.0f)
-    {
-        return false;
-    }
-
-    const Vector2 normal = contactA.normal;
-    if (normal.lengthSquared() <= 0.0f)
-    {
-        return false;
-    }
-
-    applyPositionCorrection(bodyA, bodyB, normal, contactA.penetration, kDynamicContactCorrectionPercent2D);
-
-    const Vector2 contactPoint = contactA.contactPoint;
-    const Vector2 offsetA = contactPoint - getBodyCenter(bodyA);
-    const Vector2 offsetB = contactPoint - getBodyCenter(bodyB);
-    const Vector2 contactVelocityA = getContactVelocity(bodyA, contactPoint);
-    const Vector2 contactVelocityB = getContactVelocity(bodyB, contactPoint);
-    const Vector2 relativeVelocity = contactVelocityB - contactVelocityA;
-    const float normalSpeed = relativeVelocity.dot(normal);
-    if (normalSpeed > 0.0f)
-    {
-        return true;
-    }
-
-    const float restitution = computeEffectiveRestitution2D(bodyA, bodyB, -normalSpeed);
-    const float radiusCrossNormalA = Vector2::cross(offsetA, normal);
-    const float radiusCrossNormalB = Vector2::cross(offsetB, normal);
-    const float denominator =
-        bodyA.getInverseMass() +
-        bodyB.getInverseMass() +
-        radiusCrossNormalA * radiusCrossNormalA * bodyA.getInverseMomentOfInertia() +
-        radiusCrossNormalB * radiusCrossNormalB * bodyB.getInverseMomentOfInertia();
-    if (denominator <= 0.0f)
-    {
-        return true;
-    }
-
-    const float normalImpulseMagnitude = -(1.0f + restitution) * normalSpeed / denominator;
-    const Vector2 impulse = normal * normalImpulseMagnitude;
-    bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
-    bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
-    bodyA.setAngularVelocity(bodyA.getAngularVelocity() - Vector2::cross(offsetA, impulse) * bodyA.getInverseMomentOfInertia());
-    bodyB.setAngularVelocity(bodyB.getAngularVelocity() + Vector2::cross(offsetB, impulse) * bodyB.getInverseMomentOfInertia());
-
-    applyDynamicFrictionImpulse(bodyA, bodyB, contactA, normalImpulseMagnitude);
-
-    if (outNormalImpulseMagnitude)
-    {
-        *outNormalImpulseMagnitude = normalImpulseMagnitude;
-    }
-    return true;
-}
-
-bool resolveDynamicCircleCircleCollision(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA)
-{
-    auto *circleA = dynamic_cast<CircleShape *>(bodyA.getShape());
-    auto *circleB = dynamic_cast<CircleShape *>(bodyB.getShape());
-    if (!circleA || !circleB)
-    {
-        return false;
-    }
-    if (!resolveDynamicContactImpulse2D(bodyA, bodyB, contactA))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-bool resolveDynamicCircleRectCollision(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA)
-{
-    auto *circleA = dynamic_cast<CircleShape *>(bodyA.getShape());
-    auto *rectB = dynamic_cast<RectShape *>(bodyB.getShape());
-    if (!circleA || !rectB)
-    {
-        return false;
-    }
-    if (!resolveDynamicContactImpulse2D(bodyA, bodyB, contactA))
-    {
-        return false;
-    }
-
-    return true;
-}
-
-bool resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, const Contact2D &contactB)
-{
-    if (dynamic_cast<BorderCircleBody2D *>(&bodyA) || dynamic_cast<BorderCircleBody2D *>(&bodyB))
-    {
-        return false;
-    }
-
-    switch (getPairKind(bodyA.getShape(), bodyB.getShape()))
-    {
-    case CollisionPairKind2D::CircleCircle:
-        return resolveDynamicCircleCircleCollision(bodyA, bodyB, contactA);
-
-    case CollisionPairKind2D::CircleRect:
-        // Normalize this resolver so it always receives circle as A and rect as B.
-        if (dynamic_cast<CircleShape *>(bodyA.getShape()) && dynamic_cast<RectShape *>(bodyB.getShape()))
+        // Rect bodies use top-left as their body position in this engine.
+        // For torque/contact math we consistently use the geometric center.
+        if (auto *rect = dynamic_cast<RectShape *>(body.getShape()))
         {
-            return resolveDynamicCircleRectCollision(bodyA, bodyB, contactA);
+            return body.getPosition() + Vector2(rect->getWidth() * 0.5f, rect->getHeight() * 0.5f);
         }
-        return resolveDynamicCircleRectCollision(bodyB, bodyA, contactB);
-
-    case CollisionPairKind2D::Unsupported:
-    default:
-        return false;
+        return body.getPosition();
     }
-}
+
+    std::array<Vector2, 4> getRotatedRectCorners(const RectShape &rect, const Vector2 &position, const Vector2 &rotation)
+    {
+        const Vector2 center = position + Vector2(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
+        const Vector2 axisX = rotation.lengthSquared() > 0.0f ? rotation.normalized() : Vector2(1.0f, 0.0f);
+        const Vector2 axisY = Vector2::perpendicularLeft(axisX);
+        const Vector2 halfExtents(rect.getWidth() * 0.5f, rect.getHeight() * 0.5f);
+
+        return {
+            center - axisX * halfExtents.x - axisY * halfExtents.y,
+            center + axisX * halfExtents.x - axisY * halfExtents.y,
+            center + axisX * halfExtents.x + axisY * halfExtents.y,
+            center - axisX * halfExtents.x + axisY * halfExtents.y};
+    }
+
+    Vector2 getClosestPointOnSegment(const Vector2 &point, const Vector2 &segmentStart, const Vector2 &segmentEnd)
+    {
+        const Vector2 segment = segmentEnd - segmentStart;
+        const float segmentLengthSquared = segment.lengthSquared();
+        if (segmentLengthSquared <= 0.0f)
+        {
+            return segmentStart;
+        }
+
+        const float t = Vector2::clamp((point - segmentStart).dot(segment) / segmentLengthSquared, 0.0f, 1.0f);
+        return segmentStart + segment * t;
+    }
+
+    struct BorderCircleRectContact2D
+    {
+        bool intersects = false;
+        Vector2 normal = Vector2::zero();
+        Vector2 contactPoint = Vector2::zero();
+        float penetration = 0.0f;
+    };
+
+    BorderCircleRectContact2D buildBorderCircleRectContact(
+        const BorderCircleBody2D &borderCircle,
+        const RectShape &rect,
+        const Vector2 &rectPosition,
+        const Vector2 &rectRotation)
+    {
+        BorderCircleRectContact2D result;
+
+        const Vector2 circleCenter = borderCircle.getCenter();
+        const auto corners = getRotatedRectCorners(rect, rectPosition, rectRotation);
+
+        float farthestDistanceSquared = -1.0f;
+        Vector2 farthestPoint = corners[0];
+        for (const Vector2 &corner : corners)
+        {
+            const float distanceSquared = (corner - circleCenter).lengthSquared();
+            if (distanceSquared > farthestDistanceSquared)
+            {
+                farthestDistanceSquared = distanceSquared;
+                farthestPoint = corner;
+            }
+        }
+
+        float nearestDistanceSquared = std::numeric_limits<float>::max();
+        Vector2 nearestPoint = corners[0];
+        for (int i = 0; i < 4; ++i)
+        {
+            const Vector2 &edgeStart = corners[i];
+            const Vector2 &edgeEnd = corners[(i + 1) % 4];
+            const Vector2 candidatePoint = getClosestPointOnSegment(circleCenter, edgeStart, edgeEnd);
+            const float distanceSquared = (candidatePoint - circleCenter).lengthSquared();
+            if (distanceSquared < nearestDistanceSquared)
+            {
+                nearestDistanceSquared = distanceSquared;
+                nearestPoint = candidatePoint;
+            }
+        }
+
+        const float innerRadius = borderCircle.getInnerRadius();
+        const float outerRadius = borderCircle.getOuterRadius();
+        const float farthestDistance = std::sqrt(std::max(farthestDistanceSquared, 0.0f));
+        const float nearestDistance = std::sqrt(std::max(nearestDistanceSquared, 0.0f));
+
+        // No part of the OBB reaches the solid annulus.
+        if (farthestDistance <= innerRadius || nearestDistance >= outerRadius)
+        {
+            return result;
+        }
+
+        const float innerPenetration = farthestDistance - innerRadius;
+        const float outerPenetration = outerRadius - nearestDistance;
+
+        if (innerPenetration <= 0.0f && outerPenetration <= 0.0f)
+        {
+            return result;
+        }
+
+        if (innerPenetration > 0.0f && (outerPenetration <= 0.0f || innerPenetration <= outerPenetration))
+        {
+            Vector2 normal = farthestPoint - circleCenter;
+            if (normal.lengthSquared() <= 0.0001f)
+            {
+                normal = Vector2(0.0f, -1.0f);
+            }
+            result.intersects = true;
+            result.normal = normal.normalized();
+            result.penetration = innerPenetration;
+            result.contactPoint = farthestPoint;
+            return result;
+        }
+
+        Vector2 normal = circleCenter - nearestPoint;
+        if (normal.lengthSquared() <= 0.0001f)
+        {
+            normal = Vector2(0.0f, 1.0f);
+        }
+        result.intersects = true;
+        result.normal = normal.normalized();
+        result.penetration = outerPenetration;
+        result.contactPoint = nearestPoint;
+        return result;
+    }
+
+    Vector2 getContactVelocity(PhysicsBody2D &body, const Vector2 &contactPoint)
+    {
+        const Vector2 offset = contactPoint - getBodyCenter(body);
+        return body.getVelocity() + Vector2::perpendicularLeft(offset) * body.getAngularVelocity();
+    }
+
+    bool isCircleCirclePair(const Shape *shapeA, const Shape *shapeB)
+    {
+        return dynamic_cast<const CircleShape *>(shapeA) && dynamic_cast<const CircleShape *>(shapeB);
+    }
+
+    bool isCircleRectPair(const Shape *shapeA, const Shape *shapeB)
+    {
+        return (dynamic_cast<const CircleShape *>(shapeA) && dynamic_cast<const RectShape *>(shapeB)) ||
+               (dynamic_cast<const RectShape *>(shapeA) && dynamic_cast<const CircleShape *>(shapeB));
+    }
+
+    CollisionPairKind2D getPairKind(const Shape *shapeA, const Shape *shapeB)
+    {
+        if (isCircleCirclePair(shapeA, shapeB))
+        {
+            return CollisionPairKind2D::CircleCircle;
+        }
+        if (isCircleRectPair(shapeA, shapeB))
+        {
+            return CollisionPairKind2D::CircleRect;
+        }
+        return CollisionPairKind2D::Unsupported;
+    }
+
+    bool needsExplicitBorderCircleRectBroadphase(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB)
+    {
+        return (dynamic_cast<BorderCircleBody2D *>(&bodyA) && dynamic_cast<RectShape *>(bodyB.getShape())) ||
+               (dynamic_cast<RectShape *>(bodyA.getShape()) && dynamic_cast<BorderCircleBody2D *>(&bodyB));
+    }
+
+    void applyPositionCorrection(
+        PhysicsBody2D &bodyA,
+        PhysicsBody2D &bodyB,
+        const Vector2 &normal,
+        float penetration,
+        float correctionPercent)
+    {
+        if (normal.lengthSquared() <= 0.0f || penetration <= 0.0f)
+        {
+            return;
+        }
+
+        const float inverseMassSum = bodyA.getInverseMass() + bodyB.getInverseMass();
+        if (inverseMassSum <= 0.0f)
+        {
+            return;
+        }
+
+        const float correctedPenetration =
+            std::max(0.0f, penetration - kPositionCorrectionSlop2D) * correctionPercent;
+        if (correctedPenetration <= 0.0f)
+        {
+            return;
+        }
+
+        bodyA.setPosition(bodyA.getPosition() - normal * (correctedPenetration * (bodyA.getInverseMass() / inverseMassSum)));
+        bodyB.setPosition(bodyB.getPosition() + normal * (correctedPenetration * (bodyB.getInverseMass() / inverseMassSum)));
+    }
+
+    void applyPositionCorrection(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Vector2 &normal, float penetration)
+    {
+        applyPositionCorrection(bodyA, bodyB, normal, penetration, kPositionCorrectionPercent2D);
+    }
+
+    void applyDynamicFrictionImpulse(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, float normalImpulseMagnitude)
+    {
+        const Vector2 contactVelocityA = getContactVelocity(bodyA, contactA.contactPoint);
+        const Vector2 contactVelocityB = getContactVelocity(bodyB, contactA.contactPoint);
+        const Vector2 relativeVelocity = contactVelocityB - contactVelocityA;
+        const float normalSpeed = relativeVelocity.dot(contactA.normal);
+        const Vector2 tangentialVelocity = relativeVelocity - contactA.normal * normalSpeed;
+        const float tangentialSpeed = tangentialVelocity.length();
+        if (tangentialSpeed <= 0.0f)
+        {
+            return;
+        }
+
+        const float staticFriction =
+            (bodyA.getSurfaceMaterial().staticFriction + bodyB.getSurfaceMaterial().staticFriction) * 0.5f;
+        const float dynamicFriction =
+            (bodyA.getSurfaceMaterial().dynamicFriction + bodyB.getSurfaceMaterial().dynamicFriction) * 0.5f;
+
+        const Vector2 tangent = tangentialVelocity / tangentialSpeed;
+        const Vector2 offsetA = contactA.contactPoint - getBodyCenter(bodyA);
+        const Vector2 offsetB = contactA.contactPoint - getBodyCenter(bodyB);
+        const float radiusCrossTangentA = Vector2::cross(offsetA, tangent);
+        const float radiusCrossTangentB = Vector2::cross(offsetB, tangent);
+        const float denominator =
+            bodyA.getInverseMass() +
+            bodyB.getInverseMass() +
+            radiusCrossTangentA * radiusCrossTangentA * bodyA.getInverseMomentOfInertia() +
+            radiusCrossTangentB * radiusCrossTangentB * bodyB.getInverseMomentOfInertia();
+        if (denominator <= 0.0f)
+        {
+            return;
+        }
+
+        const float desiredImpulseMagnitude = tangentialSpeed / denominator;
+        const float staticLimit = staticFriction * normalImpulseMagnitude;
+        const float dynamicLimit = dynamicFriction * normalImpulseMagnitude;
+
+        float signedImpulseMagnitude = 0.0f;
+        if (desiredImpulseMagnitude <= staticLimit)
+        {
+            // Static friction can fully cancel the tangential motion at the contact.
+            signedImpulseMagnitude = -desiredImpulseMagnitude;
+        }
+        else
+        {
+            // Dynamic friction opposes sliding but is limited by the kinetic coefficient.
+            signedImpulseMagnitude = -dynamicLimit;
+        }
+
+        const Vector2 impulse = tangent * signedImpulseMagnitude;
+        bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
+        bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
+        bodyA.setAngularVelocity(bodyA.getAngularVelocity() - Vector2::cross(offsetA, impulse) * bodyA.getInverseMomentOfInertia());
+        bodyB.setAngularVelocity(bodyB.getAngularVelocity() + Vector2::cross(offsetB, impulse) * bodyB.getInverseMomentOfInertia());
+    }
+
+    float computeEffectiveRestitution2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, float impactSpeed)
+    {
+        float restitution = (bodyA.getSurfaceMaterial().restitution + bodyB.getSurfaceMaterial().restitution) * 0.5f;
+        if (impactSpeed < kRestitutionThreshold2D)
+        {
+            restitution = 0.0f;
+        }
+        return restitution;
+    }
+
+    float computeCombinedFrictionStrength2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB)
+    {
+        return std::max(
+            0.0f,
+            (bodyA.getSurfaceMaterial().staticFriction +
+             bodyA.getSurfaceMaterial().dynamicFriction +
+             bodyB.getSurfaceMaterial().staticFriction +
+             bodyB.getSurfaceMaterial().dynamicFriction) *
+                0.25f);
+    }
+
+    bool resolveDynamicContactImpulse2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, float *outNormalImpulseMagnitude = nullptr)
+    {
+        if (bodyA.isStatic() || bodyB.isStatic() || contactA.penetration <= 0.0f)
+        {
+            return false;
+        }
+
+        const Vector2 normal = contactA.normal;
+        if (normal.lengthSquared() <= 0.0f)
+        {
+            return false;
+        }
+
+        applyPositionCorrection(bodyA, bodyB, normal, contactA.penetration, kDynamicContactCorrectionPercent2D);
+
+        const Vector2 contactPoint = contactA.contactPoint;
+        const Vector2 offsetA = contactPoint - getBodyCenter(bodyA);
+        const Vector2 offsetB = contactPoint - getBodyCenter(bodyB);
+        const Vector2 contactVelocityA = getContactVelocity(bodyA, contactPoint);
+        const Vector2 contactVelocityB = getContactVelocity(bodyB, contactPoint);
+        const Vector2 relativeVelocity = contactVelocityB - contactVelocityA;
+        const float normalSpeed = relativeVelocity.dot(normal);
+        if (normalSpeed > 0.0f)
+        {
+            return true;
+        }
+
+        const float restitution = computeEffectiveRestitution2D(bodyA, bodyB, -normalSpeed);
+        const float radiusCrossNormalA = Vector2::cross(offsetA, normal);
+        const float radiusCrossNormalB = Vector2::cross(offsetB, normal);
+        const float denominator =
+            bodyA.getInverseMass() +
+            bodyB.getInverseMass() +
+            radiusCrossNormalA * radiusCrossNormalA * bodyA.getInverseMomentOfInertia() +
+            radiusCrossNormalB * radiusCrossNormalB * bodyB.getInverseMomentOfInertia();
+        if (denominator <= 0.0f)
+        {
+            return true;
+        }
+
+        const float normalImpulseMagnitude = -(1.0f + restitution) * normalSpeed / denominator;
+        const Vector2 impulse = normal * normalImpulseMagnitude;
+        bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
+        bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
+        bodyA.setAngularVelocity(bodyA.getAngularVelocity() - Vector2::cross(offsetA, impulse) * bodyA.getInverseMomentOfInertia());
+        bodyB.setAngularVelocity(bodyB.getAngularVelocity() + Vector2::cross(offsetB, impulse) * bodyB.getInverseMomentOfInertia());
+
+        applyDynamicFrictionImpulse(bodyA, bodyB, contactA, normalImpulseMagnitude);
+
+        if (outNormalImpulseMagnitude)
+        {
+            *outNormalImpulseMagnitude = normalImpulseMagnitude;
+        }
+        return true;
+    }
+
+    bool resolveDynamicCircleCircleCollision(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA)
+    {
+        auto *circleA = dynamic_cast<CircleShape *>(bodyA.getShape());
+        auto *circleB = dynamic_cast<CircleShape *>(bodyB.getShape());
+        if (!circleA || !circleB)
+        {
+            return false;
+        }
+        if (!resolveDynamicContactImpulse2D(bodyA, bodyB, contactA))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool resolveDynamicCircleRectCollision(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA)
+    {
+        auto *circleA = dynamic_cast<CircleShape *>(bodyA.getShape());
+        auto *rectB = dynamic_cast<RectShape *>(bodyB.getShape());
+        if (!circleA || !rectB)
+        {
+            return false;
+        }
+        if (!resolveDynamicContactImpulse2D(bodyA, bodyB, contactA))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, const Contact2D &contactB)
+    {
+        if (dynamic_cast<BorderCircleBody2D *>(&bodyA) || dynamic_cast<BorderCircleBody2D *>(&bodyB))
+        {
+            return false;
+        }
+
+        switch (getPairKind(bodyA.getShape(), bodyB.getShape()))
+        {
+        case CollisionPairKind2D::CircleCircle:
+            return resolveDynamicCircleCircleCollision(bodyA, bodyB, contactA);
+
+        case CollisionPairKind2D::CircleRect:
+            // Normalize this resolver so it always receives circle as A and rect as B.
+            if (dynamic_cast<CircleShape *>(bodyA.getShape()) && dynamic_cast<RectShape *>(bodyB.getShape()))
+            {
+                return resolveDynamicCircleRectCollision(bodyA, bodyB, contactA);
+            }
+            return resolveDynamicCircleRectCollision(bodyB, bodyA, contactB);
+
+        case CollisionPairKind2D::Unsupported:
+        default:
+            return false;
+        }
+    }
 } // namespace
 
 void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds) const
@@ -454,12 +493,11 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
         const Vector2 normal = delta / distance;
         const float innerPenetration = std::max(0.0f, distance - innerRadius);
         const float outerPenetration = std::max(0.0f, outerRadius - distance);
-        const bool preferInnerFace = distance <= innerRadius;
-        const bool preferOuterFace = distance >= outerRadius;
+        const bool bodyIsInsideArena = distance < borderCircleA->getOuterRadius();
 
         manifold.bodyA = &bodyA;
         manifold.bodyB = &bodyB;
-        if (innerPenetration > 0.0f && (outerPenetration <= 0.0f || preferInnerFace || (!preferOuterFace && innerPenetration <= outerPenetration)))
+        if (innerPenetration > 0.0f && (bodyIsInsideArena || outerPenetration <= 0.0f || innerPenetration <= outerPenetration))
         {
             manifold.normal = normal * -1.0f;
             manifold.penetration = innerPenetration;
@@ -519,11 +557,10 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
         const Vector2 normal = delta / distance;
         const float innerPenetration = std::max(0.0f, distance - innerRadius);
         const float outerPenetration = std::max(0.0f, outerRadius - distance);
-        const bool preferInnerFace = distance <= innerRadius;
-        const bool preferOuterFace = distance >= outerRadius;
+        const bool bodyIsInsideArena = distance < borderCircleB->getOuterRadius();
         manifold.bodyA = &bodyA;
         manifold.bodyB = &bodyB;
-        if (innerPenetration > 0.0f && (outerPenetration <= 0.0f || preferInnerFace || (!preferOuterFace && innerPenetration <= outerPenetration)))
+        if (innerPenetration > 0.0f && (bodyIsInsideArena || outerPenetration <= 0.0f || innerPenetration <= outerPenetration))
         {
             manifold.normal = normal;
             manifold.penetration = innerPenetration;
@@ -566,7 +603,8 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
         const Vector2 deltaToCircle = circlePosition - closestPoint;
         const float distanceSquared = deltaToCircle.lengthSquared();
         const float radius = circle.getRadius();
-        if (distanceSquared > radius * radius)
+        const float effectiveRadius = radius;
+        if (distanceSquared > effectiveRadius * effectiveRadius)
         {
             return false;
         }
@@ -580,7 +618,7 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
             const float distance = std::sqrt(distanceSquared);
             const Vector2 outwardFromRect = deltaToCircle / distance;
             normal = circleIsBodyA ? (outwardFromRect * -1.0f) : outwardFromRect;
-            penetration = radius - distance;
+            penetration = effectiveRadius - distance;
         }
         else
         {
@@ -595,14 +633,14 @@ bool CollisionSolver2D::buildManifold(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB
                 outwardFromRect = axisX * (localCircle.x >= 0.0f ? 1.0f : -1.0f);
                 contactPoint = rectCenter + axisX * (halfExtents.x * (localCircle.x >= 0.0f ? 1.0f : -1.0f)) +
                                axisY * localCircle.y;
-                penetration = std::max(0.0f, radius - dx);
+                penetration = std::max(0.0f, effectiveRadius - dx);
             }
             else
             {
                 outwardFromRect = axisY * (localCircle.y >= 0.0f ? 1.0f : -1.0f);
                 contactPoint = rectCenter + axisX * localCircle.x +
                                axisY * (halfExtents.y * (localCircle.y >= 0.0f ? 1.0f : -1.0f));
-                penetration = std::max(0.0f, radius - dy);
+                penetration = std::max(0.0f, effectiveRadius - dy);
             }
 
             normal = circleIsBodyA ? (outwardFromRect * -1.0f) : outwardFromRect;

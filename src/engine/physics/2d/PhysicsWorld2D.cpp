@@ -21,6 +21,16 @@ const Vector2 &PhysicsWorld2D::getGravity() const
     return gravity;
 }
 
+void PhysicsWorld2D::setSolverIterations(int newSolverIterations)
+{
+    solverIterations = std::max(1, newSolverIterations);
+}
+
+int PhysicsWorld2D::getSolverIterations() const
+{
+    return solverIterations;
+}
+
 const std::vector<Manifold2D> &PhysicsWorld2D::getLastManifolds() const
 {
     return lastManifolds;
@@ -30,7 +40,10 @@ void PhysicsWorld2D::step(Scene2D &scene, float dt) const
 {
     applyGlobalForces(scene);
     integrateBodies(scene, dt);
-    collisionSolver->solve(scene, lastManifolds);
+    for (int iteration = 0; iteration < solverIterations; ++iteration)
+    {
+        collisionSolver->solve(scene, lastManifolds);
+    }
 }
 
 void PhysicsWorld2D::applyGlobalForces(Scene2D &scene) const

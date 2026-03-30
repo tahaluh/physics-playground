@@ -17,6 +17,8 @@ public:
 
     void setGravity(const Vector2 &newGravity);
     const Vector2 &getGravity() const;
+    void setSolverIterations(int newSolverIterations);
+    int getSolverIterations() const;
     const std::vector<Manifold2D> &getLastManifolds() const;
 
     void step(Scene2D &scene, float dt) const;
@@ -26,6 +28,7 @@ private:
     void integrateBodies(Scene2D &scene, float dt) const;
 
     Vector2 gravity = Vector2::zero();
+    int solverIterations = 6;
     std::unique_ptr<CollisionSolver2D> collisionSolver;
     mutable std::vector<Manifold2D> lastManifolds;
 };

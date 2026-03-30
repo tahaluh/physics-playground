@@ -4,11 +4,13 @@ const int POINT_SHADOW_FACE_COUNT = 6;
 const float PI = 3.14159265359;
 
 layout(location = 0) in vec4 fragColor;
-layout(location = 1) in vec3 fragEmissive;
-layout(location = 2) in vec3 fragNormal;
-layout(location = 3) in vec3 fragWorldPosition;
-layout(location = 4) in vec4 fragMaterial;
-layout(location = 5) in vec4 fragLighting;
+layout(location = 1) in vec3 fragBarycentric;
+layout(location = 2) in vec3 fragLocalPosition;
+layout(location = 3) in vec3 fragEmissive;
+layout(location = 4) in vec3 fragNormal;
+layout(location = 5) in vec3 fragWorldPosition;
+layout(location = 6) in vec4 fragMaterial;
+layout(location = 7) in vec4 fragLighting;
 layout(location = 0) out vec4 outColor;
 
 struct DirectionalLight
@@ -258,6 +260,39 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+float computeWireframeMask(vec3 barycentric)
+{
+    vec3 delta = fwidth(barycentric);
+    vec3 edge = smoothstep(vec3(0.0), delta * 1.2, barycentric);
+    return 1.0 - min(min(edge.x, edge.y), edge.z);
+}
+
+float computeCubeFaceWireframeMask(vec3 localPosition)
+{
+    vec3 absPos = abs(localPosition);
+    float maxAxis = max(absPos.x, max(absPos.y, absPos.z));
+    vec2 faceUv;
+
+    if (absPos.x >= absPos.y && absPos.x >= absPos.z)
+    {
+        faceUv = localPosition.yz;
+    }
+    else if (absPos.y >= absPos.z)
+    {
+        faceUv = localPosition.xz;
+    }
+    else
+    {
+        faceUv = localPosition.xy;
+    }
+
+    vec2 edgeDistance = vec2(0.5) - abs(faceUv);
+    vec2 delta = fwidth(faceUv);
+    float minDistance = min(edgeDistance.x, edgeDistance.y);
+    float threshold = max(max(delta.x, delta.y) * 1.5, 0.001);
+    return 1.0 - smoothstep(0.0, threshold, minDistance);
+}
+
 vec3 evaluatePbrLight(
     vec3 albedo,
     vec3 lightColor,
@@ -420,5 +455,14 @@ void main()
         }
     }
 
-    outColor = vec4(clamp(result, 0.0, 1.0), fragColor.a);
+    vec3 finalColor = clamp(result, 0.0, 1.0);
+    if (fragLighting.z > 0.5)
+    {
+        float wireframeMask = fragLighting.w > 0.5
+            ? computeCubeFaceWireframeMask(fragLocalPosition)
+            : computeWireframeMask(fragBarycentric);
+        finalColor = mix(finalColor, vec3(1.0), wireframeMask);
+    }
+
+    outColor = vec4(finalColor, fragColor.a);
 }

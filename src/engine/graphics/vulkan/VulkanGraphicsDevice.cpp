@@ -1353,7 +1353,7 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     bindingDescription.stride = sizeof(TriangleVertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 7> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 8> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -1364,24 +1364,28 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     attributeDescriptions[1].offset = offsetof(TriangleVertex, color);
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[2].offset = offsetof(TriangleVertex, emissive);
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(TriangleVertex, barycentric);
     attributeDescriptions[3].binding = 0;
     attributeDescriptions[3].location = 3;
     attributeDescriptions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[3].offset = offsetof(TriangleVertex, normal);
+    attributeDescriptions[3].offset = offsetof(TriangleVertex, emissive);
     attributeDescriptions[4].binding = 0;
     attributeDescriptions[4].location = 4;
     attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[4].offset = offsetof(TriangleVertex, worldPosition);
+    attributeDescriptions[4].offset = offsetof(TriangleVertex, normal);
     attributeDescriptions[5].binding = 0;
     attributeDescriptions[5].location = 5;
     attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[5].offset = offsetof(TriangleVertex, material);
+    attributeDescriptions[5].offset = offsetof(TriangleVertex, worldPosition);
     attributeDescriptions[6].binding = 0;
     attributeDescriptions[6].location = 6;
     attributeDescriptions[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[6].offset = offsetof(TriangleVertex, lighting);
+    attributeDescriptions[6].offset = offsetof(TriangleVertex, material);
+    attributeDescriptions[7].binding = 0;
+    attributeDescriptions[7].location = 7;
+    attributeDescriptions[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[7].offset = offsetof(TriangleVertex, lighting);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1548,7 +1552,7 @@ bool VulkanGraphicsDevice::createInstancedTrianglePipeline()
     bindingDescriptions[1].stride = sizeof(InstancedMeshInstance);
     bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
 
-    std::array<VkVertexInputAttributeDescription, 11> attributeDescriptions{};
+    std::array<VkVertexInputAttributeDescription, 12> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -1559,40 +1563,44 @@ bool VulkanGraphicsDevice::createInstancedTrianglePipeline()
     attributeDescriptions[1].offset = offsetof(InstancedMeshVertex, color);
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[2].offset = offsetof(InstancedMeshVertex, normal);
-    attributeDescriptions[3].binding = 1;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(InstancedMeshVertex, barycentric);
+    attributeDescriptions[3].binding = 0;
     attributeDescriptions[3].location = 3;
     attributeDescriptions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[3].offset = offsetof(InstancedMeshInstance, modelRow0);
+    attributeDescriptions[3].offset = offsetof(InstancedMeshVertex, normal);
     attributeDescriptions[4].binding = 1;
     attributeDescriptions[4].location = 4;
     attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[4].offset = offsetof(InstancedMeshInstance, modelRow1);
+    attributeDescriptions[4].offset = offsetof(InstancedMeshInstance, modelRow0);
     attributeDescriptions[5].binding = 1;
     attributeDescriptions[5].location = 5;
     attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[5].offset = offsetof(InstancedMeshInstance, modelRow2);
+    attributeDescriptions[5].offset = offsetof(InstancedMeshInstance, modelRow1);
     attributeDescriptions[6].binding = 1;
     attributeDescriptions[6].location = 6;
     attributeDescriptions[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[6].offset = offsetof(InstancedMeshInstance, modelRow3);
+    attributeDescriptions[6].offset = offsetof(InstancedMeshInstance, modelRow2);
     attributeDescriptions[7].binding = 1;
     attributeDescriptions[7].location = 7;
     attributeDescriptions[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[7].offset = offsetof(InstancedMeshInstance, color);
+    attributeDescriptions[7].offset = offsetof(InstancedMeshInstance, modelRow3);
     attributeDescriptions[8].binding = 1;
     attributeDescriptions[8].location = 8;
     attributeDescriptions[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[8].offset = offsetof(InstancedMeshInstance, emissive);
+    attributeDescriptions[8].offset = offsetof(InstancedMeshInstance, color);
     attributeDescriptions[9].binding = 1;
     attributeDescriptions[9].location = 9;
     attributeDescriptions[9].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[9].offset = offsetof(InstancedMeshInstance, material);
+    attributeDescriptions[9].offset = offsetof(InstancedMeshInstance, emissive);
     attributeDescriptions[10].binding = 1;
     attributeDescriptions[10].location = 10;
     attributeDescriptions[10].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    attributeDescriptions[10].offset = offsetof(InstancedMeshInstance, lighting);
+    attributeDescriptions[10].offset = offsetof(InstancedMeshInstance, material);
+    attributeDescriptions[11].binding = 1;
+    attributeDescriptions[11].location = 11;
+    attributeDescriptions[11].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[11].offset = offsetof(InstancedMeshInstance, lighting);
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1795,7 +1803,7 @@ bool VulkanGraphicsDevice::createLinePipeline()
         VK_COLOR_COMPONENT_G_BIT |
         VK_COLOR_COMPONENT_B_BIT |
         VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.blendEnable = VK_FALSE;
     colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
     colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
@@ -2609,6 +2617,9 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.position[1] = entity.mesh.vertices[meshVertexIndex].y;
                 vertex.position[2] = entity.mesh.vertices[meshVertexIndex].z;
                 std::memcpy(vertex.color, triangleColor.data(), sizeof(vertex.color));
+                vertex.barycentric[0] = vertexIndex == 0 ? 1.0f : 0.0f;
+                vertex.barycentric[1] = vertexIndex == 1 ? 1.0f : 0.0f;
+                vertex.barycentric[2] = vertexIndex == 2 ? 1.0f : 0.0f;
                 vertex.normal[0] = localNormal.x;
                 vertex.normal[1] = localNormal.y;
                 vertex.normal[2] = localNormal.z;
@@ -2662,8 +2673,8 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         instance.material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
         instance.lighting[0] = Vector3::clamp(entity.material.solid.metallic, 0.0f, 1.0f);
         instance.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
-        instance.lighting[2] = 0.0f;
-        instance.lighting[3] = 0.0f;
+        instance.lighting[2] = entity.material.renderWireframe ? 1.0f : 0.0f;
+        instance.lighting[3] = entity.instancingKey == "body:cube" ? 1.0f : 0.0f;
         batch.instances.push_back(instance);
 
         const float radius = computeEntityApproximateRadius(entity);
@@ -2821,6 +2832,9 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.color[1] = baseColor[1];
                 vertex.color[2] = baseColor[2];
                 vertex.color[3] = baseColor[3];
+                vertex.barycentric[0] = vertexIndex == 0 ? 1.0f : 0.0f;
+                vertex.barycentric[1] = vertexIndex == 1 ? 1.0f : 0.0f;
+                vertex.barycentric[2] = vertexIndex == 2 ? 1.0f : 0.0f;
                 vertex.emissive[0] = emissiveColor[0];
                 vertex.emissive[1] = emissiveColor[1];
                 vertex.emissive[2] = emissiveColor[2];
@@ -2850,7 +2864,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
                 vertex.lighting[0] = Vector3::clamp(entity.material.solid.metallic, 0.0f, 1.0f);
                 vertex.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
-                vertex.lighting[2] = 0.0f;
+                vertex.lighting[2] = entity.material.renderWireframe ? 1.0f : 0.0f;
                 vertex.lighting[3] = 0.0f;
                 vertices.push_back(vertex);
             }
@@ -2882,7 +2896,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
     for (const Entity3D &entity : scene.getEntities())
     {
-        if (!entity.material.renderWireframe)
+        if (!entity.material.renderWireframe || entity.supportsInstancing)
         {
             continue;
         }
@@ -2925,9 +2939,9 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
                 vertex.worldPosition[1] = worldPosition.y;
                 vertex.worldPosition[2] = worldPosition.z;
                 vertex.worldPosition[3] = 1.0f;
-                vertex.material[0] = Vector3::clamp(entity.material.wireframe.ambientFactor, 0.0f, 1.0f);
+                vertex.material[0] = 0.0f;
                 vertex.material[1] = 0.0f;
-                vertex.material[2] = entity.material.wireframe.unlit ? 1.0f : 0.0f;
+                vertex.material[2] = 1.0f;
                 vertex.material[3] = entity.material.wireframe.doubleSidedLighting ? 1.0f : 0.0f;
                 vertex.lighting[0] = Vector3::clamp(entity.material.wireframe.metallic, 0.0f, 1.0f);
                 vertex.lighting[1] = Vector3::clamp(entity.material.wireframe.roughness, 0.0f, 1.0f);

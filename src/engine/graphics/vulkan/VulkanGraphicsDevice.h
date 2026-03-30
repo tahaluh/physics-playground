@@ -18,6 +18,7 @@ public:
     {
         float position[3];
         float color[4];
+        float barycentric[3];
         float emissive[4];
         float normal[4];
         float worldPosition[4];
@@ -29,6 +30,7 @@ public:
     {
         float position[3];
         float color[4];
+        float barycentric[3];
         float normal[4];
     };
 

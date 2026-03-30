@@ -11,8 +11,7 @@ constexpr float kCubeSize = 1.0f;
 constexpr float kCubeNonTouchMargin = 0.1f;
 constexpr float kCubeSpacing = (std::sqrt(3.0f) - kCubeSize) + kCubeNonTouchMargin;
 constexpr float kTau = 6.28318530718f;
-
-const Vector3 kGridCenter(0.0f, 3.5f, 0.0f);
+constexpr float kGridFrontDistance = 8.0f;
 
 float getGridStep()
 {
@@ -22,10 +21,11 @@ float getGridStep()
 Vector3 getGridOrigin()
 {
     const float step = getGridStep();
+    const float halfSpan = static_cast<float>(kCubeGridSize - 1) * 0.5f * step;
     return Vector3(
-        kGridCenter.x - static_cast<float>(kCubeGridSize - 1) * 0.5f * step,
-        kGridCenter.y,
-        kGridCenter.z - static_cast<float>(kCubeGridSize - 1) * 0.5f * step);
+        -halfSpan,
+        -halfSpan,
+        -kGridFrontDistance - static_cast<float>(kCubeGridSize - 1) * step);
 }
 
 uint32_t makeCubeSeed(int column, int row, int layer)
@@ -75,7 +75,10 @@ BodyObject3DDesc makeCubeDesc(int column, int row, int layer, const Vector3 &pos
     desc.transform.scale = Vector3::one() * kCubeSize;
     desc.material.solid = MaterialPresets3D::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
     desc.material.wireframe.baseColor = 0xFFFFFFFF;
-    desc.material.wireframe.opacity = 0.16f;
+    desc.material.wireframe.opacity = 1.0f;
+    desc.material.wireframe.unlit = true;
+    desc.material.wireframe.ambientFactor = 0.0f;
+    desc.material.wireframe.diffuseFactor = 0.0f;
     desc.material.renderSolid = true;
     desc.material.renderWireframe = false;
     return desc;
@@ -87,8 +90,8 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
     PlaygroundSceneDesc desc;
     desc.ambientLight.color = 0xFFFFFFFF;
     desc.ambientLight.intensity = 0.22f;
-    desc.cameraPosition = Vector3(0.0f, 15.0f, 28.0f);
-    desc.cameraRotation = Vector3(-0.34f, 0.0f, 0.0f);
+    desc.cameraPosition = Vector3::zero();
+    desc.cameraRotation = Vector3::zero();
 
     const Vector3 origin = getGridOrigin();
     const float step = getGridStep();

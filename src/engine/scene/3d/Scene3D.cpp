@@ -50,6 +50,11 @@ uint64_t Scene3D::getRevision() const
     return revision;
 }
 
+void Scene3D::touch()
+{
+    ++revision;
+}
+
 AmbientLight &Scene3D::getAmbientLight()
 {
     return ambientLight;

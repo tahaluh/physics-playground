@@ -27,10 +27,19 @@ public:
     void onRender(IGraphicsDevice &graphicsDevice) const override;
 
 private:
+    struct SceneEntityRange
+    {
+        std::size_t start = 0;
+        std::size_t count = 0;
+    };
+
     void updateCamera(float dt);
     void configureCamera(int viewportWidth, int viewportHeight);
     void rebuildCombinedScene();
+    void syncCombinedSceneEntities();
     void updateDebugToggles();
+    void appendSceneAndRecordRange(const Scene3D &sourceScene, std::vector<SceneEntityRange> &ranges);
+    void copySceneRange(const Scene3D &sourceScene, const SceneEntityRange &range);
 
     std::unique_ptr<PhysicsWorld2D> physicsWorld2D;
     std::unique_ptr<PhysicsWorld3D> physicsWorld3D;
@@ -42,8 +51,14 @@ private:
     std::vector<std::unique_ptr<SphereArenaObject>> sphereArenaObjects;
     std::vector<std::unique_ptr<SphereObject>> sphereObjects;
     std::vector<std::unique_ptr<ComposedObject3D>> composedObjects;
+    std::vector<SceneEntityRange> ringObjectRanges;
+    std::vector<SceneEntityRange> squareObjectRanges;
+    std::vector<SceneEntityRange> sphereObjectRanges;
+    std::vector<SceneEntityRange> sphereArenaObjectRanges;
+    std::vector<SceneEntityRange> composedObjectRanges;
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
     bool showPhysicsDebugMarkers = false;
     bool freezeFixedTicks = true;
+    float debugRebuildAccumulator = 0.0f;
 };

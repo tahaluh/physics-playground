@@ -12,6 +12,7 @@ public:
 
     std::vector<std::unique_ptr<PhysicsBody2D>> &getBodies();
     const std::vector<std::unique_ptr<PhysicsBody2D>> &getBodies() const;
+    bool hasAwakeDynamicBodies() const;
 
 private:
     std::vector<std::unique_ptr<PhysicsBody2D>> bodies;

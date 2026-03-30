@@ -478,14 +478,14 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
-    const Matrix4 viewMatrix = camera.getViewMatrix();
-    const Matrix4 projectionMatrix = camera.getProjectionMatrix();
     const bool sceneChanged = cachedScene != &scene || cachedSceneRevision != scene.getRevision();
-    const bool cameraChanged =
-        !matricesEqual(cachedViewMatrix, viewMatrix) ||
-        !matricesEqual(cachedProjectionMatrix, projectionMatrix);
 
-    if (!sceneChanged && !cameraChanged)
+    if (!updateLightingBuffers(camera, scene))
+    {
+        return;
+    }
+
+    if (!sceneChanged)
     {
         return;
     }
@@ -498,19 +498,11 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
     transparentSceneVertexCount = 0;
     lineSceneVertexCount = 0;
     shadowSceneVertexCount = 0;
-    ambientUniform = {};
-    ambientUniform.ambientColorIntensity[3] = 0.0f;
 
-    if (!updateLightingBuffers(camera, scene))
-    {
-        return;
-    }
     appendSceneVertices(camera, scene);
 
     cachedScene = &scene;
     cachedSceneRevision = scene.getRevision();
-    cachedViewMatrix = viewMatrix;
-    cachedProjectionMatrix = projectionMatrix;
     sceneBuffersDirty = true;
 }
 
@@ -2281,7 +2273,6 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     };
 
     std::vector<TriangleVertex> lineVertices;
-    const Matrix4 viewMatrix = camera.getViewMatrix();
     const bool hasShadowLights =
         !scene.getDirectionalLights().empty() ||
         !scene.getPointLights().empty() ||
@@ -2291,11 +2282,6 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
     for (const Entity3D &entity : scene.getEntities())
     {
-        if (!isEntityRoughlyVisible(camera, viewMatrix, entity))
-        {
-            continue;
-        }
-
         EntitySortItem item;
         item.entity = &entity;
         item.distanceSquared = (entity.transform.position - camera.transform.position).lengthSquared();
@@ -2378,16 +2364,6 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
             if (surfaceNormal.lengthSquared() == 0.0f)
             {
                 surfaceNormal = Vector3::up();
-            }
-
-            if (!entity.material.solid.doubleSidedLighting && !entity.material.solid.isTransparent())
-            {
-                const Vector3 triangleCenter = (worldVertices[0] + worldVertices[1] + worldVertices[2]) / 3.0f;
-                const Vector3 toCamera = camera.transform.position - triangleCenter;
-                if (surfaceNormal.dot(toCamera) <= 0.0f)
-                {
-                    return;
-                }
             }
 
             for (size_t vertexIndex = 0; vertexIndex < worldVertices.size(); ++vertexIndex)
@@ -2506,24 +2482,12 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         for (const MeshEdge3D &edge : entity.mesh.edges)
         {
             std::array<Vector3, 2> worldPositions{};
-            bool edgeVisible = true;
             const std::array<int, 2> indices = {edge.start, edge.end};
             for (size_t i = 0; i < indices.size(); ++i)
             {
                 const Vector3 modelPosition = entity.mesh.vertices[indices[i]];
                 const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
                 worldPositions[i] = worldPosition;
-                const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
-                if (-viewPosition.z < camera.nearPlane)
-                {
-                    edgeVisible = false;
-                    continue;
-                }
-            }
-
-            if (!edgeVisible)
-            {
-                continue;
             }
 
             for (const Vector3 &worldPosition : worldPositions)

@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 #include <vector>
 
 #include "engine/physics/2d/BorderBoxBody2D.h"
@@ -24,6 +25,13 @@ namespace
     constexpr float kPositionCorrectionPercent2D = 0.2f;
     constexpr float kDynamicContactCorrectionPercent2D = 0.22f;
     constexpr float kRestitutionThreshold2D = 45.0f;
+    constexpr float kWarmStartRetention2D = 0.85f;
+
+    struct BroadphaseBounds2D
+    {
+        Vector2 min = Vector2::zero();
+        Vector2 max = Vector2::zero();
+    };
 
     enum class CollisionPairKind2D
     {
@@ -161,6 +169,67 @@ namespace
         return result;
     }
 
+    uint64_t makeBodyPairKey(const PhysicsBody2D &bodyA, const PhysicsBody2D &bodyB)
+    {
+        const uint64_t addressA = reinterpret_cast<uint64_t>(&bodyA);
+        const uint64_t addressB = reinterpret_cast<uint64_t>(&bodyB);
+        const uint64_t low = std::min(addressA, addressB);
+        const uint64_t high = std::max(addressA, addressB);
+        return low ^ (high + 0x9e3779b97f4a7c15ULL + (low << 6) + (low >> 2));
+    }
+
+    BroadphaseBounds2D computeBroadphaseBounds2D(const PhysicsBody2D &body)
+    {
+        BroadphaseBounds2D bounds;
+
+        if (const auto *borderCircle = dynamic_cast<const BorderCircleBody2D *>(&body))
+        {
+            const float radius = borderCircle->getOuterRadius();
+            const Vector2 center = borderCircle->getCenter();
+            bounds.min = center - Vector2(radius, radius);
+            bounds.max = center + Vector2(radius, radius);
+            return bounds;
+        }
+
+        if (const auto *circle = dynamic_cast<const CircleShape *>(body.getShape()))
+        {
+            const float radius = circle->getRadius();
+            const Vector2 center = body.getPosition();
+            bounds.min = center - Vector2(radius, radius);
+            bounds.max = center + Vector2(radius, radius);
+            return bounds;
+        }
+
+        if (const auto *rect = dynamic_cast<const RectShape *>(body.getShape()))
+        {
+            const auto corners = getRotatedRectCorners(*rect, body.getPosition(), body.getRotation());
+            Vector2 minCorner = corners[0];
+            Vector2 maxCorner = corners[0];
+            for (const Vector2 &corner : corners)
+            {
+                minCorner.x = std::min(minCorner.x, corner.x);
+                minCorner.y = std::min(minCorner.y, corner.y);
+                maxCorner.x = std::max(maxCorner.x, corner.x);
+                maxCorner.y = std::max(maxCorner.y, corner.y);
+            }
+            bounds.min = minCorner;
+            bounds.max = maxCorner;
+            return bounds;
+        }
+
+        bounds.min = body.getPosition();
+        bounds.max = body.getPosition();
+        return bounds;
+    }
+
+    bool broadphaseBoundsOverlap(const BroadphaseBounds2D &a, const BroadphaseBounds2D &b)
+    {
+        return a.min.x <= b.max.x &&
+               a.max.x >= b.min.x &&
+               a.min.y <= b.max.y &&
+               a.max.y >= b.min.y;
+    }
+
     Vector2 getContactVelocity(PhysicsBody2D &body, const Vector2 &contactPoint)
     {
         const Vector2 offset = contactPoint - getBodyCenter(body);
@@ -287,6 +356,24 @@ namespace
         bodyB.setAngularVelocity(bodyB.getAngularVelocity() + Vector2::cross(offsetB, impulse) * bodyB.getInverseMomentOfInertia());
     }
 
+    void applyWarmStartImpulse2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, float normalImpulseMagnitude)
+    {
+        if (normalImpulseMagnitude <= 0.0f)
+        {
+            return;
+        }
+
+        const Vector2 normal = contactA.normal;
+        const Vector2 contactPoint = contactA.contactPoint;
+        const Vector2 offsetA = contactPoint - getBodyCenter(bodyA);
+        const Vector2 offsetB = contactPoint - getBodyCenter(bodyB);
+        const Vector2 impulse = normal * normalImpulseMagnitude;
+        bodyA.setVelocity(bodyA.getVelocity() - impulse * bodyA.getInverseMass());
+        bodyB.setVelocity(bodyB.getVelocity() + impulse * bodyB.getInverseMass());
+        bodyA.setAngularVelocity(bodyA.getAngularVelocity() - Vector2::cross(offsetA, impulse) * bodyA.getInverseMomentOfInertia());
+        bodyB.setAngularVelocity(bodyB.getAngularVelocity() + Vector2::cross(offsetB, impulse) * bodyB.getInverseMomentOfInertia());
+    }
+
     float computeEffectiveRestitution2D(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, float impactSpeed)
     {
         float restitution = (bodyA.getSurfaceMaterial().restitution + bodyB.getSurfaceMaterial().restitution) * 0.5f;
@@ -401,7 +488,14 @@ namespace
 void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds) const
 {
     manifolds.clear();
+    ++contactGeneration;
     auto &bodies = scene.getBodies();
+    std::vector<BroadphaseBounds2D> bodyBounds;
+    bodyBounds.reserve(bodies.size());
+    for (const auto &body : bodies)
+    {
+        bodyBounds.push_back(computeBroadphaseBounds2D(*body));
+    }
 
     for (size_t i = 0; i < bodies.size(); ++i)
     {
@@ -417,6 +511,19 @@ void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds
             }
 
             if (bodyA.isSleeping() && bodyB.isSleeping())
+            {
+                continue;
+            }
+
+            // Sleeping bodies resting on static borders should not keep paying
+            // narrow-phase and callback cost every solver iteration.
+            if ((bodyA.isSleeping() && bodyB.isStatic()) ||
+                (bodyB.isSleeping() && bodyA.isStatic()))
+            {
+                continue;
+            }
+
+            if (!broadphaseBoundsOverlap(bodyBounds[i], bodyBounds[j]))
             {
                 continue;
             }
@@ -441,11 +548,40 @@ void CollisionSolver2D::solve(Scene2D &scene, std::vector<Manifold2D> &manifolds
             Contact2D contactB;
             buildContactsFromManifold(manifolds.back(), contactA, contactB);
 
+            const uint64_t pairKey = makeBodyPairKey(bodyA, bodyB);
+            auto cacheIt = persistentContactPairs.find(pairKey);
+            if (cacheIt != persistentContactPairs.end())
+            {
+                applyWarmStartImpulse2D(
+                    bodyA,
+                    bodyB,
+                    contactA,
+                    cacheIt->second.normalImpulseMagnitude * kWarmStartRetention2D);
+            }
+
             // Resolve first, but always fire callbacks afterwards.
-            resolvePair(bodyA, bodyB, contactA, contactB);
+            float normalImpulseMagnitude = 0.0f;
+            resolvePair(bodyA, bodyB, contactA, contactB, &normalImpulseMagnitude);
+
+            persistentContactPairs[pairKey] = CachedContactPair2D{
+                std::max(0.0f, normalImpulseMagnitude),
+                0.0f,
+                contactGeneration};
 
             bodyA.onCollision(contactA);
             bodyB.onCollision(contactB);
+        }
+    }
+
+    for (auto it = persistentContactPairs.begin(); it != persistentContactPairs.end();)
+    {
+        if (it->second.generation != contactGeneration)
+        {
+            it = persistentContactPairs.erase(it);
+        }
+        else
+        {
+            ++it;
         }
     }
 }
@@ -692,17 +828,32 @@ void CollisionSolver2D::buildContactsFromManifold(const Manifold2D &manifold, Co
     contactB = Contact2D{manifold.bodyB, manifold.bodyA, manifold.normal * -1.0f, manifold.penetration, contactPoint};
 }
 
-bool CollisionSolver2D::resolveDynamicCircleCollision(const Contact2D &contactA, const Contact2D &contactB) const
+bool CollisionSolver2D::resolveDynamicCircleCollision(const Contact2D &contactA, const Contact2D &contactB, float *outNormalImpulseMagnitude) const
 {
     if (!contactA.self || !contactB.self)
     {
         return false;
     }
-    return resolveDynamicCircleCircleCollision(*contactA.self, *contactB.self, contactA);
+    const bool resolved = resolveDynamicCircleCircleCollision(*contactA.self, *contactB.self, contactA);
+    if (outNormalImpulseMagnitude && !resolved)
+    {
+        *outNormalImpulseMagnitude = 0.0f;
+    }
+    return resolved;
 }
 
-bool CollisionSolver2D::resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, const Contact2D &contactA, const Contact2D &contactB) const
+bool CollisionSolver2D::resolvePair(
+    PhysicsBody2D &bodyA,
+    PhysicsBody2D &bodyB,
+    const Contact2D &contactA,
+    const Contact2D &contactB,
+    float *outNormalImpulseMagnitude) const
 {
+    if (outNormalImpulseMagnitude)
+    {
+        *outNormalImpulseMagnitude = 0.0f;
+    }
+
     if (dynamic_cast<BorderCircleBody2D *>(&bodyA))
     {
         if (auto *invertBody = dynamic_cast<BallInvertBody2D *>(&bodyB))
@@ -734,14 +885,14 @@ bool CollisionSolver2D::resolvePair(PhysicsBody2D &bodyA, PhysicsBody2D &bodyB, 
     switch (getPairKind(bodyA.getShape(), bodyB.getShape()))
     {
     case CollisionPairKind2D::CircleCircle:
-        return resolveDynamicCircleCircleCollision(bodyA, bodyB, contactA);
+        return resolveDynamicContactImpulse2D(bodyA, bodyB, contactA, outNormalImpulseMagnitude);
 
     case CollisionPairKind2D::CircleRect:
         if (dynamic_cast<CircleShape *>(bodyA.getShape()) && dynamic_cast<RectShape *>(bodyB.getShape()))
         {
-            return resolveDynamicCircleRectCollision(bodyA, bodyB, contactA);
+            return resolveDynamicContactImpulse2D(bodyA, bodyB, contactA, outNormalImpulseMagnitude);
         }
-        return resolveDynamicCircleRectCollision(bodyB, bodyA, contactB);
+        return resolveDynamicContactImpulse2D(bodyB, bodyA, contactB, outNormalImpulseMagnitude);
 
     case CollisionPairKind2D::Unsupported:
     default:

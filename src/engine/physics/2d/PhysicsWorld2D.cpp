@@ -84,6 +84,9 @@ void PhysicsWorld2D::applyGlobalForces(Scene2D &scene) const
         if (body->isStatic() || !body->getRigidBodySettings().useGravity)
             continue;
 
+        if (body->isSleeping())
+            continue;
+
         body->applyForce(gravity * body->getMass());
     }
 }
@@ -110,10 +113,32 @@ void PhysicsWorld2D::updateSleeping(Scene2D &scene, float dt) const
             continue;
         }
 
+        bool hasSupportingContact = false;
+        for (const Manifold2D &manifold : lastManifolds)
+        {
+            if (manifold.penetration <= 0.0f)
+            {
+                continue;
+            }
+
+            if (manifold.bodyA == body.get() || manifold.bodyB == body.get())
+            {
+                hasSupportingContact = true;
+                break;
+            }
+        }
+
         const bool lowLinear = stopThreshold > 0.0f && body->getVelocity().length() < stopThreshold;
         const bool lowAngular = angularStopThreshold > 0.0f && std::abs(body->getAngularVelocity()) < angularStopThreshold;
-        if (lowLinear && lowAngular)
+        const bool canSleepInPlace =
+            lowLinear &&
+            lowAngular &&
+            (!body->getRigidBodySettings().useGravity || hasSupportingContact);
+
+        if (canSleepInPlace)
         {
+            body->setVelocity(Vector2::zero());
+            body->setAngularVelocity(0.0f);
             body->setSleepTime(body->getSleepTime() + dt);
             if (body->getSleepTime() >= sleepDelay)
             {

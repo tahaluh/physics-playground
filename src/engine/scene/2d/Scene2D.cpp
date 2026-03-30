@@ -14,3 +14,15 @@ const std::vector<std::unique_ptr<PhysicsBody2D>> &Scene2D::getBodies() const
 {
     return bodies;
 }
+
+bool Scene2D::hasAwakeDynamicBodies() const
+{
+    for (const auto &body : bodies)
+    {
+        if (body && !body->isStatic() && !body->isSleeping())
+        {
+            return true;
+        }
+    }
+    return false;
+}

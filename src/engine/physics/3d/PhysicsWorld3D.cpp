@@ -275,7 +275,7 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitution
     for (std::size_t i = 0; i < bodies.size(); ++i)
     {
         PhysicsBody3D *bodyA = bodies[i].get();
-        if (!bodyA || bodyA->isStatic())
+        if (!bodyA || bodyA->isStatic() || bodyA->isSleeping())
         {
             continue;
         }
@@ -289,7 +289,7 @@ void solveDynamicSphereSphereCollisions(PhysicsScene3D &scene, float restitution
         for (std::size_t j = i + 1; j < bodies.size(); ++j)
         {
             PhysicsBody3D *bodyB = bodies[j].get();
-            if (!bodyB || bodyB->isStatic())
+            if (!bodyB || bodyB->isStatic() || bodyB->isSleeping())
             {
                 continue;
             }
@@ -381,7 +381,7 @@ void solveDynamicSphereBoxCollisions(PhysicsScene3D &scene, float restitutionThr
     for (std::size_t i = 0; i < bodies.size(); ++i)
     {
         PhysicsBody3D *bodyA = bodies[i].get();
-        if (!bodyA || bodyA->isStatic())
+        if (!bodyA || bodyA->isStatic() || bodyA->isSleeping())
         {
             continue;
         }
@@ -389,7 +389,7 @@ void solveDynamicSphereBoxCollisions(PhysicsScene3D &scene, float restitutionThr
         for (std::size_t j = i + 1; j < bodies.size(); ++j)
         {
             PhysicsBody3D *bodyB = bodies[j].get();
-            if (!bodyB || bodyB->isStatic())
+            if (!bodyB || bodyB->isStatic() || bodyB->isSleeping())
             {
                 continue;
             }
@@ -529,7 +529,7 @@ void PhysicsWorld3D::solveBoundaryCollisions(PhysicsScene3D &scene) const
 
         for (const auto &dynamicCandidate : bodies)
         {
-            if (dynamicCandidate->isStatic())
+            if (dynamicCandidate->isStatic() || dynamicCandidate->isSleeping())
             {
                 continue;
             }
@@ -679,6 +679,8 @@ void PhysicsWorld3D::updateSleeping(PhysicsScene3D &scene, float dt) const
         const bool lowAngular = angularStopThreshold > 0.0f && body->getAngularVelocity().length() < angularStopThreshold;
         if (lowLinear && lowAngular)
         {
+            body->setVelocity(Vector3::zero());
+            body->setAngularVelocity(Vector3::zero());
             body->setSleepTime(body->getSleepTime() + dt);
             if (body->getSleepTime() >= sleepDelay)
             {

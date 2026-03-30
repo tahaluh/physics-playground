@@ -222,6 +222,10 @@ void RingObject::step(PhysicsWorld2D &physicsWorld, float dt)
 {
     if (!physicsScene)
         return;
+    if (!physicsScene->hasAwakeDynamicBodies())
+    {
+        return;
+    }
     physicsWorld.step(*physicsScene, dt);
     syncRenderScene();
 }

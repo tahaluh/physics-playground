@@ -189,6 +189,11 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
     float accumulator = 0.0f;
     float titleUpdateAccumulator = 0.0f;
     int framesSinceTitleUpdate = 0;
+    bool haveSmoothedMetrics = false;
+    float smoothedFps = 0.0f;
+    float smoothedFrameTimeMs = 0.0f;
+    float smoothedCpuPercent = 0.0f;
+    float smoothedRamMegabytes = 0.0f;
 
     while (!window->shouldClose() && !gInterruptRequested.load())
     {
@@ -258,6 +263,24 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
             const float fps = static_cast<float>(framesSinceTitleUpdate) / titleUpdateAccumulator;
             const ProcessMetrics metrics = sampleProcessMetrics(previousCpuTicks, previousMetricsSampleTime);
             previousMetricsSampleTime = clock::now();
+            const float frameTimeMs = averageFrameTime * 1000.0f;
+            constexpr float kMetricsSmoothing = 0.22f;
+            if (!haveSmoothedMetrics)
+            {
+                smoothedFps = fps;
+                smoothedFrameTimeMs = frameTimeMs;
+                smoothedCpuPercent = metrics.cpuPercent;
+                smoothedRamMegabytes = metrics.ramMegabytes;
+                haveSmoothedMetrics = true;
+            }
+            else
+            {
+                smoothedFps += (fps - smoothedFps) * kMetricsSmoothing;
+                smoothedFrameTimeMs += (frameTimeMs - smoothedFrameTimeMs) * kMetricsSmoothing;
+                smoothedCpuPercent += (metrics.cpuPercent - smoothedCpuPercent) * kMetricsSmoothing;
+                smoothedRamMegabytes += (metrics.ramMegabytes - smoothedRamMegabytes) * kMetricsSmoothing;
+            }
+
             char titleBuffer[256];
             std::snprintf(
                 titleBuffer,
@@ -267,11 +290,11 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
                 graphicsDevice->getBackendName(),
                 config.vsyncEnabled ? "VSync On" : "VSync Off",
                 config.targetFrameRate,
-                fps,
-                averageFrameTime * 1000.0f,
+                smoothedFps,
+                smoothedFrameTimeMs,
                 graphicsDevice->getDeviceName(),
-                metrics.cpuPercent,
-                metrics.ramMegabytes);
+                smoothedCpuPercent,
+                smoothedRamMegabytes);
             window->setTitle(titleBuffer);
 
             titleUpdateAccumulator = 0.0f;

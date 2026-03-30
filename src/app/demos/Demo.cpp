@@ -6,15 +6,13 @@
 #include "engine/input/InputAction.h"
 #include "engine/input/Input.h"
 #include "engine/math/Vector3.h"
-#include "engine/render/debug/LightDebug3D.h"
-#include "engine/render/debug/PhysicsDebug3D.h"
+#include "engine/render/debug/DebugSceneComposer3D.h"
 
 namespace
 {
     const float kMoveSpeed = 4.0f;
     const float kMouseLookSensitivity = 0.0025f;
-    const float kPhysicsDebugSolidOpacity = 0.24f;
-    const float kPhysicsDebugWireframeOpacity = 0.12f;
+    const float kDebugRebuildInterval = 1.0f / 12.0f;
 
     Vector3 getPlanarForward(const Camera3D &camera)
     {
@@ -31,22 +29,94 @@ namespace
     {
         return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
     }
+}
 
-    void applyPhysicsDebugTransparency(Scene3D &scene)
+void Demo::appendSceneAndRecordRange(const Scene3D &sourceScene, std::vector<SceneEntityRange> &ranges)
+{
+    if (!combinedScene)
     {
-        for (Entity3D &entity : scene.getEntities())
-        {
-            if (entity.material.renderSolid)
-            {
-                entity.material.solid.opacity = std::min(entity.material.solid.opacity, kPhysicsDebugSolidOpacity);
-            }
+        return;
+    }
 
-            if (entity.material.renderWireframe)
-            {
-                entity.material.wireframe.opacity = std::min(entity.material.wireframe.opacity, kPhysicsDebugWireframeOpacity);
-            }
+    SceneEntityRange range;
+    range.start = combinedScene->getEntities().size();
+    range.count = sourceScene.getEntities().size();
+    combinedScene->appendEntitiesFrom(sourceScene);
+    ranges.push_back(range);
+}
+
+void Demo::copySceneRange(const Scene3D &sourceScene, const SceneEntityRange &range)
+{
+    if (!combinedScene || range.count == 0)
+    {
+        return;
+    }
+
+    std::vector<Entity3D> &targetEntities = combinedScene->getEntities();
+    const std::vector<Entity3D> &sourceEntities = sourceScene.getEntities();
+    if (sourceEntities.size() != range.count || range.start + range.count > targetEntities.size())
+    {
+        return;
+    }
+
+    for (std::size_t i = 0; i < range.count; ++i)
+    {
+        Entity3D &target = targetEntities[range.start + i];
+        const Entity3D &source = sourceEntities[i];
+        target.transform = source.transform;
+        target.material = source.material;
+        target.material.renderWireframe = showWireframes;
+    }
+}
+
+void Demo::syncCombinedSceneEntities()
+{
+    if (!combinedScene)
+    {
+        return;
+    }
+
+    for (std::size_t i = 0; i < ringObjects.size() && i < ringObjectRanges.size(); ++i)
+    {
+        if (ringObjects[i])
+        {
+            copySceneRange(ringObjects[i]->getRenderScene(), ringObjectRanges[i]);
         }
     }
+
+    for (std::size_t i = 0; i < squareObjects.size() && i < squareObjectRanges.size(); ++i)
+    {
+        if (squareObjects[i])
+        {
+            copySceneRange(squareObjects[i]->getRenderScene(), squareObjectRanges[i]);
+        }
+    }
+
+    for (std::size_t i = 0; i < sphereObjects.size() && i < sphereObjectRanges.size(); ++i)
+    {
+        if (sphereObjects[i])
+        {
+            copySceneRange(sphereObjects[i]->getRenderScene(), sphereObjectRanges[i]);
+        }
+    }
+
+    for (std::size_t i = 0; i < sphereArenaObjects.size() && i < sphereArenaObjectRanges.size(); ++i)
+    {
+        if (sphereArenaObjects[i])
+        {
+            copySceneRange(sphereArenaObjects[i]->getRenderScene(), sphereArenaObjectRanges[i]);
+        }
+    }
+
+    for (std::size_t i = 0; i < composedObjects.size() && i < composedObjectRanges.size(); ++i)
+    {
+        if (composedObjects[i])
+        {
+            copySceneRange(composedObjects[i]->getRenderScene(), composedObjectRanges[i]);
+        }
+    }
+
+    combinedScene->touch();
 }
 
 Demo::~Demo() = default;
@@ -54,6 +124,8 @@ Demo::~Demo() = default;
 void Demo::onAttach(int viewportWidth, int viewportHeight)
 {
     const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
+    const std::size_t simulationCount = sceneDesc.ringObjects.size() + sceneDesc.sphereArenaObjects.size();
+    const bool isLargeSimulationBenchmark = simulationCount >= 64;
 
     ringObjects.clear();
     for (const RingObjectDesc &ringDesc : sceneDesc.ringObjects)
@@ -97,18 +169,18 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
 
     physicsWorld2D = std::make_unique<PhysicsWorld2D>();
     physicsWorld2D->setGravity(sceneDesc.gravity2D);
-    physicsWorld2D->setSolverIterations(8);
-    physicsWorld2D->setStopThreshold(8.0f);
-    physicsWorld2D->setAngularStopThreshold(0.12f);
-    physicsWorld2D->setSleepDelay(0.35f);
+    physicsWorld2D->setSolverIterations(isLargeSimulationBenchmark ? 4 : 8);
+    physicsWorld2D->setStopThreshold(isLargeSimulationBenchmark ? 12.0f : 8.0f);
+    physicsWorld2D->setAngularStopThreshold(isLargeSimulationBenchmark ? 0.18f : 0.12f);
+    physicsWorld2D->setSleepDelay(isLargeSimulationBenchmark ? 0.22f : 0.35f);
 
     physicsWorld3D = std::make_unique<PhysicsWorld3D>();
     physicsWorld3D->setGravity(sceneDesc.gravity3D);
-    physicsWorld3D->setStopThreshold(0.02f);
-    physicsWorld3D->setAngularStopThreshold(0.035f);
+    physicsWorld3D->setStopThreshold(isLargeSimulationBenchmark ? 0.035f : 0.02f);
+    physicsWorld3D->setAngularStopThreshold(isLargeSimulationBenchmark ? 0.055f : 0.035f);
     physicsWorld3D->setRestitutionThreshold(0.22f);
-    physicsWorld3D->setSleepDelay(0.45f);
-    physicsWorld3D->setSolverIterations(8);
+    physicsWorld3D->setSleepDelay(isLargeSimulationBenchmark ? 0.28f : 0.45f);
+    physicsWorld3D->setSolverIterations(isLargeSimulationBenchmark ? 4 : 8);
 
     camera3D = std::make_unique<Camera3D>();
     camera3D->transform.position = sceneDesc.cameraPosition;
@@ -185,6 +257,11 @@ void Demo::updateDebugToggles()
     if (Input::wasKeyPressed(EngineKeyCode::Space))
     {
         freezeFixedTicks = !freezeFixedTicks;
+        debugRebuildAccumulator = 0.0f;
+        if (showLightDebugMarkers || showPhysicsDebugMarkers)
+        {
+            changed = true;
+        }
     }
 
     if (Input::wasActionPressed(EngineInputAction::ToggleLightDebug))
@@ -274,7 +351,25 @@ void Demo::onFixedUpdate(float dt)
         }
     }
 
-    rebuildCombinedScene();
+    if (showLightDebugMarkers || showPhysicsDebugMarkers)
+    {
+        const bool needsRealtimePhysicsDebug = showPhysicsDebugMarkers && !freezeFixedTicks;
+        debugRebuildAccumulator += dt;
+        if (needsRealtimePhysicsDebug || debugRebuildAccumulator >= kDebugRebuildInterval)
+        {
+            rebuildCombinedScene();
+            debugRebuildAccumulator = 0.0f;
+        }
+        else
+        {
+            syncCombinedSceneEntities();
+        }
+    }
+    else
+    {
+        debugRebuildAccumulator = 0.0f;
+        syncCombinedSceneEntities();
+    }
 }
 
 void Demo::onUpdate(float dt)
@@ -301,100 +396,80 @@ void Demo::rebuildCombinedScene()
     }
 
     combinedScene->clearEntities();
+    ringObjectRanges.clear();
+    squareObjectRanges.clear();
+    sphereObjectRanges.clear();
+    sphereArenaObjectRanges.clear();
+    composedObjectRanges.clear();
+
     for (const auto &ringObject : ringObjects)
     {
         if (ringObject)
         {
-            combinedScene->appendEntitiesFrom(ringObject->getRenderScene());
+            appendSceneAndRecordRange(ringObject->getRenderScene(), ringObjectRanges);
+        }
+        else
+        {
+            ringObjectRanges.push_back({});
         }
     }
     for (const auto &squareObject : squareObjects)
     {
         if (squareObject)
         {
-            combinedScene->appendEntitiesFrom(squareObject->getRenderScene());
+            appendSceneAndRecordRange(squareObject->getRenderScene(), squareObjectRanges);
+        }
+        else
+        {
+            squareObjectRanges.push_back({});
         }
     }
     for (const auto &sphereObject : sphereObjects)
     {
         if (sphereObject)
         {
-            combinedScene->appendEntitiesFrom(sphereObject->getRenderScene());
+            appendSceneAndRecordRange(sphereObject->getRenderScene(), sphereObjectRanges);
+        }
+        else
+        {
+            sphereObjectRanges.push_back({});
         }
     }
     for (const auto &sphereArenaObject : sphereArenaObjects)
     {
         if (sphereArenaObject)
         {
-            combinedScene->appendEntitiesFrom(sphereArenaObject->getRenderScene());
+            appendSceneAndRecordRange(sphereArenaObject->getRenderScene(), sphereArenaObjectRanges);
+        }
+        else
+        {
+            sphereArenaObjectRanges.push_back({});
         }
     }
     for (const auto &composedObject : composedObjects)
     {
         if (composedObject)
         {
-            combinedScene->appendEntitiesFrom(composedObject->getRenderScene());
+            appendSceneAndRecordRange(composedObject->getRenderScene(), composedObjectRanges);
+        }
+        else
+        {
+            composedObjectRanges.push_back({});
         }
     }
 
     combinedScene->applyWireframeVisibilityOverride(showWireframes);
 
-    if (showPhysicsDebugMarkers)
-    {
-        applyPhysicsDebugTransparency(*combinedScene);
-    }
-
-    if (showLightDebugMarkers)
-    {
-        LightDebug3D::appendLightMarkers(*combinedScene, *combinedScene);
-    }
-
-    if (showPhysicsDebugMarkers)
-    {
-        for (const auto &ringObject : ringObjects)
-        {
-            if (ringObject)
-            {
-                ringObject->appendDebugMarkers(*combinedScene);
-            }
-        }
-
-        for (std::size_t i = 0; i < squareObjects.size(); ++i)
-        {
-            if (!squareObjects[i] || i >= squareObjectRingIndices.size())
-            {
-                continue;
-            }
-
-            const std::size_t ringIndex = squareObjectRingIndices[i];
-            if (ringIndex >= ringObjects.size() || !ringObjects[ringIndex])
-            {
-                continue;
-            }
-
-            squareObjects[i]->appendDebugMarkers(*combinedScene, ringObjects[ringIndex]->getConfig());
-        }
-
-        for (const auto &sphereArenaObject : sphereArenaObjects)
-        {
-            if (sphereArenaObject)
-            {
-                PhysicsDebug3D::appendPhysicsSceneMarkers(
-                    sphereArenaObject->getPhysicsScene(),
-                    *combinedScene,
-                    sphereArenaObject->getWorldOffset());
-            }
-        }
-
-        for (const auto &composedObject : composedObjects)
-        {
-            if (composedObject)
-            {
-                PhysicsDebug3D::appendPhysicsSceneMarkers(
-                    composedObject->getPhysicsScene(),
-                    *combinedScene,
-                    composedObject->getWorldOffset());
-            }
-        }
-    }
+    DebugSceneComposer3D::appendOverlays(
+        *combinedScene,
+        DebugSceneComposer3D::Options{
+            showLightDebugMarkers,
+            showPhysicsDebugMarkers,
+            0.24f,
+            0.12f},
+        ringObjects,
+        squareObjects,
+        squareObjectRingIndices,
+        sphereArenaObjects,
+        composedObjects);
 }

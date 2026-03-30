@@ -40,7 +40,7 @@ public:
     void setVelocity(const Vector2 &newVelocity)
     {
         velocity = newVelocity;
-        if (velocity.lengthSquared() > 0.0f)
+        if (velocity.lengthSquared() > 0.0001f)
         {
             wakeUp();
         }
@@ -69,7 +69,7 @@ public:
     void setAngularVelocity(float newAngularVelocity)
     {
         angularVelocity = newAngularVelocity;
-        if (std::abs(angularVelocity) > 0.0f)
+        if (std::abs(angularVelocity) > 0.0001f)
         {
             wakeUp();
         }

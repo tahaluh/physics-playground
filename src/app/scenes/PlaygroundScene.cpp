@@ -183,11 +183,6 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
         desc.composedObjects.push_back(makeShadowTestObjectDesc());
     }
 
-    if (kUseBenchmarkScene)
-    {
-        desc.ambientLight.intensity = 0.9f;
-    }
-    else
     {
         Camera3D lightProbeCamera;
         lightProbeCamera.transform.position = desc.cameraPosition;
@@ -196,17 +191,7 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
         desc.directionalLights.push_back({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
                                           0xFFFFFFFF,
                                           0.9f});
-        desc.pointLights.push_back({kPointLightPosition,
-                                    0xFFFF4040,
-                                    0.75f,
-                                    8.0f});
-        desc.spotLights.push_back({kSpotLightPosition,
-                                   kSpotLightDirection,
-                                   kSpotLightColor,
-                                   kSpotLightIntensity,
-                                   kSpotLightRange,
-                                   kSpotLightInnerConeCos,
-                                   kSpotLightOuterConeCos});
     }
+
     return desc;
 }

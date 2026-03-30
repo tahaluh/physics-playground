@@ -137,6 +137,11 @@ void ComposedObject3D::step(PhysicsWorld3D &physicsWorld, float dt)
         return;
     }
 
+    if (!physicsScene->hasAwakeDynamicBodies())
+    {
+        return;
+    }
+
     physicsWorld.step(*physicsScene, dt);
     syncRenderScene();
 }

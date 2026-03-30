@@ -20,6 +20,7 @@ public:
     std::vector<Entity3D> &getEntities();
     const std::vector<Entity3D> &getEntities() const;
     uint64_t getRevision() const;
+    void touch();
     AmbientLight &getAmbientLight();
     const AmbientLight &getAmbientLight() const;
     bool copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene3D *> sources);

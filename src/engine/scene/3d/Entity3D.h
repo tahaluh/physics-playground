@@ -9,7 +9,9 @@
 struct Entity3D
 {
     std::string name;
+    std::string instancingKey;
     Transform3D transform;
     Mesh3D mesh;
     Material3D material;
+    bool supportsInstancing = false;
 };

@@ -7,8 +7,7 @@
 #include "engine/graphics/IGraphicsDevice.h"
 #include "engine/render/3d/Camera3D.h"
 #include "engine/scene/3d/Scene3D.h"
-#include "engine/scene/objects/ComposedObject3D.h"
-#include "engine/scene/objects/SphereObject.h"
+#include "engine/scene/objects/BodyObject3D.h"
 
 class Demo : public ApplicationLayer
 {
@@ -40,10 +39,8 @@ private:
 
     std::unique_ptr<Camera3D> camera3D;
     std::unique_ptr<Scene3D> combinedScene;
-    std::vector<std::unique_ptr<SphereObject>> sphereObjects;
-    std::vector<std::unique_ptr<ComposedObject3D>> composedObjects;
-    std::vector<SceneEntityRange> sphereObjectRanges;
-    std::vector<SceneEntityRange> composedObjectRanges;
+    std::vector<std::unique_ptr<BodyObject3D>> bodyObjects;
+    std::vector<SceneEntityRange> bodyObjectRanges;
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
     int viewportWidth = 0;

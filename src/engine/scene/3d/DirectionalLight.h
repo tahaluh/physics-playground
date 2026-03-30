@@ -10,6 +10,7 @@ struct DirectionalLightDesc
     Vector3 direction = Vector3(-0.3f, -1.0f, -0.2f).normalized();
     uint32_t color = 0xFFFFFFFF;
     float intensity = 1.0f;
+    bool castShadows = true;
 };
 
 struct DirectionalLight
@@ -18,6 +19,7 @@ struct DirectionalLight
     uint32_t color = 0xFFFFFFFF;
     float intensity = 1.0f;
     bool enabled = true;
+    bool castShadows = true;
 };
 
 struct DirectionalLightHandle

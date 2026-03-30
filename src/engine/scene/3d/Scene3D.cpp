@@ -96,6 +96,7 @@ DirectionalLightHandle Scene3D::createDirectionalLight(const DirectionalLightDes
     light.direction = desc.direction.lengthSquared() > 0.0f ? desc.direction.normalized() : Vector3(0.0f, -1.0f, 0.0f);
     light.color = desc.color;
     light.intensity = desc.intensity;
+    light.castShadows = desc.castShadows;
     directionalLights.push_back(light);
     ++revision;
     return DirectionalLightHandle{directionalLights.size() - 1};
@@ -130,6 +131,7 @@ PointLightHandle Scene3D::createPointLight(const PointLightDesc &desc)
     light.color = desc.color;
     light.intensity = desc.intensity;
     light.range = desc.range > 0.0f ? desc.range : 0.001f;
+    light.castShadows = desc.castShadows;
     pointLights.push_back(light);
     ++revision;
     return PointLightHandle{pointLights.size() - 1};
@@ -167,6 +169,7 @@ SpotLightHandle Scene3D::createSpotLight(const SpotLightDesc &desc)
     light.range = desc.range > 0.0f ? desc.range : 0.001f;
     light.innerConeCos = desc.innerConeCos;
     light.outerConeCos = desc.outerConeCos;
+    light.castShadows = desc.castShadows;
     if (light.innerConeCos < light.outerConeCos)
     {
         std::swap(light.innerConeCos, light.outerConeCos);

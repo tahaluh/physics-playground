@@ -1,12 +1,11 @@
 #include "app/scenes/PlaygroundScene.h"
 
 #include <cstdint>
-
-#include "engine/render/3d/mesh/MeshFactory3D.h"
+#include <string>
 
 namespace
 {
-constexpr int kCubeGridSize = 6;
+constexpr int kCubeGridSize = 25;
 constexpr float kCubeSize = 1.0f;
 constexpr float kCubeSpacing = 0.32f;
 
@@ -41,23 +40,19 @@ uint32_t makeCubeColor(int column, int row, int layer)
            static_cast<uint32_t>(blue);
 }
 
-ComposedObject3DDesc makeCubeDesc(int column, int row, int layer, const Vector3 &position)
+BodyObject3DDesc makeCubeDesc(int column, int row, int layer, const Vector3 &position)
 {
-    ComposedObject3DDesc desc;
+    BodyObject3DDesc desc;
     desc.name = "GridCube_" + std::to_string(column) + "_" + std::to_string(row) + "_" + std::to_string(layer);
-    desc.worldOffset = Vector3::zero();
-
-    SceneBodyNodeDesc3D node;
-    node.name = "Cube";
-    node.render.enabled = true;
-    node.render.localPosition = position;
-    node.render.mesh = MeshFactory3D::makeCube(kCubeSize);
-    node.render.material.solid = MaterialPresets3D::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
-    node.render.material.wireframe.baseColor = 0xFFFFFFFF;
-    node.render.material.wireframe.opacity = 0.16f;
-    node.render.material.renderSolid = true;
-    node.render.material.renderWireframe = false;
-    desc.nodes.push_back(node);
+    desc.motionType = BodyMotionType3D::Static;
+    desc.shapeType = BodyShapeType3D::Cube;
+    desc.transform.position = position;
+    desc.transform.scale = Vector3::one() * kCubeSize;
+    desc.material.solid = MaterialPresets3D::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
+    desc.material.wireframe.baseColor = 0xFFFFFFFF;
+    desc.material.wireframe.opacity = 0.16f;
+    desc.material.renderSolid = true;
+    desc.material.renderWireframe = false;
     return desc;
 }
 }
@@ -82,21 +77,16 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
                     origin.x + static_cast<float>(column) * step,
                     origin.y + static_cast<float>(row) * step,
                     origin.z + static_cast<float>(layer) * step);
-                desc.composedObjects.push_back(makeCubeDesc(column, row, layer, position));
+                desc.bodies.push_back(makeCubeDesc(column, row, layer, position));
             }
         }
     }
 
-    {
-        Camera3D lightProbeCamera;
-        lightProbeCamera.transform.position = desc.cameraPosition;
-        lightProbeCamera.transform.rotation = desc.cameraRotation;
-        const Vector3 initialCameraForward = lightProbeCamera.getForward();
-        desc.directionalLights.push_back({
-            initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
-            0xFFFFFFFF,
-            0.72f});
-    }
+    desc.directionalLights.push_back({
+        Vector3(-1.0f, -1.2f, -1.0f).normalized(),
+        0xFFFFFFFF,
+        0.72f,
+        true});
 
     return desc;
 }

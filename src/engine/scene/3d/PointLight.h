@@ -11,6 +11,7 @@ struct PointLightDesc
     uint32_t color = 0xFFFFFFFF;
     float intensity = 1.0f;
     float range = 12.0f;
+    bool castShadows = true;
 };
 
 struct PointLight
@@ -20,6 +21,7 @@ struct PointLight
     float intensity = 1.0f;
     float range = 12.0f;
     bool enabled = true;
+    bool castShadows = true;
 };
 
 struct PointLightHandle

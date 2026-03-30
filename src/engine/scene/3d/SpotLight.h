@@ -14,6 +14,7 @@ struct SpotLightDesc
     float range = 12.0f;
     float innerConeCos = 0.95f;
     float outerConeCos = 0.8f;
+    bool castShadows = true;
 };
 
 struct SpotLight
@@ -26,6 +27,7 @@ struct SpotLight
     float innerConeCos = 0.95f;
     float outerConeCos = 0.8f;
     bool enabled = true;
+    bool castShadows = true;
 };
 
 struct SpotLightHandle

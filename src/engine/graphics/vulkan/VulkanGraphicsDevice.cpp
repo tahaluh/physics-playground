@@ -252,9 +252,8 @@ bool isEntityRoughlyVisible(const Camera3D &camera, const Matrix4 &viewMatrix, c
     return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
 }
 
-Matrix4 computeDirectionalShadowMatrix(const Scene3D &scene, const DirectionalLight &light)
+Matrix4 computeDirectionalShadowMatrix(const SceneBounds3D &bounds, const DirectionalLight &light)
 {
-    const SceneBounds3D bounds = computeSceneBounds(scene);
     if (!bounds.valid)
     {
         return Matrix4::identity();
@@ -400,6 +399,7 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
         return false;
 
     triangleResourcesReady = createTrianglePipeline();
+    triangleResourcesReady = triangleResourcesReady && createInstancedTrianglePipeline();
     triangleResourcesReady = triangleResourcesReady && createLinePipeline();
     triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
     if (!triangleResourcesReady)
@@ -494,6 +494,7 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
     transparentSceneVertices.clear();
     lineSceneVertices.clear();
     shadowSceneVertices.clear();
+    destroyInstancedBatches();
     opaqueSceneVertexCount = 0;
     transparentSceneVertexCount = 0;
     lineSceneVertexCount = 0;
@@ -1439,6 +1440,181 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     return opaqueSuccess && transparentSuccess;
 }
 
+bool VulkanGraphicsDevice::createInstancedTrianglePipeline()
+{
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/basic/basic_instanced.vert.spv",
+        "shaders/vulkan/basic/basic_instanced.vert.spv"});
+    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/basic/basic.frag.spv",
+        "shaders/vulkan/basic/basic.frag.spv"});
+    if (vertexShaderCode.empty() || fragmentShaderCode.empty())
+    {
+        return false;
+    }
+
+    const VkShaderModule vertexShaderModule = createShaderModule(vertexShaderCode);
+    const VkShaderModule fragmentShaderModule = createShaderModule(fragmentShaderCode);
+    if (!vertexShaderModule || !fragmentShaderModule)
+    {
+        if (vertexShaderModule)
+            vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+        if (fragmentShaderModule)
+            vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo vertexShaderStageInfo{};
+    vertexShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertexShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertexShaderStageInfo.module = vertexShaderModule;
+    vertexShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo fragmentShaderStageInfo{};
+    fragmentShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    fragmentShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    fragmentShaderStageInfo.module = fragmentShaderModule;
+    fragmentShaderStageInfo.pName = "main";
+
+    VkPipelineShaderStageCreateInfo shaderStages[] = {vertexShaderStageInfo, fragmentShaderStageInfo};
+
+    std::array<VkVertexInputBindingDescription, 2> bindingDescriptions{};
+    bindingDescriptions[0].binding = 0;
+    bindingDescriptions[0].stride = sizeof(InstancedMeshVertex);
+    bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    bindingDescriptions[1].binding = 1;
+    bindingDescriptions[1].stride = sizeof(InstancedMeshInstance);
+    bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    std::array<VkVertexInputAttributeDescription, 11> attributeDescriptions{};
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(InstancedMeshVertex, position);
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(InstancedMeshVertex, color);
+    attributeDescriptions[2].binding = 0;
+    attributeDescriptions[2].location = 2;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(InstancedMeshVertex, normal);
+    attributeDescriptions[3].binding = 1;
+    attributeDescriptions[3].location = 3;
+    attributeDescriptions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[3].offset = offsetof(InstancedMeshInstance, modelRow0);
+    attributeDescriptions[4].binding = 1;
+    attributeDescriptions[4].location = 4;
+    attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[4].offset = offsetof(InstancedMeshInstance, modelRow1);
+    attributeDescriptions[5].binding = 1;
+    attributeDescriptions[5].location = 5;
+    attributeDescriptions[5].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[5].offset = offsetof(InstancedMeshInstance, modelRow2);
+    attributeDescriptions[6].binding = 1;
+    attributeDescriptions[6].location = 6;
+    attributeDescriptions[6].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[6].offset = offsetof(InstancedMeshInstance, modelRow3);
+    attributeDescriptions[7].binding = 1;
+    attributeDescriptions[7].location = 7;
+    attributeDescriptions[7].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[7].offset = offsetof(InstancedMeshInstance, color);
+    attributeDescriptions[8].binding = 1;
+    attributeDescriptions[8].location = 8;
+    attributeDescriptions[8].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[8].offset = offsetof(InstancedMeshInstance, emissive);
+    attributeDescriptions[9].binding = 1;
+    attributeDescriptions[9].location = 9;
+    attributeDescriptions[9].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[9].offset = offsetof(InstancedMeshInstance, material);
+    attributeDescriptions[10].binding = 1;
+    attributeDescriptions[10].location = 10;
+    attributeDescriptions[10].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[10].offset = offsetof(InstancedMeshInstance, lighting);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+    vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT |
+        VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT |
+        VK_COLOR_COMPONENT_A_BIT;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 1;
+    colorBlending.pAttachments = &colorBlendAttachment;
+
+    const std::array<VkDynamicState, 2> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 2;
+    pipelineInfo.pStages = shaderStages;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = trianglePipelineLayout;
+    pipelineInfo.renderPass = renderPass;
+    pipelineInfo.subpass = 0;
+
+    const bool success = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &opaqueInstancedTrianglePipeline) == VK_SUCCESS;
+    vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
+    vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+    return success;
+}
+
 bool VulkanGraphicsDevice::createLinePipeline()
 {
     const std::vector<char> vertexShaderCode = readFirstExistingBinary({
@@ -1741,6 +1917,7 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
 {
     const Matrix4 viewMatrix = camera.getViewMatrix();
     const Matrix4 projectionMatrix = camera.getProjectionMatrix();
+    const CachedSceneBounds shadowSceneBounds = getCachedSceneBounds(scene);
     const std::array<float, 4> ambientColor = colorToFloat4(scene.getAmbientLight().color);
     ambientUniform.ambientColorIntensity[0] = ambientColor[0];
     ambientUniform.ambientColorIntensity[1] = ambientColor[1];
@@ -1758,17 +1935,21 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     spotShadowCount = 0;
     for (const DirectionalLight &light : scene.getDirectionalLights())
     {
-        if (!light.enabled || light.intensity <= 0.0f)
+        if (!light.enabled || light.intensity <= 0.0f || !light.castShadows)
         {
             continue;
         }
 
-        currentDirectionalShadowViewProjections.push_back(computeDirectionalShadowMatrix(scene, light));
+        SceneBounds3D bounds;
+        bounds.min = shadowSceneBounds.min;
+        bounds.max = shadowSceneBounds.max;
+        bounds.valid = shadowSceneBounds.valid;
+        currentDirectionalShadowViewProjections.push_back(computeDirectionalShadowMatrix(bounds, light));
         ++directionalShadowCount;
     }
     for (const PointLight &light : scene.getPointLights())
     {
-        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
+        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f || !light.castShadows)
         {
             continue;
         }
@@ -1782,7 +1963,7 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     }
     for (const SpotLight &light : scene.getSpotLights())
     {
-        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f)
+        if (!light.enabled || light.intensity <= 0.0f || light.range <= 0.0f || !light.castShadows)
         {
             continue;
         }
@@ -2264,6 +2445,23 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     return true;
 }
 
+VulkanGraphicsDevice::CachedSceneBounds VulkanGraphicsDevice::getCachedSceneBounds(const Scene3D &scene)
+{
+    if (cachedShadowSceneBounds.scene == &scene &&
+        cachedShadowSceneBounds.revision == scene.getRevision())
+    {
+        return cachedShadowSceneBounds;
+    }
+
+    const SceneBounds3D bounds = computeSceneBounds(scene);
+    cachedShadowSceneBounds.scene = &scene;
+    cachedShadowSceneBounds.revision = scene.getRevision();
+    cachedShadowSceneBounds.min = bounds.min;
+    cachedShadowSceneBounds.max = bounds.max;
+    cachedShadowSceneBounds.valid = bounds.valid;
+    return cachedShadowSceneBounds;
+}
+
 void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Scene3D &scene)
 {
     struct EntitySortItem
@@ -2273,15 +2471,155 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     };
 
     std::vector<TriangleVertex> lineVertices;
-    const bool hasShadowLights =
-        !scene.getDirectionalLights().empty() ||
-        !scene.getPointLights().empty() ||
-        !scene.getSpotLights().empty();
+    bool hasShadowLights = false;
+    for (const DirectionalLight &light : scene.getDirectionalLights())
+    {
+        if (light.enabled && light.intensity > 0.0f && light.castShadows)
+        {
+            hasShadowLights = true;
+            break;
+        }
+    }
+    if (!hasShadowLights)
+    {
+        for (const PointLight &light : scene.getPointLights())
+        {
+            if (light.enabled && light.intensity > 0.0f && light.range > 0.0f && light.castShadows)
+            {
+                hasShadowLights = true;
+                break;
+            }
+        }
+    }
+    if (!hasShadowLights)
+    {
+        for (const SpotLight &light : scene.getSpotLights())
+        {
+            if (light.enabled && light.intensity > 0.0f && light.range > 0.0f && light.castShadows)
+            {
+                hasShadowLights = true;
+                break;
+            }
+        }
+    }
+
     std::vector<EntitySortItem> opaqueEntities;
     std::vector<EntitySortItem> transparentEntities;
+    std::unordered_map<std::string, std::size_t> instancedBatchLookup;
+
+    const auto appendInstancedMeshVertices =
+        [&](InstancedBatch &batch, const Entity3D &entity)
+    {
+        batch.meshVertices.reserve(entity.mesh.triangles.size() * 3);
+        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        {
+            Vector3 localSurfaceNormal = (
+                entity.mesh.vertices[triangle.indices[1]] - entity.mesh.vertices[triangle.indices[0]])
+                                             .cross(entity.mesh.vertices[triangle.indices[2]] - entity.mesh.vertices[triangle.indices[0]])
+                                             .normalized();
+            if (localSurfaceNormal.lengthSquared() == 0.0f)
+            {
+                localSurfaceNormal = Vector3::up();
+            }
+
+            const std::array<float, 4> triangleColor = colorToFloat4(triangle.color);
+            for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
+            {
+                const int meshVertexIndex = triangle.indices[vertexIndex];
+                Vector3 localNormal = localSurfaceNormal;
+                if (meshVertexIndex >= 0 && static_cast<size_t>(meshVertexIndex) < entity.mesh.vertexNormals.size())
+                {
+                    localNormal = entity.mesh.vertexNormals[meshVertexIndex].normalized();
+                    if (localNormal.lengthSquared() == 0.0f)
+                    {
+                        localNormal = localSurfaceNormal;
+                    }
+                }
+
+                InstancedMeshVertex vertex{};
+                vertex.position[0] = entity.mesh.vertices[meshVertexIndex].x;
+                vertex.position[1] = entity.mesh.vertices[meshVertexIndex].y;
+                vertex.position[2] = entity.mesh.vertices[meshVertexIndex].z;
+                std::memcpy(vertex.color, triangleColor.data(), sizeof(vertex.color));
+                vertex.normal[0] = localNormal.x;
+                vertex.normal[1] = localNormal.y;
+                vertex.normal[2] = localNormal.z;
+                vertex.normal[3] = 0.0f;
+                batch.meshVertices.push_back(vertex);
+            }
+        }
+    };
+
+    const auto appendInstancedEntity =
+        [&](const Entity3D &entity)
+    {
+        std::size_t batchIndex = opaqueInstancedBatches.size();
+        auto lookupIt = instancedBatchLookup.find(entity.instancingKey);
+        if (lookupIt == instancedBatchLookup.end())
+        {
+            InstancedBatch batch;
+            batch.key = entity.instancingKey;
+            appendInstancedMeshVertices(batch, entity);
+            batchIndex = opaqueInstancedBatches.size();
+            opaqueInstancedBatches.push_back(std::move(batch));
+            instancedBatchLookup.emplace(entity.instancingKey, batchIndex);
+        }
+        else
+        {
+            batchIndex = lookupIt->second;
+        }
+
+        InstancedBatch &batch = opaqueInstancedBatches[batchIndex];
+        InstancedMeshInstance instance{};
+        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        std::memcpy(instance.modelRow0, modelMatrix.m.data() + 0, sizeof(instance.modelRow0));
+        std::memcpy(instance.modelRow1, modelMatrix.m.data() + 4, sizeof(instance.modelRow1));
+        std::memcpy(instance.modelRow2, modelMatrix.m.data() + 8, sizeof(instance.modelRow2));
+        std::memcpy(instance.modelRow3, modelMatrix.m.data() + 12, sizeof(instance.modelRow3));
+
+        const std::array<float, 4> baseColor = colorToFloat4(entity.material.solid.resolveBaseColor());
+        const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
+        std::memcpy(instance.color, baseColor.data(), sizeof(instance.color));
+        std::memcpy(instance.emissive, emissiveColor.data(), sizeof(instance.emissive));
+        instance.material[0] = Vector3::clamp(entity.material.solid.ambientFactor, 0.0f, 1.0f);
+        instance.material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
+        instance.material[2] = entity.material.solid.unlit ? 1.0f : 0.0f;
+        instance.material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
+        instance.lighting[0] = Vector3::clamp(entity.material.solid.metallic, 0.0f, 1.0f);
+        instance.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
+        instance.lighting[2] = 0.0f;
+        instance.lighting[3] = 0.0f;
+        batch.instances.push_back(instance);
+    };
 
     for (const Entity3D &entity : scene.getEntities())
     {
+        if (entity.supportsInstancing &&
+            entity.material.renderSolid &&
+            !entity.material.isTransparent() &&
+            !entity.instancingKey.empty())
+        {
+            appendInstancedEntity(entity);
+            if (hasShadowLights)
+            {
+                const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+                for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+                {
+                    for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
+                    {
+                        const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
+                        TriangleVertex vertex{};
+                        vertex.worldPosition[0] = worldPosition.x;
+                        vertex.worldPosition[1] = worldPosition.y;
+                        vertex.worldPosition[2] = worldPosition.z;
+                        vertex.worldPosition[3] = 1.0f;
+                        shadowSceneVertices.push_back(vertex);
+                    }
+                }
+            }
+            continue;
+        }
+
         EntitySortItem item;
         item.entity = &entity;
         item.distanceSquared = (entity.transform.position - camera.transform.position).lengthSquared();
@@ -2530,14 +2868,13 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
 
 bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
 {
-    const auto uploadVertices = [&](const std::vector<TriangleVertex> &vertices, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
+    const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
     {
-        if (vertices.empty())
+        if (!source || requiredSize == 0)
         {
             return true;
         }
 
-        const VkDeviceSize requiredSize = sizeof(TriangleVertex) * static_cast<VkDeviceSize>(vertices.size());
         if (!bufferHandle.buffer || bufferSize < requiredSize)
         {
             if (bufferHandle.buffer)
@@ -2570,25 +2907,107 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
             std::fprintf(stderr, "Failed to map scene vertex buffer memory.\n");
             return false;
         }
-        std::memcpy(data, vertices.data(), static_cast<size_t>(requiredSize));
+        std::memcpy(data, source, static_cast<size_t>(requiredSize));
         vkUnmapMemory(device, bufferHandle.memory);
         return true;
+    };
+
+    const auto uploadVertices = [&](const std::vector<TriangleVertex> &vertices, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
+    {
+        if (vertices.empty())
+        {
+            return true;
+        }
+
+        return uploadRawBuffer(vertices.data(), sizeof(TriangleVertex) * static_cast<VkDeviceSize>(vertices.size()), bufferHandle, bufferSize);
     };
 
     opaqueSceneVertexCount = static_cast<uint32_t>(opaqueSceneVertices.size());
     transparentSceneVertexCount = static_cast<uint32_t>(transparentSceneVertices.size());
     lineSceneVertexCount = static_cast<uint32_t>(lineSceneVertices.size());
     shadowSceneVertexCount = static_cast<uint32_t>(shadowSceneVertices.size());
+    uint32_t instancedBatchCount = 0;
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        batch.meshVertexCount = static_cast<uint32_t>(batch.meshVertices.size());
+        batch.instanceCount = static_cast<uint32_t>(batch.instances.size());
+        if (batch.meshVertexCount > 0 && batch.instanceCount > 0)
+        {
+            ++instancedBatchCount;
+        }
+    }
 
-    if (opaqueSceneVertexCount == 0 && transparentSceneVertexCount == 0 && lineSceneVertexCount == 0 && shadowSceneVertexCount == 0)
+    if (opaqueSceneVertexCount == 0 &&
+        transparentSceneVertexCount == 0 &&
+        lineSceneVertexCount == 0 &&
+        shadowSceneVertexCount == 0 &&
+        instancedBatchCount == 0)
     {
         return true;
     }
 
-    return uploadVertices(opaqueSceneVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
+    bool instancedUploadSuccess = true;
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        if (batch.meshVertexCount == 0 || batch.instanceCount == 0)
+        {
+            continue;
+        }
+
+        instancedUploadSuccess =
+            instancedUploadSuccess &&
+            uploadRawBuffer(
+                batch.meshVertices.data(),
+                sizeof(InstancedMeshVertex) * static_cast<VkDeviceSize>(batch.meshVertices.size()),
+                batch.meshVertexBuffer,
+                batch.meshVertexBufferSize) &&
+            uploadRawBuffer(
+                batch.instances.data(),
+                sizeof(InstancedMeshInstance) * static_cast<VkDeviceSize>(batch.instances.size()),
+                batch.instanceBuffer,
+                batch.instanceBufferSize);
+    }
+
+    return instancedUploadSuccess &&
+           uploadVertices(opaqueSceneVertices, opaqueSceneVertexBuffer, opaqueSceneVertexBufferSize) &&
            uploadVertices(transparentSceneVertices, transparentSceneVertexBuffer, transparentSceneVertexBufferSize) &&
            uploadVertices(lineSceneVertices, lineSceneVertexBuffer, lineSceneVertexBufferSize) &&
            uploadVertices(shadowSceneVertices, shadowSceneVertexBuffer, shadowSceneVertexBufferSize);
+}
+
+void VulkanGraphicsDevice::destroyInstancedBatches()
+{
+    if (!device)
+    {
+        opaqueInstancedBatches.clear();
+        return;
+    }
+
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        if (batch.meshVertexBuffer.buffer)
+        {
+            vkDestroyBuffer(device, batch.meshVertexBuffer.buffer, nullptr);
+            batch.meshVertexBuffer.buffer = VK_NULL_HANDLE;
+        }
+        if (batch.meshVertexBuffer.memory)
+        {
+            vkFreeMemory(device, batch.meshVertexBuffer.memory, nullptr);
+            batch.meshVertexBuffer.memory = VK_NULL_HANDLE;
+        }
+        if (batch.instanceBuffer.buffer)
+        {
+            vkDestroyBuffer(device, batch.instanceBuffer.buffer, nullptr);
+            batch.instanceBuffer.buffer = VK_NULL_HANDLE;
+        }
+        if (batch.instanceBuffer.memory)
+        {
+            vkFreeMemory(device, batch.instanceBuffer.memory, nullptr);
+            batch.instanceBuffer.memory = VK_NULL_HANDLE;
+        }
+    }
+
+    opaqueInstancedBatches.clear();
 }
 
 bool VulkanGraphicsDevice::createFramebuffers()
@@ -2738,6 +3157,7 @@ void VulkanGraphicsDevice::destroyDevice()
         }
 
         destroySwapchain();
+        destroyInstancedBatches();
 
         if (commandPool)
         {
@@ -2916,6 +3336,10 @@ void VulkanGraphicsDevice::destroyDevice()
         if (opaqueTrianglePipeline)
         {
             vkDestroyPipeline(device, opaqueTrianglePipeline, nullptr);
+        }
+        if (opaqueInstancedTrianglePipeline)
+        {
+            vkDestroyPipeline(device, opaqueInstancedTrianglePipeline, nullptr);
         }
         if (transparentTrianglePipeline)
         {
@@ -3099,6 +3523,23 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             }
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, &opaqueSceneVertexBuffer.buffer, offsets);
             vkCmdDraw(commandBuffer, opaqueSceneVertexCount, 1, 0, 0);
+        }
+        if (opaqueInstancedTrianglePipeline && lightingDescriptorSet)
+        {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, opaqueInstancedTrianglePipeline);
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);
+            for (const InstancedBatch &batch : opaqueInstancedBatches)
+            {
+                if (!batch.meshVertexBuffer.buffer || !batch.instanceBuffer.buffer || batch.meshVertexCount == 0 || batch.instanceCount == 0)
+                {
+                    continue;
+                }
+
+                VkBuffer vertexBuffers[] = {batch.meshVertexBuffer.buffer, batch.instanceBuffer.buffer};
+                VkDeviceSize instanceOffsets[] = {0, 0};
+                vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, instanceOffsets);
+                vkCmdDraw(commandBuffer, batch.meshVertexCount, batch.instanceCount, 0, 0);
+            }
         }
         if (transparentTrianglePipeline && transparentSceneVertexBuffer.buffer && transparentSceneVertexCount > 0)
         {

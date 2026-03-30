@@ -154,12 +154,12 @@ inline Mesh3D makeCube(float size, uint32_t color = 0)
     };
 
     mesh.triangles = {
-        {{{0, 1, 2}}, color}, {{{0, 2, 3}}, color},
+        {{{0, 2, 1}}, color}, {{{0, 3, 2}}, color},
         {{{4, 5, 6}}, color}, {{{4, 6, 7}}, color},
         {{{0, 1, 5}}, color}, {{{0, 5, 4}}, color},
         {{{2, 3, 7}}, color}, {{{2, 7, 6}}, color},
         {{{1, 2, 6}}, color}, {{{1, 6, 5}}, color},
-        {{{0, 3, 7}}, color}, {{{0, 7, 4}}, color},
+        {{{0, 4, 7}}, color}, {{{0, 7, 3}}, color},
     };
 
     return mesh;

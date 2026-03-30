@@ -77,19 +77,11 @@ void Demo::syncCombinedSceneEntities()
         return;
     }
 
-    for (std::size_t i = 0; i < sphereObjects.size() && i < sphereObjectRanges.size(); ++i)
+    for (std::size_t i = 0; i < bodyObjects.size() && i < bodyObjectRanges.size(); ++i)
     {
-        if (sphereObjects[i])
+        if (bodyObjects[i])
         {
-            copySceneRange(sphereObjects[i]->getRenderScene(), sphereObjectRanges[i]);
-        }
-    }
-
-    for (std::size_t i = 0; i < composedObjects.size() && i < composedObjectRanges.size(); ++i)
-    {
-        if (composedObjects[i])
-        {
-            copySceneRange(composedObjects[i]->getRenderScene(), composedObjectRanges[i]);
+            copySceneRange(bodyObjects[i]->getRenderScene(), bodyObjectRanges[i]);
         }
     }
 
@@ -103,16 +95,10 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
 
     const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
 
-    sphereObjects.clear();
-    for (const SphereObjectDesc &sphereDesc : sceneDesc.sphereObjects)
+    bodyObjects.clear();
+    for (const BodyObject3DDesc &bodyDesc : sceneDesc.bodies)
     {
-        sphereObjects.push_back(SphereObject::create(sphereDesc));
-    }
-
-    composedObjects.clear();
-    for (const ComposedObject3DDesc &objectDesc : sceneDesc.composedObjects)
-    {
-        composedObjects.push_back(ComposedObject3D::create(objectDesc));
+        bodyObjects.push_back(BodyObject3D::create(bodyDesc));
     }
 
     camera3D = std::make_unique<Camera3D>();
@@ -242,7 +228,6 @@ void Demo::onUpdate(float dt)
 {
     updateDebugToggles();
     updateCamera(dt);
-    syncCombinedSceneEntities();
 }
 
 void Demo::onRender(IGraphicsDevice &graphicsDevice) const
@@ -268,30 +253,17 @@ void Demo::rebuildCombinedScene()
     }
 
     combinedScene->clearEntities();
-    sphereObjectRanges.clear();
-    composedObjectRanges.clear();
+    bodyObjectRanges.clear();
 
-    for (const auto &sphereObject : sphereObjects)
+    for (const auto &bodyObject : bodyObjects)
     {
-        if (sphereObject)
+        if (bodyObject)
         {
-            appendSceneAndRecordRange(sphereObject->getRenderScene(), sphereObjectRanges);
+            appendSceneAndRecordRange(bodyObject->getRenderScene(), bodyObjectRanges);
         }
         else
         {
-            sphereObjectRanges.push_back({});
-        }
-    }
-
-    for (const auto &composedObject : composedObjects)
-    {
-        if (composedObject)
-        {
-            appendSceneAndRecordRange(composedObject->getRenderScene(), composedObjectRanges);
-        }
-        else
-        {
-            composedObjectRanges.push_back({});
+            bodyObjectRanges.push_back({});
         }
     }
 

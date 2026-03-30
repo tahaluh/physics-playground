@@ -25,6 +25,25 @@ public:
         float lighting[4];
     };
 
+    struct InstancedMeshVertex
+    {
+        float position[3];
+        float color[4];
+        float normal[4];
+    };
+
+    struct InstancedMeshInstance
+    {
+        float modelRow0[4];
+        float modelRow1[4];
+        float modelRow2[4];
+        float modelRow3[4];
+        float color[4];
+        float emissive[4];
+        float material[4];
+        float lighting[4];
+    };
+
     struct GpuDirectionalLight
     {
         float direction[4];
@@ -69,6 +88,28 @@ public:
         VkDeviceMemory memory = VK_NULL_HANDLE;
     };
 
+    struct InstancedBatch
+    {
+        std::string key;
+        std::vector<InstancedMeshVertex> meshVertices;
+        std::vector<InstancedMeshInstance> instances;
+        BufferHandle meshVertexBuffer;
+        BufferHandle instanceBuffer;
+        VkDeviceSize meshVertexBufferSize = 0;
+        VkDeviceSize instanceBufferSize = 0;
+        uint32_t meshVertexCount = 0;
+        uint32_t instanceCount = 0;
+    };
+
+    struct CachedSceneBounds
+    {
+        const Scene3D *scene = nullptr;
+        uint64_t revision = 0;
+        Vector3 min = Vector3::zero();
+        Vector3 max = Vector3::zero();
+        bool valid = false;
+    };
+
     ~VulkanGraphicsDevice() override;
 
     GraphicsBackend getBackend() const override;
@@ -103,11 +144,14 @@ private:
     bool createShadowResources();
     bool createLightingResources();
     bool createTrianglePipeline();
+    bool createInstancedTrianglePipeline();
     bool createLinePipeline();
     bool createShadowPipeline();
     void appendSceneVertices(const Camera3D &camera, const Scene3D &scene);
     bool updateLightingBuffers(const Camera3D &camera, const Scene3D &scene);
+    CachedSceneBounds getCachedSceneBounds(const Scene3D &scene);
     bool uploadSceneVertexBuffers();
+    void destroyInstancedBatches();
     bool createFramebuffers();
     bool createCommandPool();
     bool createCommandBuffers();
@@ -192,6 +236,7 @@ private:
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout shadowPipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
+    VkPipeline opaqueInstancedTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline linePipeline = VK_NULL_HANDLE;
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
@@ -227,9 +272,11 @@ private:
     std::vector<TriangleVertex> transparentSceneVertices;
     std::vector<TriangleVertex> lineSceneVertices;
     std::vector<TriangleVertex> shadowSceneVertices;
+    std::vector<InstancedBatch> opaqueInstancedBatches;
     AmbientUniform ambientUniform = {};
     const Scene3D *cachedScene = nullptr;
     uint64_t cachedSceneRevision = 0;
+    CachedSceneBounds cachedShadowSceneBounds;
     Matrix4 cachedViewMatrix = Matrix4::identity();
     Matrix4 cachedProjectionMatrix = Matrix4::identity();
     std::vector<Matrix4> currentDirectionalShadowViewProjections;

@@ -11,8 +11,9 @@ ApplicationConfig PlaygroundApp::makeConfig() const
     ApplicationConfig config;
     config.windowWidth = 0;
     config.windowHeight = 0;
-    config.title = "Phys Playground";
+    config.title = "Render Playground";
     config.clearColor = 0xFF000000;
+    config.fixedTimeStep = 1.0f / 60.0f;
     config.targetFrameRate = 60;
     config.vsyncEnabled = true;
     config.preferredGraphicsBackend = GraphicsBackend::Vulkan;

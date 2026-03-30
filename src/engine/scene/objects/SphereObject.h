@@ -6,7 +6,6 @@
 #include "engine/math/Vector3.h"
 #include "engine/render/3d/Material3D.h"
 
-class PhysicsScene3D;
 class Scene3D;
 
 struct SphereObjectDesc
@@ -29,8 +28,6 @@ public:
     void destroy();
     bool isValid() const;
 
-    PhysicsScene3D &getPhysicsScene();
-    const PhysicsScene3D &getPhysicsScene() const;
     Scene3D &getRenderScene();
     const Scene3D &getRenderScene() const;
     void setWorldOffset(const Vector3 &offset);
@@ -40,7 +37,6 @@ public:
 private:
     static constexpr std::size_t kInvalidIndex = static_cast<std::size_t>(-1);
 
-    std::unique_ptr<PhysicsScene3D> physicsScene;
     std::unique_ptr<Scene3D> renderScene;
     std::size_t sphereEntityIndex = kInvalidIndex;
     Vector3 worldOffset = Vector3::zero();

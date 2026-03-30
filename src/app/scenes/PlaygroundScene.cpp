@@ -1,196 +1,107 @@
 #include "app/scenes/PlaygroundScene.h"
 
+#include <cstdint>
+
 #include "engine/render/3d/mesh/MeshFactory3D.h"
 
 namespace
 {
-    constexpr bool kUseBenchmarkScene = true;
-    constexpr int kSimulationGridColumns = 10;
-    constexpr int kSimulationGridRows = 10;
-    constexpr float kRingGridSpacingX = 6.0f;
-    constexpr float kRingGridSpacingZ = 6.0f;
-    constexpr float kSphereGridSpacingX = 10.0f;
-    constexpr float kSphereGridSpacingZ = 10.0f;
-    constexpr float kSimulationGridCenterOffset = (kSimulationGridColumns - 1) * 0.5f;
-    const Vector3 kRingGridOrigin(-35.0f, 0.0f, -27.0f);
-    const Vector3 kSphereGridOrigin(35.0f, 0.0f, -45.0f);
-    const Vector3 kPointLightPosition(35.0f, 10.0f, 0.0f);
-    const Vector3 kSpotLightPosition(0.0f, 26.0f, 22.0f);
-    const Vector3 kSpotLightDirection = Vector3(0.0f, -0.65f, -0.76f).normalized();
-    const float kSpotLightIntensity = 1.1f;
-    const float kSpotLightRange = 10.0f;
-    const float kSpotLightInnerConeCos = 0.96f;
-    const float kSpotLightOuterConeCos = 0.86f;
-    const uint32_t kSpotLightColor = 0xFFFFFFFF;
-    const Vector3 kShadowTestObjectOffset(35.0f, 0.2f, 55.0f);
+constexpr int kCubeGridSize = 6;
+constexpr float kCubeSize = 1.0f;
+constexpr float kCubeSpacing = 0.32f;
 
-    RingObjectDesc makeRingObjectDesc()
-    {
-        RingObjectDesc desc;
-        desc.worldOffset = Vector3::zero();
-        desc.center = Vector2(400.0f, 300.0f);
-        desc.ballStartPosition = Vector2(540.0f, 300.0f);
-        desc.ballStartVelocity = Vector2(110.0f, -40.0f);
-        desc.simulationScale = 100.0f;
-        desc.borderRadiusPixels = 200.0f;
-        desc.borderThicknessPixels = 12.0f;
-        desc.ballRadiusPixels = 10.0f;
-        desc.ballOutlineThicknessWorld = 0.02f;
-        desc.planeThicknessWorld = 0.04f;
-        desc.planeZ = 0.0f;
-        desc.borderSegments = kUseBenchmarkScene ? 28 : 96;
-        desc.ballSegments = kUseBenchmarkScene ? 18 : 48;
-        desc.showRotationIndicators = !kUseBenchmarkScene;
-        desc.borderColor = 0xFFFFFFFF;
-        desc.ballColor = 0xFFFFFFFF;
-        desc.borderSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
-        desc.borderRigidBodySettings = RigidBodySettings2D{0.0f, 0.0f, false};
-        desc.ballSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
-        desc.ballRigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
-        desc.borderMaterial.solid.baseColor = desc.borderColor;
-        desc.borderMaterial.wireframe.baseColor = desc.borderColor;
-        desc.borderMaterial.renderSolid = true;
-        desc.borderMaterial.renderWireframe = false;
-        desc.ballMaterial.solid.baseColor = desc.ballColor;
-        desc.ballMaterial.wireframe.baseColor = desc.ballColor;
-        desc.ballMaterial.renderSolid = true;
-        desc.ballMaterial.renderWireframe = false;
-        return desc;
-    }
+const Vector3 kGridCenter(0.0f, 3.5f, 0.0f);
+const Vector3 kPointLightPosition(10.0f, 16.0f, 12.0f);
+const Vector3 kSpotLightPosition(-14.0f, 20.0f, 10.0f);
+const Vector3 kSpotLightDirection = Vector3(0.5f, -0.82f, -0.28f).normalized();
 
-    SquareObjectDesc makeSquareObjectDesc()
-    {
-        SquareObjectDesc desc;
-        desc.ringObjectIndex = 0;
-        desc.startPosition = Vector2(400.0f, 300.0f);
-        desc.startVelocity = Vector2::zero();
-        desc.sizePixels = 44.0f;
-        desc.color = 0xFFFF8A5B;
-        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
-        desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
-        desc.material.solid.baseColor = desc.color;
-        desc.material.wireframe.baseColor = desc.color;
-        desc.material.renderSolid = true;
-        desc.material.renderWireframe = false;
-        return desc;
-    }
+float getGridStep()
+{
+    return kCubeSize + kCubeSpacing;
+}
 
-    SphereArenaObjectDesc makeSphereArenaObjectDesc()
-    {
-        SphereArenaObjectDesc desc;
-        desc.worldOffset = Vector3::zero();
-        desc.boundaryRadius = 4.0f;
-        desc.ballRadius = 0.45f;
-        desc.ballStartPosition = Vector3(0.9f, 1.4f, -0.6f);
-        desc.ballStartVelocity = Vector3(1.8f, -0.4f, 1.2f);
-        desc.ballSurfaceMaterial = PhysicsSurfaceMaterial3D{0.55f, 0.68f, 0.6f};
-        desc.ballRigidBodySettings = RigidBodySettings3D{0.025f, 0.03f, true, Vector3::zero()};
-        desc.boundarySphereRings = kUseBenchmarkScene ? 6 : 10;
-        desc.boundarySphereSegments = kUseBenchmarkScene ? 8 : 16;
-        desc.ballSphereRings = kUseBenchmarkScene ? 8 : 16;
-        desc.ballSphereSegments = kUseBenchmarkScene ? 12 : 24;
-        desc.borderMaterial.solid = MaterialPresets3D::makePlastic(0xFF9AD1FF, 0.52f);
-        desc.borderMaterial.solid.opacity = kUseBenchmarkScene ? 1.0f : 0.32f;
-        desc.borderMaterial.solid.diffuseFactor = 0.85f;
-        desc.borderMaterial.solid.metallic = 0.0f;
-        desc.borderMaterial.solid.doubleSidedLighting = true;
-        desc.borderMaterial.wireframe.baseColor = 0xFFBFE6FF;
-        desc.borderMaterial.wireframe.opacity = 0.35f;
-        desc.borderMaterial.renderSolid = true;
-        desc.borderMaterial.renderWireframe = !kUseBenchmarkScene;
-        desc.ballMaterial.solid = MaterialPresets3D::makeBrushedSteel(0xFFFFFFFF);
-        desc.ballMaterial.solid.opacity = 1.0f;
-        desc.ballMaterial.solid.emissiveColor = 0x00000000;
-        desc.ballMaterial.wireframe.baseColor = 0xFF707070;
-        desc.ballMaterial.wireframe.opacity = 1.0f;
-        desc.ballMaterial.renderSolid = true;
-        desc.ballMaterial.renderWireframe = true;
+Vector3 getGridOrigin()
+{
+    const float step = getGridStep();
+    return Vector3(
+        kGridCenter.x - static_cast<float>(kCubeGridSize - 1) * 0.5f * step,
+        kGridCenter.y,
+        kGridCenter.z - static_cast<float>(kCubeGridSize - 1) * 0.5f * step);
+}
 
-        desc.enableCubeBody = true;
-        desc.cubeSize = desc.ballRadius * 2.0f;
-        desc.cubeStartPosition = Vector3(-1.15f, 0.4f, 0.8f);
-        desc.cubeStartVelocity = Vector3(-1.4f, 0.25f, -1.1f);
-        desc.cubeSurfaceMaterial = PhysicsSurfaceMaterial3D{0.55f, 0.68f, 0.6f};
-        desc.cubeRigidBodySettings = RigidBodySettings3D{0.1f, 0.55f, true, Vector3(0.0f, -0.08f, 0.0f)};
-        desc.cubeMaterial.solid = MaterialPresets3D::makeRubber(0xFF50C878);
-        desc.cubeMaterial.wireframe.baseColor = 0xFFB8FFD4;
-        desc.cubeMaterial.wireframe.opacity = 0.75f;
-        desc.cubeMaterial.renderSolid = true;
-        desc.cubeMaterial.renderWireframe = true;
-        return desc;
-    }
+uint32_t makeCubeColor(int column, int row, int layer)
+{
+    const uint32_t seed =
+        static_cast<uint32_t>((column + 1) * 73856093) ^
+        static_cast<uint32_t>((row + 1) * 19349663) ^
+        static_cast<uint32_t>((layer + 1) * 83492791);
+    const uint8_t red = static_cast<uint8_t>(60 + (seed & 0x7F));
+    const uint8_t green = static_cast<uint8_t>(60 + ((seed >> 8) & 0x7F));
+    const uint8_t blue = static_cast<uint8_t>(60 + ((seed >> 16) & 0x7F));
+    return 0xFF000000u |
+           (static_cast<uint32_t>(red) << 16) |
+           (static_cast<uint32_t>(green) << 8) |
+           static_cast<uint32_t>(blue);
+}
 
-    ComposedObject3DDesc makeShadowTestObjectDesc()
-    {
-        ComposedObject3DDesc desc;
-        desc.name = "ShadowTestObject";
-        desc.worldOffset = Vector3::zero();
+ComposedObject3DDesc makeCubeDesc(int column, int row, int layer, const Vector3 &position)
+{
+    ComposedObject3DDesc desc;
+    desc.name = "GridCube_" + std::to_string(column) + "_" + std::to_string(row) + "_" + std::to_string(layer);
+    desc.worldOffset = Vector3::zero();
 
-        SceneBodyNodeDesc3D node;
-        node.name = "ShadowTestSphere";
-        node.render.enabled = true;
-        node.render.localPosition = kShadowTestObjectOffset;
-        node.render.mesh = MeshFactory3D::makeSphere(1.2f, 14, 20, 0);
-        node.render.material.solid = MaterialPresets3D::makePlastic(0xFF2F6BFF, 0.4f);
-        node.render.material.wireframe.baseColor = 0xFF7EA2FF;
-        node.render.material.renderSolid = true;
-        node.render.material.renderWireframe = false;
-        node.physics.enabled = false;
-        node.collider.enabled = false;
-
-        desc.nodes.push_back(node);
-        return desc;
-    }
+    SceneBodyNodeDesc3D node;
+    node.name = "Cube";
+    node.render.enabled = true;
+    node.render.localPosition = position;
+    node.render.mesh = MeshFactory3D::makeCube(kCubeSize);
+    node.render.material.solid = MaterialPresets3D::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
+    node.render.material.wireframe.baseColor = 0xFFFFFFFF;
+    node.render.material.wireframe.opacity = 0.16f;
+    node.render.material.renderSolid = true;
+    node.render.material.renderWireframe = false;
+    desc.nodes.push_back(node);
+    return desc;
+}
 }
 
 PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
 {
     PlaygroundSceneDesc desc;
     desc.ambientLight.color = 0xFFFFFFFF;
-    desc.ambientLight.intensity = 0.2f;
-    desc.gravity2D = Vector2(0.0f, 980.0f);
-    desc.gravity3D = Vector3(0.0f, -7.5f, 0.0f);
-    desc.cameraPosition = Vector3(0.0f, 42.0f, 118.0f);
-    desc.cameraRotation = Vector3(-0.32f, 0.0f, 0.0f);
+    desc.ambientLight.intensity = 0.16f;
+    desc.cameraPosition = Vector3(0.0f, 15.0f, 28.0f);
+    desc.cameraRotation = Vector3(-0.34f, 0.0f, 0.0f);
 
-    for (int row = 0; row < kSimulationGridRows; ++row)
+    const Vector3 origin = getGridOrigin();
+    const float step = getGridStep();
+    for (int row = 0; row < kCubeGridSize; ++row)
     {
-        for (int col = 0; col < kSimulationGridColumns; ++col)
+        for (int column = 0; column < kCubeGridSize; ++column)
         {
-            RingObjectDesc ringDesc = makeRingObjectDesc();
-            ringDesc.worldOffset = Vector3(
-                kRingGridOrigin.x + col * kRingGridSpacingX,
-                0.0f,
-                kRingGridOrigin.z + row * kRingGridSpacingZ);
-            const std::size_t ringIndex = desc.ringObjects.size();
-            desc.ringObjects.push_back(ringDesc);
-
-            SquareObjectDesc squareDesc = makeSquareObjectDesc();
-            squareDesc.ringObjectIndex = ringIndex;
-            desc.squareObjects.push_back(squareDesc);
-
-            SphereArenaObjectDesc sphereArenaDesc = makeSphereArenaObjectDesc();
-            sphereArenaDesc.worldOffset = Vector3(
-                kSphereGridOrigin.x + col * kSphereGridSpacingX,
-                0.0f,
-                kSphereGridOrigin.z + row * kSphereGridSpacingZ);
-            desc.sphereArenaObjects.push_back(sphereArenaDesc);
+            for (int layer = 0; layer < kCubeGridSize; ++layer)
+            {
+                const Vector3 position(
+                    origin.x + static_cast<float>(column) * step,
+                    origin.y + static_cast<float>(row) * step,
+                    origin.z + static_cast<float>(layer) * step);
+                desc.composedObjects.push_back(makeCubeDesc(column, row, layer, position));
+            }
         }
     }
 
-    if (!kUseBenchmarkScene)
-    {
-        desc.composedObjects.push_back(makeShadowTestObjectDesc());
-    }
+    desc.pointLights.push_back({kPointLightPosition, 0xFFFFE3BF, 20.0f, 30.0f});
+    desc.spotLights.push_back({kSpotLightPosition, kSpotLightDirection, 0xFFBFD7FF, 14.0f, 34.0f, 0.96f, 0.86f});
 
     {
         Camera3D lightProbeCamera;
         lightProbeCamera.transform.position = desc.cameraPosition;
         lightProbeCamera.transform.rotation = desc.cameraRotation;
         const Vector3 initialCameraForward = lightProbeCamera.getForward();
-        desc.directionalLights.push_back({initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
-                                          0xFFFFFFFF,
-                                          0.9f});
+        desc.directionalLights.push_back({
+            initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
+            0xFFFFFFFF,
+            0.55f});
     }
 
     return desc;

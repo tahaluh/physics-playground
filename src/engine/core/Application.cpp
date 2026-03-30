@@ -281,11 +281,12 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
                 smoothedRamMegabytes += (metrics.ramMegabytes - smoothedRamMegabytes) * kMetricsSmoothing;
             }
 
-            char titleBuffer[256];
+            const std::string runtimeStatus = layer->getRuntimeStatusText();
+            char titleBuffer[512];
             std::snprintf(
                 titleBuffer,
                 sizeof(titleBuffer),
-                "%s | %s | %s | %d target | %.1f FPS | %.2f ms | %s | CPU %.1f%% | RAM %.1f MB",
+                "%s | %s | %s | %d target | %.1f FPS | %.2f ms | %s | CPU %.1f%% | RAM %.1f MB%s",
                 config.title,
                 graphicsDevice->getBackendName(),
                 config.vsyncEnabled ? "VSync On" : "VSync Off",
@@ -294,7 +295,8 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
                 smoothedFrameTimeMs,
                 graphicsDevice->getDeviceName(),
                 smoothedCpuPercent,
-                smoothedRamMegabytes);
+                smoothedRamMegabytes,
+                runtimeStatus.c_str());
             window->setTitle(titleBuffer);
 
             titleUpdateAccumulator = 0.0f;

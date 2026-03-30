@@ -28,6 +28,10 @@ bool tryTranslateKey(XKeyEvent &event, EngineKeyCode &outKey)
     case XK_A:
         outKey = EngineKeyCode::A;
         return true;
+    case XK_r:
+    case XK_R:
+        outKey = EngineKeyCode::R;
+        return true;
     case XK_s:
     case XK_S:
         outKey = EngineKeyCode::S;

@@ -7,6 +7,7 @@ enum class EngineKeyCode
     ControlRight,
     W,
     A,
+    R,
     S,
     D,
     Q,

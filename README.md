@@ -1,4 +1,4 @@
-# physics-playground
+# render-playground
 
 ## Fast build/run loop
 

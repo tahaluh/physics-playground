@@ -9,6 +9,5 @@ enum class EngineInputAction
     MoveUp,
     MoveDown,
     ToggleLightDebug,
-    ToggleWireframe,
-    TogglePhysicsDebug
+    ToggleWireframe
 };

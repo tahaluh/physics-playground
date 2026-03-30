@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 class IGraphicsDevice;
 
 class ApplicationLayer
@@ -12,4 +14,5 @@ public:
     virtual void onUpdate(float dt) {}
     virtual void onFixedUpdate(float dt) = 0;
     virtual void onRender(IGraphicsDevice &graphicsDevice) const = 0;
+    virtual std::string getRuntimeStatusText() const { return {}; }
 };

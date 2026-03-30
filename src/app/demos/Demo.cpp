@@ -3,33 +3,34 @@
 #include <memory>
 
 #include "app/scenes/PlaygroundScene.h"
-#include "engine/input/InputAction.h"
 #include "engine/input/Input.h"
+#include "engine/input/InputAction.h"
 #include "engine/math/Vector3.h"
-#include "engine/render/debug/DebugSceneComposer3D.h"
+#include "engine/render/debug/LightDebug3D.h"
 
 namespace
 {
-    const float kMoveSpeed = 4.0f;
-    const float kMouseLookSensitivity = 0.0025f;
-    const float kDebugRebuildInterval = 1.0f / 12.0f;
+const float kMoveSpeed = 4.0f;
+const float kMouseLookSensitivity = 0.0025f;
 
-    Vector3 getPlanarForward(const Camera3D &camera)
+Vector3 getPlanarForward(const Camera3D &camera)
+{
+    Vector3 forward = camera.getForward();
+    forward.y = 0.0f;
+    if (forward.lengthSquared() == 0.0f)
     {
-        Vector3 forward = camera.getForward();
-        forward.y = 0.0f;
-        if (forward.lengthSquared() == 0.0f)
-        {
-            return Vector3(0.0f, 0.0f, -1.0f);
-        }
-        return forward.normalized();
+        return Vector3(0.0f, 0.0f, -1.0f);
     }
-
-    Vector3 getPlanarRight(const Camera3D &camera)
-    {
-        return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
-    }
+    return forward.normalized();
 }
+
+Vector3 getPlanarRight(const Camera3D &camera)
+{
+    return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
+}
+}
+
+Demo::~Demo() = default;
 
 void Demo::appendSceneAndRecordRange(const Scene3D &sourceScene, std::vector<SceneEntityRange> &ranges)
 {
@@ -76,35 +77,11 @@ void Demo::syncCombinedSceneEntities()
         return;
     }
 
-    for (std::size_t i = 0; i < ringObjects.size() && i < ringObjectRanges.size(); ++i)
-    {
-        if (ringObjects[i])
-        {
-            copySceneRange(ringObjects[i]->getRenderScene(), ringObjectRanges[i]);
-        }
-    }
-
-    for (std::size_t i = 0; i < squareObjects.size() && i < squareObjectRanges.size(); ++i)
-    {
-        if (squareObjects[i])
-        {
-            copySceneRange(squareObjects[i]->getRenderScene(), squareObjectRanges[i]);
-        }
-    }
-
     for (std::size_t i = 0; i < sphereObjects.size() && i < sphereObjectRanges.size(); ++i)
     {
         if (sphereObjects[i])
         {
             copySceneRange(sphereObjects[i]->getRenderScene(), sphereObjectRanges[i]);
-        }
-    }
-
-    for (std::size_t i = 0; i < sphereArenaObjects.size() && i < sphereArenaObjectRanges.size(); ++i)
-    {
-        if (sphereArenaObjects[i])
-        {
-            copySceneRange(sphereArenaObjects[i]->getRenderScene(), sphereArenaObjectRanges[i]);
         }
     }
 
@@ -119,41 +96,12 @@ void Demo::syncCombinedSceneEntities()
     combinedScene->touch();
 }
 
-Demo::~Demo() = default;
-
 void Demo::onAttach(int viewportWidth, int viewportHeight)
 {
+    this->viewportWidth = viewportWidth;
+    this->viewportHeight = viewportHeight;
+
     const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
-    const std::size_t simulationCount = sceneDesc.ringObjects.size() + sceneDesc.sphereArenaObjects.size();
-    const bool isLargeSimulationBenchmark = simulationCount >= 64;
-
-    ringObjects.clear();
-    for (const RingObjectDesc &ringDesc : sceneDesc.ringObjects)
-    {
-        ringObjects.push_back(RingObject::create(ringDesc));
-    }
-
-    squareObjects.clear();
-    squareObjectRingIndices.clear();
-    for (const SquareObjectDesc &squareDesc : sceneDesc.squareObjects)
-    {
-        if (squareDesc.ringObjectIndex >= ringObjects.size() || !ringObjects[squareDesc.ringObjectIndex])
-        {
-            continue;
-        }
-
-        squareObjects.push_back(SquareObject::create(
-            squareDesc,
-            ringObjects[squareDesc.ringObjectIndex]->getPhysicsScene(),
-            ringObjects[squareDesc.ringObjectIndex]->getConfig()));
-        squareObjectRingIndices.push_back(squareDesc.ringObjectIndex);
-    }
-
-    sphereArenaObjects.clear();
-    for (const SphereArenaObjectDesc &arenaDesc : sceneDesc.sphereArenaObjects)
-    {
-        sphereArenaObjects.push_back(SphereArenaObject::create(arenaDesc));
-    }
 
     sphereObjects.clear();
     for (const SphereObjectDesc &sphereDesc : sceneDesc.sphereObjects)
@@ -166,21 +114,6 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     {
         composedObjects.push_back(ComposedObject3D::create(objectDesc));
     }
-
-    physicsWorld2D = std::make_unique<PhysicsWorld2D>();
-    physicsWorld2D->setGravity(sceneDesc.gravity2D);
-    physicsWorld2D->setSolverIterations(isLargeSimulationBenchmark ? 4 : 8);
-    physicsWorld2D->setStopThreshold(isLargeSimulationBenchmark ? 12.0f : 8.0f);
-    physicsWorld2D->setAngularStopThreshold(isLargeSimulationBenchmark ? 0.18f : 0.12f);
-    physicsWorld2D->setSleepDelay(isLargeSimulationBenchmark ? 0.22f : 0.35f);
-
-    physicsWorld3D = std::make_unique<PhysicsWorld3D>();
-    physicsWorld3D->setGravity(sceneDesc.gravity3D);
-    physicsWorld3D->setStopThreshold(isLargeSimulationBenchmark ? 0.035f : 0.02f);
-    physicsWorld3D->setAngularStopThreshold(isLargeSimulationBenchmark ? 0.055f : 0.035f);
-    physicsWorld3D->setRestitutionThreshold(0.22f);
-    physicsWorld3D->setSleepDelay(isLargeSimulationBenchmark ? 0.28f : 0.45f);
-    physicsWorld3D->setSolverIterations(isLargeSimulationBenchmark ? 4 : 8);
 
     camera3D = std::make_unique<Camera3D>();
     camera3D->transform.position = sceneDesc.cameraPosition;
@@ -200,12 +133,15 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     {
         combinedScene->createSpotLight(lightDesc);
     }
+
     rebuildCombinedScene();
     configureCamera(viewportWidth, viewportHeight);
 }
 
 void Demo::onResize(int viewportWidth, int viewportHeight)
 {
+    this->viewportWidth = viewportWidth;
+    this->viewportHeight = viewportHeight;
     configureCamera(viewportWidth, viewportHeight);
 }
 
@@ -252,17 +188,13 @@ void Demo::updateCamera(float dt)
 
 void Demo::updateDebugToggles()
 {
-    bool changed = false;
-
-    if (Input::wasKeyPressed(EngineKeyCode::Space))
+    if (Input::wasKeyPressed(EngineKeyCode::R))
     {
-        freezeFixedTicks = !freezeFixedTicks;
-        debugRebuildAccumulator = 0.0f;
-        if (showLightDebugMarkers || showPhysicsDebugMarkers)
-        {
-            changed = true;
-        }
+        resetScene();
+        return;
     }
+
+    bool changed = false;
 
     if (Input::wasActionPressed(EngineInputAction::ToggleLightDebug))
     {
@@ -276,106 +208,41 @@ void Demo::updateDebugToggles()
         changed = true;
     }
 
-    if (Input::wasActionPressed(EngineInputAction::TogglePhysicsDebug))
-    {
-        showPhysicsDebugMarkers = !showPhysicsDebugMarkers;
-        changed = true;
-    }
-
     if (changed)
     {
         rebuildCombinedScene();
     }
 }
 
-void Demo::onFixedUpdate(float dt)
+void Demo::resetScene()
 {
-    if (freezeFixedTicks)
+    Vector3 preservedCameraPosition = Vector3::zero();
+    Vector3 preservedCameraRotation = Vector3::zero();
+    const bool hadCamera = static_cast<bool>(camera3D);
+    if (hadCamera)
     {
-        return;
+        preservedCameraPosition = camera3D->transform.position;
+        preservedCameraRotation = camera3D->transform.rotation;
     }
 
-    if (physicsWorld2D)
+    onAttach(viewportWidth, viewportHeight);
+
+    if (hadCamera && camera3D)
     {
-        for (const auto &ringObject : ringObjects)
-        {
-            if (ringObject)
-            {
-                ringObject->step(*physicsWorld2D, dt);
-            }
-        }
-
-        for (std::size_t i = 0; i < squareObjects.size(); ++i)
-        {
-            if (!squareObjects[i] || i >= squareObjectRingIndices.size())
-            {
-                continue;
-            }
-
-            const std::size_t ringIndex = squareObjectRingIndices[i];
-            if (ringIndex >= ringObjects.size() || !ringObjects[ringIndex])
-            {
-                continue;
-            }
-
-            squareObjects[i]->syncRenderScene(
-                ringObjects[ringIndex]->getPhysicsScene(),
-                ringObjects[ringIndex]->getConfig());
-        }
+        camera3D->transform.position = preservedCameraPosition;
+        camera3D->transform.rotation = preservedCameraRotation;
     }
+}
 
-    if (physicsWorld3D)
-    {
-        for (const auto &sphereArenaObject : sphereArenaObjects)
-        {
-            if (sphereArenaObject)
-            {
-                sphereArenaObject->step(*physicsWorld3D, dt);
-            }
-        }
-
-        for (const auto &sphereObject : sphereObjects)
-        {
-            if (sphereObject)
-            {
-                sphereObject->syncRenderScene();
-            }
-        }
-
-        for (const auto &composedObject : composedObjects)
-        {
-            if (composedObject)
-            {
-                composedObject->step(*physicsWorld3D, dt);
-            }
-        }
-    }
-
-    if (showLightDebugMarkers || showPhysicsDebugMarkers)
-    {
-        const bool needsRealtimePhysicsDebug = showPhysicsDebugMarkers && !freezeFixedTicks;
-        debugRebuildAccumulator += dt;
-        if (needsRealtimePhysicsDebug || debugRebuildAccumulator >= kDebugRebuildInterval)
-        {
-            rebuildCombinedScene();
-            debugRebuildAccumulator = 0.0f;
-        }
-        else
-        {
-            syncCombinedSceneEntities();
-        }
-    }
-    else
-    {
-        debugRebuildAccumulator = 0.0f;
-        syncCombinedSceneEntities();
-    }
+void Demo::onFixedUpdate(float)
+{
 }
 
 void Demo::onUpdate(float dt)
 {
     updateDebugToggles();
     updateCamera(dt);
+    syncCombinedSceneEntities();
 }
 
 void Demo::onRender(IGraphicsDevice &graphicsDevice) const
@@ -388,6 +255,11 @@ void Demo::onRender(IGraphicsDevice &graphicsDevice) const
     graphicsDevice.renderScene3D(*camera3D, *combinedScene);
 }
 
+std::string Demo::getRuntimeStatusText() const
+{
+    return {};
+}
+
 void Demo::rebuildCombinedScene()
 {
     if (!combinedScene)
@@ -396,34 +268,9 @@ void Demo::rebuildCombinedScene()
     }
 
     combinedScene->clearEntities();
-    ringObjectRanges.clear();
-    squareObjectRanges.clear();
     sphereObjectRanges.clear();
-    sphereArenaObjectRanges.clear();
     composedObjectRanges.clear();
 
-    for (const auto &ringObject : ringObjects)
-    {
-        if (ringObject)
-        {
-            appendSceneAndRecordRange(ringObject->getRenderScene(), ringObjectRanges);
-        }
-        else
-        {
-            ringObjectRanges.push_back({});
-        }
-    }
-    for (const auto &squareObject : squareObjects)
-    {
-        if (squareObject)
-        {
-            appendSceneAndRecordRange(squareObject->getRenderScene(), squareObjectRanges);
-        }
-        else
-        {
-            squareObjectRanges.push_back({});
-        }
-    }
     for (const auto &sphereObject : sphereObjects)
     {
         if (sphereObject)
@@ -435,17 +282,7 @@ void Demo::rebuildCombinedScene()
             sphereObjectRanges.push_back({});
         }
     }
-    for (const auto &sphereArenaObject : sphereArenaObjects)
-    {
-        if (sphereArenaObject)
-        {
-            appendSceneAndRecordRange(sphereArenaObject->getRenderScene(), sphereArenaObjectRanges);
-        }
-        else
-        {
-            sphereArenaObjectRanges.push_back({});
-        }
-    }
+
     for (const auto &composedObject : composedObjects)
     {
         if (composedObject)
@@ -460,16 +297,8 @@ void Demo::rebuildCombinedScene()
 
     combinedScene->applyWireframeVisibilityOverride(showWireframes);
 
-    DebugSceneComposer3D::appendOverlays(
-        *combinedScene,
-        DebugSceneComposer3D::Options{
-            showLightDebugMarkers,
-            showPhysicsDebugMarkers,
-            0.24f,
-            0.12f},
-        ringObjects,
-        squareObjects,
-        squareObjectRingIndices,
-        sphereArenaObjects,
-        composedObjects);
+    if (showLightDebugMarkers)
+    {
+        LightDebug3D::appendLightMarkers(*combinedScene, *combinedScene);
+    }
 }

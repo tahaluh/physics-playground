@@ -24,8 +24,6 @@ bool isActionMappedDown(EngineInputAction action, const std::array<bool, static_
         return keys[static_cast<std::size_t>(EngineKeyCode::F1)];
     case EngineInputAction::ToggleWireframe:
         return keys[static_cast<std::size_t>(EngineKeyCode::F2)];
-    case EngineInputAction::TogglePhysicsDebug:
-        return keys[static_cast<std::size_t>(EngineKeyCode::F3)];
     default:
         return false;
     }
@@ -76,8 +74,6 @@ bool Input::wasActionPressed(EngineInputAction action)
         return pressedKeys[static_cast<std::size_t>(EngineKeyCode::F1)];
     case EngineInputAction::ToggleWireframe:
         return pressedKeys[static_cast<std::size_t>(EngineKeyCode::F2)];
-    case EngineInputAction::TogglePhysicsDebug:
-        return pressedKeys[static_cast<std::size_t>(EngineKeyCode::F3)];
     default:
         return isActionDown(action);
     }

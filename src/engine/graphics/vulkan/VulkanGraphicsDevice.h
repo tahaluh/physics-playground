@@ -182,6 +182,7 @@ private:
     bool frameBegun = false;
     bool commandBufferRecorded = false;
     bool sceneBuffersDirty = true;
+    bool shadowMapsDirty = true;
     bool triangleResourcesReady = false;
     bool triangleDrawLogged = false;
     bool vsyncEnabled = true;
@@ -277,8 +278,6 @@ private:
     const Scene3D *cachedScene = nullptr;
     uint64_t cachedSceneRevision = 0;
     CachedSceneBounds cachedShadowSceneBounds;
-    Matrix4 cachedViewMatrix = Matrix4::identity();
-    Matrix4 cachedProjectionMatrix = Matrix4::identity();
     std::vector<Matrix4> currentDirectionalShadowViewProjections;
     std::vector<Matrix4> currentSpotShadowViewProjections;
     std::vector<Matrix4> currentPointShadowViewProjections;

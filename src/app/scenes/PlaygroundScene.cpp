@@ -1,13 +1,16 @@
 #include "app/scenes/PlaygroundScene.h"
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 
 namespace
 {
-constexpr int kCubeGridSize = 25;
+constexpr int kCubeGridSize = 50;
 constexpr float kCubeSize = 1.0f;
-constexpr float kCubeSpacing = 0.32f;
+constexpr float kCubeNonTouchMargin = 0.1f;
+constexpr float kCubeSpacing = (std::sqrt(3.0f) - kCubeSize) + kCubeNonTouchMargin;
+constexpr float kTau = 6.28318530718f;
 
 const Vector3 kGridCenter(0.0f, 3.5f, 0.0f);
 
@@ -25,12 +28,33 @@ Vector3 getGridOrigin()
         kGridCenter.z - static_cast<float>(kCubeGridSize - 1) * 0.5f * step);
 }
 
+uint32_t makeCubeSeed(int column, int row, int layer)
+{
+    return static_cast<uint32_t>((column + 1) * 73856093) ^
+           static_cast<uint32_t>((row + 1) * 19349663) ^
+           static_cast<uint32_t>((layer + 1) * 83492791);
+}
+
+float hashToAngleRadians(uint32_t value)
+{
+    return (static_cast<float>(value) / 4294967295.0f) * kTau;
+}
+
+Vector3 makeCubeRotation(int column, int row, int layer)
+{
+    uint32_t value = makeCubeSeed(column, row, layer);
+    value = value * 1664525u + 1013904223u;
+    const float rotationX = hashToAngleRadians(value);
+    value = value * 1664525u + 1013904223u;
+    const float rotationY = hashToAngleRadians(value);
+    value = value * 1664525u + 1013904223u;
+    const float rotationZ = hashToAngleRadians(value);
+    return Vector3(rotationX, rotationY, rotationZ);
+}
+
 uint32_t makeCubeColor(int column, int row, int layer)
 {
-    const uint32_t seed =
-        static_cast<uint32_t>((column + 1) * 73856093) ^
-        static_cast<uint32_t>((row + 1) * 19349663) ^
-        static_cast<uint32_t>((layer + 1) * 83492791);
+    const uint32_t seed = makeCubeSeed(column, row, layer);
     const uint8_t red = static_cast<uint8_t>(60 + (seed & 0x7F));
     const uint8_t green = static_cast<uint8_t>(60 + ((seed >> 8) & 0x7F));
     const uint8_t blue = static_cast<uint8_t>(60 + ((seed >> 16) & 0x7F));
@@ -47,6 +71,7 @@ BodyObject3DDesc makeCubeDesc(int column, int row, int layer, const Vector3 &pos
     desc.motionType = BodyMotionType3D::Static;
     desc.shapeType = BodyShapeType3D::Cube;
     desc.transform.position = position;
+    desc.transform.rotation = makeCubeRotation(column, row, layer);
     desc.transform.scale = Vector3::one() * kCubeSize;
     desc.material.solid = MaterialPresets3D::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
     desc.material.wireframe.baseColor = 0xFFFFFFFF;

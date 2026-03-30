@@ -505,6 +505,7 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
     cachedScene = &scene;
     cachedSceneRevision = scene.getRevision();
     sceneBuffersDirty = true;
+    shadowMapsDirty = true;
 }
 
 void VulkanGraphicsDevice::endFrame()
@@ -1344,7 +1345,7 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -1555,7 +1556,7 @@ bool VulkanGraphicsDevice::createInstancedTrianglePipeline()
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -2592,31 +2593,43 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         batch.instances.push_back(instance);
     };
 
+    const auto appendShadowCasterTriangles =
+        [&](const Entity3D &entity)
+    {
+        if (!entity.material.renderSolid)
+        {
+            return;
+        }
+
+        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
+        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
+        {
+            for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
+            {
+                const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
+                TriangleVertex vertex{};
+                vertex.worldPosition[0] = worldPosition.x;
+                vertex.worldPosition[1] = worldPosition.y;
+                vertex.worldPosition[2] = worldPosition.z;
+                vertex.worldPosition[3] = 1.0f;
+                shadowSceneVertices.push_back(vertex);
+            }
+        }
+    };
+
     for (const Entity3D &entity : scene.getEntities())
     {
+        if (hasShadowLights)
+        {
+            appendShadowCasterTriangles(entity);
+        }
+
         if (entity.supportsInstancing &&
             entity.material.renderSolid &&
             !entity.material.isTransparent() &&
             !entity.instancingKey.empty())
         {
             appendInstancedEntity(entity);
-            if (hasShadowLights)
-            {
-                const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-                for (const MeshTriangle3D &triangle : entity.mesh.triangles)
-                {
-                    for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
-                    {
-                        const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
-                        TriangleVertex vertex{};
-                        vertex.worldPosition[0] = worldPosition.x;
-                        vertex.worldPosition[1] = worldPosition.y;
-                        vertex.worldPosition[2] = worldPosition.z;
-                        vertex.worldPosition[3] = 1.0f;
-                        shadowSceneVertices.push_back(vertex);
-                    }
-                }
-            }
             continue;
         }
 
@@ -2764,45 +2777,13 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         }
     };
 
-    const auto appendShadowCasterTriangles =
-        [&](const Entity3D &entity)
-    {
-        if (!entity.material.renderSolid)
-        {
-            return;
-        }
-
-        const Matrix4 modelMatrix = entity.transform.getModelMatrix();
-        for (const MeshTriangle3D &triangle : entity.mesh.triangles)
-        {
-            for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
-            {
-                const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
-                TriangleVertex vertex{};
-                vertex.worldPosition[0] = worldPosition.x;
-                vertex.worldPosition[1] = worldPosition.y;
-                vertex.worldPosition[2] = worldPosition.z;
-                vertex.worldPosition[3] = 1.0f;
-                shadowSceneVertices.push_back(vertex);
-            }
-        }
-    };
-
     for (const EntitySortItem &item : opaqueEntities)
     {
         appendEntityTriangles(*item.entity, opaqueSceneVertices);
-        if (hasShadowLights)
-        {
-            appendShadowCasterTriangles(*item.entity);
-        }
     }
     for (const EntitySortItem &item : transparentEntities)
     {
         appendEntityTriangles(*item.entity, transparentSceneVertices);
-        if (hasShadowLights)
-        {
-            appendShadowCasterTriangles(*item.entity);
-        }
     }
 
     for (const Entity3D &entity : scene.getEntities())
@@ -3406,7 +3387,7 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
         return;
     }
 
-    if (drawTriangle && shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
+    if (drawTriangle && shadowMapsDirty)
     {
         const auto renderShadowPass = [&](VkFramebuffer framebuffer, const Matrix4 &shadowMatrix)
         {
@@ -3458,22 +3439,27 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             vkCmdEndRenderPass(commandBuffer);
         };
 
-        for (uint32_t shadowIndex = 0; shadowIndex < directionalShadowCount; ++shadowIndex)
+        if (shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
         {
-            renderShadowPass(directionalShadowFramebuffers[shadowIndex], currentDirectionalShadowViewProjections[shadowIndex]);
-        }
-        for (uint32_t shadowIndex = 0; shadowIndex < spotShadowCount; ++shadowIndex)
-        {
-            renderShadowPass(spotShadowFramebuffers[shadowIndex], currentSpotShadowViewProjections[shadowIndex]);
-        }
-        for (uint32_t pointIndex = 0; pointIndex < pointShadowCount; ++pointIndex)
-        {
-            for (uint32_t faceIndex = 0; faceIndex < VulkanGraphicsDevice::kPointShadowFaceCount; ++faceIndex)
+            for (uint32_t shadowIndex = 0; shadowIndex < directionalShadowCount; ++shadowIndex)
             {
-                const uint32_t layerIndex = pointIndex * VulkanGraphicsDevice::kPointShadowFaceCount + faceIndex;
-                renderShadowPass(pointShadowFramebuffers[layerIndex], currentPointShadowViewProjections[layerIndex]);
+                renderShadowPass(directionalShadowFramebuffers[shadowIndex], currentDirectionalShadowViewProjections[shadowIndex]);
+            }
+            for (uint32_t shadowIndex = 0; shadowIndex < spotShadowCount; ++shadowIndex)
+            {
+                renderShadowPass(spotShadowFramebuffers[shadowIndex], currentSpotShadowViewProjections[shadowIndex]);
+            }
+            for (uint32_t pointIndex = 0; pointIndex < pointShadowCount; ++pointIndex)
+            {
+                for (uint32_t faceIndex = 0; faceIndex < VulkanGraphicsDevice::kPointShadowFaceCount; ++faceIndex)
+                {
+                    const uint32_t layerIndex = pointIndex * VulkanGraphicsDevice::kPointShadowFaceCount + faceIndex;
+                    renderShadowPass(pointShadowFramebuffers[layerIndex], currentPointShadowViewProjections[layerIndex]);
+                }
             }
         }
+
+        shadowMapsDirty = false;
     }
 
     const uint32_t vulkanColor = toVulkanColor(clearColor);

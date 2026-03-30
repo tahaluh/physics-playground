@@ -21,7 +21,7 @@ namespace
         RingObjectDesc desc;
         desc.worldOffset = kRingWorldOffset;
         desc.center = Vector2(400.0f, 300.0f);
-        desc.ballStartPosition = Vector2(230.0f, 180.0f);
+        desc.ballStartPosition = Vector2(540.0f, 300.0f);
         desc.ballStartVelocity = Vector2(110.0f, -40.0f);
         desc.simulationScale = 100.0f;
         desc.borderRadiusPixels = 200.0f;
@@ -34,7 +34,7 @@ namespace
         desc.ballSegments = 48;
         desc.borderColor = 0xFFFFFFFF;
         desc.ballColor = 0xFFFFFFFF;
-        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
+        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.68f, 0.6f};
         desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
         desc.borderMaterial.solid.baseColor = desc.borderColor;
         desc.borderMaterial.wireframe.baseColor = desc.borderColor;
@@ -51,11 +51,11 @@ namespace
     {
         SquareObjectDesc desc;
         desc.ringObjectIndex = 0;
-        desc.startPosition = Vector2(400.0f, 40.0f);
+        desc.startPosition = Vector2(400.0f, 300.0f);
         desc.startVelocity = Vector2::zero();
         desc.sizePixels = 44.0f;
         desc.color = 0xFFFF8A5B;
-        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.55f, 0.68f, 0.6f};
+        desc.physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.2f, 0.68f, 0.6f};
         desc.rigidBodySettings = RigidBodySettings2D{0.025f, 0.03f, true};
         desc.material.solid.baseColor = desc.color;
         desc.material.wireframe.baseColor = desc.color;

@@ -45,4 +45,5 @@ private:
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
     bool showPhysicsDebugMarkers = false;
+    bool freezeFixedTicks = true;
 };

@@ -56,11 +56,6 @@ std::unique_ptr<SquareObject> SquareObject::create(const SquareObjectDesc &desc,
         desc.color);
     squareBody->getSurfaceMaterial() = desc.physicsSurfaceMaterial;
     squareBody->getRigidBodySettings() = desc.rigidBodySettings;
-    if (desc.gpuSimulated)
-    {
-        squareBody->getRigidBodySettings().useGravity = false;
-        squareBody->setCollisionEnabled(false);
-    }
     physicsScene.addBody(std::move(squareBody));
 
     Shape2DIn3DDesc squareDesc;
@@ -93,17 +88,12 @@ bool SquareObject::isValid() const
     return static_cast<bool>(renderScene) && bodyIndex != kInvalidIndex;
 }
 
-bool SquareObject::usesGpuSimulation() const
-{
-    return config.gpuSimulated;
-}
-
 Scene3D &SquareObject::getRenderScene() { return *renderScene; }
 const Scene3D &SquareObject::getRenderScene() const { return *renderScene; }
 
 void SquareObject::syncRenderScene(const Scene2D &physicsScene, const RingObjectDesc &ringConfig)
 {
-    if (!renderScene || config.gpuSimulated)
+    if (!renderScene)
     {
         return;
     }
@@ -130,10 +120,15 @@ void SquareObject::syncRenderScene(const Scene2D &physicsScene, const RingObject
 
 void SquareObject::appendDebugMarkers(Scene3D &targetScene, const RingObjectDesc &ringConfig) const
 {
+    if (!renderScene || squareEntityIndex >= renderScene->getEntities().size())
+    {
+        return;
+    }
+
     Shape2DIn3DDesc markerDesc;
     markerDesc.kind = Shape2DIn3DKind::Disc;
     markerDesc.name = "SquareCenterDebug2D";
-    const Vector3 markerWorldPosition = toWorldPosition(ringConfig, config.startPosition, ringConfig.planeZ + 0.001f) + ringConfig.worldOffset;
+    const Vector3 markerWorldPosition = renderScene->getEntities()[squareEntityIndex].transform.position + Vector3(0.0f, 0.0f, 0.0007f);
     markerDesc.position = Vector2(markerWorldPosition.x, markerWorldPosition.y);
     markerDesc.planeZ = ringConfig.planeZ + 0.001f;
     markerDesc.radius = kSquareCenterOfMassMarkerRadius;

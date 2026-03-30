@@ -178,6 +178,11 @@ void Demo::updateDebugToggles()
 {
     bool changed = false;
 
+    if (Input::wasKeyPressed(EngineKeyCode::Space))
+    {
+        freezeFixedTicks = !freezeFixedTicks;
+    }
+
     if (Input::wasActionPressed(EngineInputAction::ToggleLightDebug))
     {
         showLightDebugMarkers = !showLightDebugMarkers;
@@ -204,6 +209,11 @@ void Demo::updateDebugToggles()
 
 void Demo::onFixedUpdate(float dt)
 {
+    if (freezeFixedTicks)
+    {
+        return;
+    }
+
     if (physicsWorld2D)
     {
         for (const auto &ringObject : ringObjects)
@@ -216,7 +226,7 @@ void Demo::onFixedUpdate(float dt)
 
         for (std::size_t i = 0; i < squareObjects.size(); ++i)
         {
-            if (!squareObjects[i] || squareObjects[i]->usesGpuSimulation() || i >= squareObjectRingIndices.size())
+            if (!squareObjects[i] || i >= squareObjectRingIndices.size())
             {
                 continue;
             }

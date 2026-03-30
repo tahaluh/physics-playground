@@ -6,21 +6,24 @@
 class BorderCircleBody2D : public PhysicsBody2D
 {
 public:
-    BorderCircleBody2D(const Vector2 &pos, float radius)
+    BorderCircleBody2D(const Vector2 &pos, float innerRadius, float outerRadius)
         : PhysicsBody2D(
-              std::make_unique<CircleShape>(radius),
+              std::make_unique<CircleShape>(outerRadius),
               pos,
               Vector2(1.0f, 0.0f),
               Vector2::zero(),
               0xFFFFFFFF,
               0.0f,
-              PhysicsSurfaceMaterial2D{1.0f, 0.05f, 0.0f},
+              PhysicsSurfaceMaterial2D{0.2f, 0.8f, 0.55f},
               RigidBodySettings2D{0.0f, 0.0f, false}),
-          radius(radius) {}
+          innerRadius(std::max(0.0f, std::min(innerRadius, outerRadius))),
+          outerRadius(std::max(0.0f, outerRadius)) {}
 
-    float getRadius() const { return radius; }
+    float getInnerRadius() const { return innerRadius; }
+    float getOuterRadius() const { return outerRadius; }
     Vector2 getCenter() const { return getPosition(); }
 
 private:
-    float radius;
+    float innerRadius;
+    float outerRadius;
 };

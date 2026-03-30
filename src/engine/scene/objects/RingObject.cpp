@@ -80,7 +80,8 @@ std::unique_ptr<RingObject> RingObject::create(const RingObjectDesc &desc)
     object->borderBodyIndex = object->physicsScene->getBodies().size();
     object->physicsScene->addBody(std::make_unique<BorderCircleBody2D>(
         desc.center,
-        std::max(0.0f, desc.borderRadiusPixels - desc.borderThicknessPixels)));
+        std::max(0.0f, desc.borderRadiusPixels - desc.borderThicknessPixels),
+        desc.borderRadiusPixels));
 
     object->controlledBodyIndex = object->physicsScene->getBodies().size();
     auto ballBody = std::make_unique<BallBody2D>(

@@ -233,7 +233,6 @@ int Application::run(std::unique_ptr<ApplicationLayer> layer)
 
         while (accumulator >= config.fixedTimeStep)
         {
-            graphicsDevice->queueSimulationStep(config.fixedTimeStep);
             layer->onFixedUpdate(config.fixedTimeStep);
             accumulator -= config.fixedTimeStep;
         }

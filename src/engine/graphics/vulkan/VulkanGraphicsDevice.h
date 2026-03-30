@@ -54,13 +54,6 @@ public:
         float projectionMatrix[16];
     };
 
-    struct GpuSquareSimState
-    {
-        float position[4];
-        float velocity[4];
-        float halfExtentsRestitution[4];
-    };
-
     struct LightStorageHeader
     {
         uint32_t count = 0;
@@ -91,7 +84,6 @@ public:
     int getHeight() const override;
 
     void beginFrame(uint32_t clearColor) override;
-    void queueSimulationStep(float dt) override;
     void renderScene3D(const Camera3D &camera, const Scene3D &scene) override;
     void endFrame() override;
     void present() override;
@@ -108,7 +100,6 @@ private:
     bool createDepthResources();
     bool createShadowResources();
     bool createLightingResources();
-    bool createComputePipeline();
     bool createTrianglePipeline();
     bool createLinePipeline();
     bool createShadowPipeline();
@@ -196,12 +187,10 @@ private:
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout shadowPipelineLayout = VK_NULL_HANDLE;
-    VkPipelineLayout computePipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline linePipeline = VK_NULL_HANDLE;
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
-    VkPipeline computePipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     BufferHandle opaqueSceneVertexBuffer;
@@ -215,7 +204,6 @@ private:
     BufferHandle directionalShadowMatrixStorageBuffer;
     BufferHandle spotShadowMatrixStorageBuffer;
     BufferHandle pointShadowMatrixStorageBuffer;
-    BufferHandle gpuSquareSimulationBuffer;
     VkDeviceSize ambientUniformBufferSize = 0;
     VkDeviceSize directionalLightStorageBufferSize = 0;
     VkDeviceSize pointLightStorageBufferSize = 0;
@@ -223,7 +211,6 @@ private:
     VkDeviceSize directionalShadowMatrixStorageBufferSize = 0;
     VkDeviceSize spotShadowMatrixStorageBufferSize = 0;
     VkDeviceSize pointShadowMatrixStorageBufferSize = 0;
-    VkDeviceSize gpuSquareSimulationBufferSize = 0;
     VkDeviceSize opaqueSceneVertexBufferSize = 0;
     VkDeviceSize transparentSceneVertexBufferSize = 0;
     VkDeviceSize lineSceneVertexBufferSize = 0;
@@ -243,11 +230,6 @@ private:
     uint32_t directionalShadowCount = 0;
     uint32_t spotShadowCount = 0;
     uint32_t pointShadowCount = 0;
-    uint32_t gpuSquareCount = 0;
-    float queuedSimulationDeltaTime = 0.0f;
-    float gpuSquareRingCenter[2] = {0.0f, 0.0f};
-    float gpuSquareRingInnerRadius = 0.0f;
-    bool gpuSquareRingValid = false;
 
     VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
     VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;

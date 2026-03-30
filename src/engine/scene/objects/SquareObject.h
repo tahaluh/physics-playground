@@ -16,7 +16,6 @@ struct SquareObjectDesc
     std::size_t ringObjectIndex = 0;
     Vector2 startPosition = Vector2(400.0f, 300.0f);
     Vector2 startVelocity = Vector2::zero();
-    bool gpuSimulated = true;
     float sizePixels = 44.0f;
     uint32_t color = 0xFFFF8A5B;
     PhysicsSurfaceMaterial2D physicsSurfaceMaterial = PhysicsSurfaceMaterial2D{0.9f, 0.03f, 0.012f};
@@ -33,7 +32,6 @@ public:
     static std::unique_ptr<SquareObject> create(const SquareObjectDesc &desc, Scene2D &physicsScene, const RingObjectDesc &ringConfig);
     void destroy();
     bool isValid() const;
-    bool usesGpuSimulation() const;
 
     Scene3D &getRenderScene();
     const Scene3D &getRenderScene() const;

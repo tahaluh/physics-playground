@@ -15,6 +15,7 @@ enum class EngineKeyCode
     Down,
     Left,
     Right,
+    Space,
     Enter,
     Escape,
     F1,

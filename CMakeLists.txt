@@ -27,8 +27,7 @@ endif()
 
 file(GLOB_RECURSE VULKAN_SHADER_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/shaders/vulkan/*.vert"
-    "${CMAKE_SOURCE_DIR}/shaders/vulkan/*.frag"
-    "${CMAKE_SOURCE_DIR}/shaders/vulkan/*.comp")
+    "${CMAKE_SOURCE_DIR}/shaders/vulkan/*.frag")
 
 set(SHADER_OUTPUTS)
 

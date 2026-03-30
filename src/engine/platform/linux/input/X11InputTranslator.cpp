@@ -56,6 +56,9 @@ bool tryTranslateKey(XKeyEvent &event, EngineKeyCode &outKey)
     case XK_Right:
         outKey = EngineKeyCode::Right;
         return true;
+    case XK_space:
+        outKey = EngineKeyCode::Space;
+        return true;
     case XK_Return:
     case XK_KP_Enter:
         outKey = EngineKeyCode::Enter;

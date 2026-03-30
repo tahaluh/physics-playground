@@ -1,5 +1,10 @@
 #pragma once
 
+#include <cstdio>
+
+#include "engine/physics/2d/BorderBoxBody2D.h"
+#include "engine/physics/2d/BorderCircleBody2D.h"
+#include "engine/physics/2d/BallBody2D.h"
 #include "engine/physics/2d/RigidBody2D.h"
 #include "engine/physics/2d/shapes/RectShape.h"
 
@@ -31,6 +36,34 @@ public:
 
     void onCollision(const Contact2D &contact) override
     {
+        const char *otherType = "UnknownBody2D";
+        if (dynamic_cast<BorderCircleBody2D *>(contact.other))
+        {
+            otherType = "BorderCircleBody2D";
+        }
+        else if (dynamic_cast<BorderBoxBody2D *>(contact.other))
+        {
+            otherType = "BorderBoxBody2D";
+        }
+        else if (dynamic_cast<BallBody2D *>(contact.other))
+        {
+            otherType = "BallBody2D";
+        }
+        else if (dynamic_cast<BoxBody2D *>(contact.other))
+        {
+            otherType = "BoxBody2D";
+        }
+
+        std::fprintf(
+            stderr,
+            "[SquareCollision] other=%s normal=(%.3f, %.3f) penetration=%.3f point=(%.3f, %.3f)\n",
+            otherType,
+            contact.normal.x,
+            contact.normal.y,
+            contact.penetration,
+            contact.contactPoint.x,
+            contact.contactPoint.y);
+
         if (resolveBorderCircleCollision(contact))
             return;
 

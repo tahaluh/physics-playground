@@ -23,7 +23,6 @@ public:
     virtual int getHeight() const = 0;
 
     virtual void beginFrame(uint32_t clearColor) = 0;
-    virtual void queueSimulationStep(float dt) = 0;
     virtual void renderScene3D(const Camera3D &camera, const Scene3D &scene) = 0;
     virtual void endFrame() = 0;
     virtual void present() = 0;

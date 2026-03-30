@@ -302,7 +302,6 @@ std::array<Matrix4, 6> computePointShadowMatrices(const PointLight &light)
     return matrices;
 }
 
-constexpr float kGpuSquareGravityY = -9.8f;
 }
 
 VulkanGraphicsDevice::~VulkanGraphicsDevice()
@@ -318,11 +317,6 @@ GraphicsBackend VulkanGraphicsDevice::getBackend() const
 const char *VulkanGraphicsDevice::getBackendName() const
 {
     return "Vulkan";
-}
-
-void VulkanGraphicsDevice::queueSimulationStep(float dt)
-{
-    queuedSimulationDeltaTime += std::max(0.0f, dt);
 }
 
 bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
@@ -365,7 +359,6 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
     triangleResourcesReady = createTrianglePipeline();
     triangleResourcesReady = triangleResourcesReady && createLinePipeline();
     triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
-    triangleResourcesReady = triangleResourcesReady && createComputePipeline();
     if (!triangleResourcesReady)
     {
         std::fprintf(
@@ -452,100 +445,6 @@ void VulkanGraphicsDevice::renderScene3D(const Camera3D &camera, const Scene3D &
         return;
     }
 
-    uint32_t detectedGpuSquareCount = 0;
-    gpuSquareRingValid = false;
-    for (const Entity3D &entity : scene.getEntities())
-    {
-        if (entity.name == "Square")
-        {
-            ++detectedGpuSquareCount;
-        }
-        else if (!gpuSquareRingValid && entity.name == "PhysicsBorder")
-        {
-            float innerRadius = std::numeric_limits<float>::max();
-            for (const Vector3 &vertex : entity.mesh.vertices)
-            {
-                const float radialDistance = std::sqrt(vertex.x * vertex.x + vertex.y * vertex.y);
-                innerRadius = std::min(innerRadius, radialDistance);
-            }
-
-            if (innerRadius < std::numeric_limits<float>::max())
-            {
-                gpuSquareRingCenter[0] = entity.transform.position.x;
-                gpuSquareRingCenter[1] = entity.transform.position.y;
-                gpuSquareRingInnerRadius = innerRadius;
-                gpuSquareRingValid = true;
-            }
-        }
-    }
-
-    const uint32_t previousGpuSquareCount = gpuSquareCount;
-    gpuSquareCount = detectedGpuSquareCount;
-    if (gpuSquareCount > 0 &&
-        (previousGpuSquareCount != gpuSquareCount ||
-         gpuSquareSimulationBufferSize < sizeof(GpuSquareSimState) * static_cast<VkDeviceSize>(gpuSquareCount)))
-    {
-        const VkDeviceSize requiredSize = sizeof(GpuSquareSimState) * static_cast<VkDeviceSize>(gpuSquareCount);
-        if (gpuSquareSimulationBuffer.buffer)
-        {
-            vkDestroyBuffer(device, gpuSquareSimulationBuffer.buffer, nullptr);
-            gpuSquareSimulationBuffer.buffer = VK_NULL_HANDLE;
-        }
-        if (gpuSquareSimulationBuffer.memory)
-        {
-            vkFreeMemory(device, gpuSquareSimulationBuffer.memory, nullptr);
-            gpuSquareSimulationBuffer.memory = VK_NULL_HANDLE;
-        }
-
-        if (!createBuffer(
-                requiredSize,
-                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                gpuSquareSimulationBuffer))
-        {
-            return;
-        }
-        gpuSquareSimulationBufferSize = requiredSize;
-
-        std::vector<GpuSquareSimState> initialStates(gpuSquareCount);
-        uint32_t squareIndex = 0;
-        for (const Entity3D &entity : scene.getEntities())
-        {
-            if (entity.name != "Square")
-            {
-                continue;
-            }
-
-            initialStates[squareIndex].position[0] = entity.transform.position.x;
-            initialStates[squareIndex].position[1] = entity.transform.position.y;
-            initialStates[squareIndex].position[2] = entity.transform.position.z;
-            initialStates[squareIndex].position[3] = 1.0f;
-            initialStates[squareIndex].velocity[0] = 0.0f;
-            initialStates[squareIndex].velocity[1] = 0.0f;
-            initialStates[squareIndex].velocity[2] = 0.0f;
-            initialStates[squareIndex].velocity[3] = 0.0f;
-            float halfExtentX = 0.0f;
-            float halfExtentY = 0.0f;
-            for (const Vector3 &vertex : entity.mesh.vertices)
-            {
-                halfExtentX = std::max(halfExtentX, std::abs(vertex.x));
-                halfExtentY = std::max(halfExtentY, std::abs(vertex.y));
-            }
-            initialStates[squareIndex].halfExtentsRestitution[0] = halfExtentX;
-            initialStates[squareIndex].halfExtentsRestitution[1] = halfExtentY;
-            initialStates[squareIndex].halfExtentsRestitution[2] = 0.55f;
-            initialStates[squareIndex].halfExtentsRestitution[3] = 0.0f;
-            ++squareIndex;
-        }
-
-        void *data = nullptr;
-        if (vkMapMemory(device, gpuSquareSimulationBuffer.memory, 0, requiredSize, 0, &data) == VK_SUCCESS)
-        {
-            std::memcpy(data, initialStates.data(), static_cast<size_t>(requiredSize));
-            vkUnmapMemory(device, gpuSquareSimulationBuffer.memory);
-        }
-    }
-
     if (!updateLightingBuffers(camera, scene))
     {
         return;
@@ -568,7 +467,6 @@ void VulkanGraphicsDevice::endFrame()
         const bool drawTriangle = triangleResourcesReady;
         recordCommandBuffer(commandBuffers[currentImageIndex], currentImageIndex, currentClearColor, drawTriangle);
         commandBufferRecorded = true;
-        queuedSimulationDeltaTime = 0.0f;
         if (drawTriangle && !triangleDrawLogged)
         {
             std::fprintf(stderr, "Basic draw command recorded.\n");
@@ -1137,7 +1035,7 @@ bool VulkanGraphicsDevice::createShadowResources()
 
 bool VulkanGraphicsDevice::createLightingResources()
 {
-    std::array<VkDescriptorSetLayoutBinding, 11> bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 10> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
@@ -1178,11 +1076,6 @@ bool VulkanGraphicsDevice::createLightingResources()
     bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[9].descriptorCount = 1;
     bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    bindings[10].binding = 10;
-    bindings[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    bindings[10].descriptorCount = 1;
-    bindings[10].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
@@ -1262,21 +1155,11 @@ bool VulkanGraphicsDevice::createLightingResources()
     }
     pointShadowMatrixStorageBufferSize = sizeof(float) * 4;
 
-    if (!createBuffer(
-            sizeof(GpuSquareSimState),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            gpuSquareSimulationBuffer))
-    {
-        return false;
-    }
-    gpuSquareSimulationBufferSize = sizeof(GpuSquareSimState);
-
     std::array<VkDescriptorPoolSize, 3> poolSizes{};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     poolSizes[0].descriptorCount = 1;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSizes[1].descriptorCount = 7;
+    poolSizes[1].descriptorCount = 6;
     poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     poolSizes[2].descriptorCount = 3;
 
@@ -1496,55 +1379,6 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
     vkDestroyShaderModule(device, fragmentShaderModule, nullptr);
     vkDestroyShaderModule(device, vertexShaderModule, nullptr);
     return opaqueSuccess && transparentSuccess;
-}
-
-bool VulkanGraphicsDevice::createComputePipeline()
-{
-    const std::vector<char> computeShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/sim/square.comp.spv",
-        "shaders/vulkan/sim/square.comp.spv"});
-    if (computeShaderCode.empty())
-    {
-        return false;
-    }
-
-    VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
-    if (!computeShaderModule)
-    {
-        return false;
-    }
-
-    VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(float) * 8;
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &lightingDescriptorSetLayout;
-    pipelineLayoutInfo.pushConstantRangeCount = 1;
-    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS)
-    {
-        vkDestroyShaderModule(device, computeShaderModule, nullptr);
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo shaderStageInfo{};
-    shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    shaderStageInfo.module = computeShaderModule;
-    shaderStageInfo.pName = "main";
-
-    VkComputePipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipelineInfo.stage = shaderStageInfo;
-    pipelineInfo.layout = computePipelineLayout;
-
-    const bool success = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) == VK_SUCCESS;
-    vkDestroyShaderModule(device, computeShaderModule, nullptr);
-    return success;
 }
 
 bool VulkanGraphicsDevice::createLinePipeline()
@@ -2269,7 +2103,7 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
         return false;
     }
 
-    std::array<VkDescriptorBufferInfo, 8> bufferInfos{};
+    std::array<VkDescriptorBufferInfo, 7> bufferInfos{};
     bufferInfos[0].buffer = ambientUniformBuffer.buffer;
     bufferInfos[0].offset = 0;
     bufferInfos[0].range = sizeof(AmbientUniform);
@@ -2291,9 +2125,6 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     bufferInfos[6].buffer = pointShadowMatrixStorageBuffer.buffer;
     bufferInfos[6].offset = 0;
     bufferInfos[6].range = pointShadowMatrixBytes;
-    bufferInfos[7].buffer = gpuSquareSimulationBuffer.buffer;
-    bufferInfos[7].offset = 0;
-    bufferInfos[7].range = std::max<VkDeviceSize>(sizeof(GpuSquareSimState), gpuSquareSimulationBufferSize);
     VkDescriptorImageInfo directionalShadowImageInfo{};
     directionalShadowImageInfo.sampler = shadowDepthSampler;
     directionalShadowImageInfo.imageView = directionalShadowDepthImageView;
@@ -2307,7 +2138,7 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     pointShadowImageInfo.imageView = pointShadowDepthImageView;
     pointShadowImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-    std::array<VkWriteDescriptorSet, 11> descriptorWrites{};
+    std::array<VkWriteDescriptorSet, 10> descriptorWrites{};
     descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     descriptorWrites[0].dstSet = lightingDescriptorSet;
     descriptorWrites[0].dstBinding = 0;
@@ -2371,13 +2202,6 @@ bool VulkanGraphicsDevice::updateLightingBuffers(const Camera3D &camera, const S
     descriptorWrites[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     descriptorWrites[9].descriptorCount = 1;
     descriptorWrites[9].pImageInfo = &pointShadowImageInfo;
-    descriptorWrites[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrites[10].dstSet = lightingDescriptorSet;
-    descriptorWrites[10].dstBinding = 10;
-    descriptorWrites[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    descriptorWrites[10].descriptorCount = 1;
-    descriptorWrites[10].pBufferInfo = &bufferInfos[7];
-
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(), 0, nullptr);
     return true;
 }
@@ -2391,35 +2215,6 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
     };
 
     std::vector<TriangleVertex> lineVertices;
-    std::unordered_map<const Entity3D *, uint32_t> gpuSquareIndices;
-    uint32_t nextGpuSquareIndex = 0;
-    uint32_t lastAssignedGpuSquareIndex = 0;
-    bool hasAssignedGpuSquare = false;
-    for (const Entity3D &entity : scene.getEntities())
-    {
-        if (entity.name == "Square")
-        {
-            gpuSquareIndices[&entity] = nextGpuSquareIndex;
-            lastAssignedGpuSquareIndex = nextGpuSquareIndex;
-            hasAssignedGpuSquare = true;
-            ++nextGpuSquareIndex;
-        }
-        else if (entity.name == "SquareCenterDebug2D" && hasAssignedGpuSquare)
-        {
-            gpuSquareIndices[&entity] = lastAssignedGpuSquareIndex;
-        }
-    }
-    std::vector<GpuSquareSimState> gpuSquareStates(nextGpuSquareIndex);
-    if (nextGpuSquareIndex > 0 && gpuSquareSimulationBuffer.memory)
-    {
-        void *mappedData = nullptr;
-        const VkDeviceSize readSize = sizeof(GpuSquareSimState) * static_cast<VkDeviceSize>(nextGpuSquareIndex);
-        if (vkMapMemory(device, gpuSquareSimulationBuffer.memory, 0, readSize, 0, &mappedData) == VK_SUCCESS)
-        {
-            std::memcpy(gpuSquareStates.data(), mappedData, static_cast<size_t>(readSize));
-            vkUnmapMemory(device, gpuSquareSimulationBuffer.memory);
-        }
-    }
     const Matrix4 viewMatrix = camera.getViewMatrix();
     const Matrix4 projectionMatrix = camera.getProjectionMatrix();
     std::vector<EntitySortItem> opaqueEntities;
@@ -2495,8 +2290,6 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         const auto emitTriangle =
             [&](const MeshTriangle3D &triangle)
         {
-            const auto gpuSquareIt = gpuSquareIndices.find(&entity);
-            const bool gpuSimulatedSquare = gpuSquareIt != gpuSquareIndices.end();
             const uint32_t triangleColor = entity.material.solid.resolveBaseColor(triangle.color);
             const std::array<float, 4> baseColor = colorToFloat4(triangleColor);
             const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
@@ -2506,12 +2299,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
             for (size_t i = 0; i < 3; ++i)
             {
                 const Vector3 modelPosition = entity.mesh.vertices[triangle.indices[i]];
-                Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
-                if (gpuSimulatedSquare && gpuSquareIt->second < gpuSquareStates.size())
-                {
-                    const GpuSquareSimState &gpuState = gpuSquareStates[gpuSquareIt->second];
-                    worldPosition = Vector3(gpuState.position[0], gpuState.position[1], gpuState.position[2]) + modelPosition;
-                }
+                const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
                 worldVertices[i] = worldPosition;
                 const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
                 if (-viewPosition.z < camera.nearPlane)
@@ -2608,13 +2396,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
         {
             for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
             {
-                const auto gpuSquareIt = gpuSquareIndices.find(&entity);
-                Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
-                if (gpuSquareIt != gpuSquareIndices.end() && gpuSquareIt->second < gpuSquareStates.size())
-                {
-                    const GpuSquareSimState &gpuState = gpuSquareStates[gpuSquareIt->second];
-                    worldPosition = Vector3(gpuState.position[0], gpuState.position[1], gpuState.position[2]) + entity.mesh.vertices[triangle.indices[vertexIndex]];
-                }
+                const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
                 TriangleVertex vertex{};
                 vertex.worldPosition[0] = worldPosition.x;
                 vertex.worldPosition[1] = worldPosition.y;
@@ -2656,13 +2438,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera3D &camera, const Sce
             for (size_t i = 0; i < indices.size(); ++i)
             {
                 const Vector3 modelPosition = entity.mesh.vertices[indices[i]];
-                const auto gpuSquareIt = gpuSquareIndices.find(&entity);
-                Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
-                if (gpuSquareIt != gpuSquareIndices.end() && gpuSquareIt->second < gpuSquareStates.size())
-                {
-                    const GpuSquareSimState &gpuState = gpuSquareStates[gpuSquareIt->second];
-                    worldPosition = Vector3(gpuState.position[0], gpuState.position[1], gpuState.position[2]) + modelPosition;
-                }
+                const Vector3 worldPosition = modelMatrix.transformPoint(modelPosition);
                 const Vector3 viewPosition = viewMatrix.transformPoint(worldPosition);
                 if (-viewPosition.z < camera.nearPlane)
                 {
@@ -3019,14 +2795,6 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkFreeMemory(device, pointShadowMatrixStorageBuffer.memory, nullptr);
         }
-        if (gpuSquareSimulationBuffer.buffer)
-        {
-            vkDestroyBuffer(device, gpuSquareSimulationBuffer.buffer, nullptr);
-        }
-        if (gpuSquareSimulationBuffer.memory)
-        {
-            vkFreeMemory(device, gpuSquareSimulationBuffer.memory, nullptr);
-        }
         for (VkFramebuffer framebuffer : directionalShadowFramebuffers)
         {
             if (framebuffer)
@@ -3125,10 +2893,6 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipeline(device, shadowPipeline, nullptr);
         }
-        if (computePipeline)
-        {
-            vkDestroyPipeline(device, computePipeline, nullptr);
-        }
         if (trianglePipelineLayout)
         {
             vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
@@ -3140,10 +2904,6 @@ void VulkanGraphicsDevice::destroyDevice()
         if (shadowPipelineLayout)
         {
             vkDestroyPipelineLayout(device, shadowPipelineLayout, nullptr);
-        }
-        if (computePipelineLayout)
-        {
-            vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
         }
         if (lightingDescriptorPool)
         {
@@ -3184,50 +2944,6 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
     {
         std::fprintf(stderr, "vkBeginCommandBuffer failed.\n");
         return;
-    }
-
-    if (drawTriangle && computePipeline && lightingDescriptorSet && gpuSquareCount > 0 && queuedSimulationDeltaTime > 0.0f)
-    {
-        struct ComputePushConstants
-        {
-            float deltaTime;
-            float gravityX;
-            float gravityY;
-            float stateCount;
-            float ringCenterX;
-            float ringCenterY;
-            float ringInnerRadius;
-            float ringEnabled;
-        } pushConstants{
-            queuedSimulationDeltaTime,
-            0.0f,
-            kGpuSquareGravityY,
-            static_cast<float>(gpuSquareCount),
-            gpuSquareRingCenter[0],
-            gpuSquareRingCenter[1],
-            gpuSquareRingInnerRadius,
-            gpuSquareRingValid ? 1.0f : 0.0f};
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &lightingDescriptorSet, 0, nullptr);
-        vkCmdPushConstants(commandBuffer, computePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pushConstants);
-        vkCmdDispatch(commandBuffer, gpuSquareCount, 1, 1);
-
-        VkMemoryBarrier memoryBarrier{};
-        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        memoryBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-        memoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(
-            commandBuffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-            0,
-            1,
-            &memoryBarrier,
-            0,
-            nullptr,
-            0,
-            nullptr);
     }
 
     if (drawTriangle && shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)

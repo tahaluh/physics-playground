@@ -131,7 +131,7 @@ inline Mesh3D makeDoubleSidedRing(
     return mesh;
 }
 
-inline Mesh3D makeCube(float size)
+inline Mesh3D makeCube(float size, uint32_t color = 0)
 {
     const float halfSize = size * 0.5f;
 
@@ -154,12 +154,12 @@ inline Mesh3D makeCube(float size)
     };
 
     mesh.triangles = {
-        {{{0, 1, 2}}, 0xFF3A86FF}, {{{0, 2, 3}}, 0xFF3A86FF},
-        {{{4, 5, 6}}, 0xFF4CC9F0}, {{{4, 6, 7}}, 0xFF4CC9F0},
-        {{{0, 1, 5}}, 0xFF4361EE}, {{{0, 5, 4}}, 0xFF4361EE},
-        {{{2, 3, 7}}, 0xFF4895EF}, {{{2, 7, 6}}, 0xFF4895EF},
-        {{{1, 2, 6}}, 0xFF560BAD}, {{{1, 6, 5}}, 0xFF560BAD},
-        {{{0, 3, 7}}, 0xFFF72585}, {{{0, 7, 4}}, 0xFFF72585},
+        {{{0, 1, 2}}, color}, {{{0, 2, 3}}, color},
+        {{{4, 5, 6}}, color}, {{{4, 6, 7}}, color},
+        {{{0, 1, 5}}, color}, {{{0, 5, 4}}, color},
+        {{{2, 3, 7}}, color}, {{{2, 7, 6}}, color},
+        {{{1, 2, 6}}, color}, {{{1, 6, 5}}, color},
+        {{{0, 3, 7}}, color}, {{{0, 7, 4}}, color},
     };
 
     return mesh;

@@ -11,9 +11,6 @@ constexpr float kCubeSize = 1.0f;
 constexpr float kCubeSpacing = 0.32f;
 
 const Vector3 kGridCenter(0.0f, 3.5f, 0.0f);
-const Vector3 kPointLightPosition(10.0f, 16.0f, 12.0f);
-const Vector3 kSpotLightPosition(-14.0f, 20.0f, 10.0f);
-const Vector3 kSpotLightDirection = Vector3(0.5f, -0.82f, -0.28f).normalized();
 
 float getGridStep()
 {
@@ -69,7 +66,7 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
 {
     PlaygroundSceneDesc desc;
     desc.ambientLight.color = 0xFFFFFFFF;
-    desc.ambientLight.intensity = 0.16f;
+    desc.ambientLight.intensity = 0.22f;
     desc.cameraPosition = Vector3(0.0f, 15.0f, 28.0f);
     desc.cameraRotation = Vector3(-0.34f, 0.0f, 0.0f);
 
@@ -90,9 +87,6 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
         }
     }
 
-    desc.pointLights.push_back({kPointLightPosition, 0xFFFFE3BF, 20.0f, 30.0f});
-    desc.spotLights.push_back({kSpotLightPosition, kSpotLightDirection, 0xFFBFD7FF, 14.0f, 34.0f, 0.96f, 0.86f});
-
     {
         Camera3D lightProbeCamera;
         lightProbeCamera.transform.position = desc.cameraPosition;
@@ -101,7 +95,7 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
         desc.directionalLights.push_back({
             initialCameraForward.lengthSquared() > 0.0f ? initialCameraForward.normalized() : Vector3(0.0f, 0.0f, -1.0f),
             0xFFFFFFFF,
-            0.55f});
+            0.72f});
     }
 
     return desc;

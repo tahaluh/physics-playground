@@ -51,6 +51,12 @@ void RuntimeScene::step(float dt)
     syncBodyRenderScenes();
 }
 
+void RuntimeScene::setWireframeVisible(bool visible)
+{
+    wireframeVisible = visible;
+    renderScene.applyWireframeVisibilityOverride(wireframeVisible);
+}
+
 Scene &RuntimeScene::getRenderScene()
 {
     return renderScene;
@@ -77,6 +83,7 @@ void RuntimeScene::appendBodyRenderScene(const BodyObject &body)
     range.start = renderScene.getEntities().size();
     range.count = body.getRenderScene().getEntities().size();
     renderScene.appendEntitiesFrom(body.getRenderScene());
+    renderScene.applyWireframeVisibilityOverride(wireframeVisible);
     bodyRanges.push_back(range);
 }
 
@@ -101,10 +108,11 @@ void RuntimeScene::syncBodyRenderScenes()
         for (std::size_t entityIndex = 0; entityIndex < range.count; ++entityIndex)
         {
             targetEntities[range.start + entityIndex] = sourceEntities[entityIndex];
+            targetEntities[range.start + entityIndex].material.renderWireframe = wireframeVisible;
         }
     }
 
-    renderScene.touch();
+    renderScene.touchTransforms();
 }
 
 void RuntimeScene::rebuildBodyRenderScene()
@@ -121,4 +129,6 @@ void RuntimeScene::rebuildBodyRenderScene()
 
         appendBodyRenderScene(*body);
     }
+
+    renderScene.applyWireframeVisibilityOverride(wireframeVisible);
 }

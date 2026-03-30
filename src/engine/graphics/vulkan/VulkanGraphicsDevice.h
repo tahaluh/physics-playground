@@ -93,6 +93,9 @@ public:
     struct InstancedBatch
     {
         std::string key;
+        int chunkX = 0;
+        int chunkY = 0;
+        int chunkZ = 0;
         std::vector<InstancedMeshVertex> meshVertices;
         std::vector<InstancedMeshInstance> instances;
         Vector3 boundsCenter = Vector3::zero();
@@ -151,10 +154,13 @@ private:
     bool createInstancedTrianglePipeline();
     bool createLinePipeline();
     bool createShadowPipeline();
+    bool createInstancedShadowPipeline();
     void appendSceneVertices(const Camera &camera, const Scene &scene);
+    bool updateSceneTransformBuffers(const Camera &camera, const Scene &scene);
     bool updateLightingBuffers(const Camera &camera, const Scene &scene);
     CachedSceneBounds getCachedSceneBounds(const Scene &scene);
     bool uploadSceneVertexBuffers();
+    bool uploadSceneTransformBuffers();
     void destroyInstancedBatches();
     bool createFramebuffers();
     bool createCommandPool();
@@ -186,6 +192,7 @@ private:
     bool frameBegun = false;
     bool commandBufferRecorded = false;
     bool sceneBuffersDirty = true;
+    bool sceneTransformBuffersDirty = false;
     bool shadowMapsDirty = true;
     bool triangleResourcesReady = false;
     bool triangleDrawLogged = false;
@@ -245,6 +252,7 @@ private:
     VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline linePipeline = VK_NULL_HANDLE;
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
+    VkPipeline shadowInstancedPipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     BufferHandle opaqueSceneVertexBuffer;
@@ -281,6 +289,7 @@ private:
     AmbientUniform ambientUniform = {};
     const Scene *cachedScene = nullptr;
     uint64_t cachedSceneRevision = 0;
+    uint64_t cachedSceneTransformRevision = 0;
     CachedSceneBounds cachedShadowSceneBounds;
     Matrix4 currentCullViewMatrix = Matrix4::identity();
     float currentCullFovRadians = 60.0f * 3.14159265f / 180.0f;

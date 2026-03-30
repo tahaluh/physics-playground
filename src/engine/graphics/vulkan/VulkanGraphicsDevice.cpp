@@ -207,6 +207,14 @@ struct SceneBounds3D
     bool valid = false;
 };
 
+struct ClipPoint
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float w = 1.0f;
+};
+
 void expandBounds(SceneBounds3D &bounds, const Vector3 &point)
 {
     if (!bounds.valid)
@@ -230,6 +238,64 @@ Matrix4 composeModelMatrix(const Transform &transform)
     return Matrix4::translation(transform.position) *
            transform.rotation.toMatrix() *
            Matrix4::scale(transform.scale);
+}
+
+ClipPoint transformPointToClip(const Matrix4 &matrix, const Vector3 &point)
+{
+    ClipPoint result;
+    result.x = matrix.m[0] * point.x + matrix.m[1] * point.y + matrix.m[2] * point.z + matrix.m[3];
+    result.y = matrix.m[4] * point.x + matrix.m[5] * point.y + matrix.m[6] * point.z + matrix.m[7];
+    result.z = matrix.m[8] * point.x + matrix.m[9] * point.y + matrix.m[10] * point.z + matrix.m[11];
+    result.w = matrix.m[12] * point.x + matrix.m[13] * point.y + matrix.m[14] * point.z + matrix.m[15];
+    return result;
+}
+
+bool isSphereVisibleInShadowClip(const Matrix4 &shadowMatrix, const Vector3 &center, float radius)
+{
+    const ClipPoint centerClip = transformPointToClip(shadowMatrix, center);
+    const float absW = std::max(std::abs(centerClip.w), 0.0001f);
+    if (centerClip.w <= 0.0f)
+    {
+        return false;
+    }
+
+    const std::array<Vector3, 6> sampleOffsets = {
+        Vector3(radius, 0.0f, 0.0f),
+        Vector3(-radius, 0.0f, 0.0f),
+        Vector3(0.0f, radius, 0.0f),
+        Vector3(0.0f, -radius, 0.0f),
+        Vector3(0.0f, 0.0f, radius),
+        Vector3(0.0f, 0.0f, -radius)};
+
+    float maxNdcRadiusX = 0.0f;
+    float maxNdcRadiusY = 0.0f;
+    float maxNdcRadiusZ = 0.0f;
+    const float centerNdcX = centerClip.x / absW;
+    const float centerNdcY = centerClip.y / absW;
+    const float centerNdcZ = centerClip.z / absW;
+    for (const Vector3 &offset : sampleOffsets)
+    {
+        const ClipPoint sampleClip = transformPointToClip(shadowMatrix, center + offset);
+        const float sampleAbsW = std::max(std::abs(sampleClip.w), 0.0001f);
+        maxNdcRadiusX = std::max(maxNdcRadiusX, std::abs(sampleClip.x / sampleAbsW - centerNdcX));
+        maxNdcRadiusY = std::max(maxNdcRadiusY, std::abs(sampleClip.y / sampleAbsW - centerNdcY));
+        maxNdcRadiusZ = std::max(maxNdcRadiusZ, std::abs(sampleClip.z / sampleAbsW - centerNdcZ));
+    }
+
+    if (centerNdcX + maxNdcRadiusX < -1.0f || centerNdcX - maxNdcRadiusX > 1.0f)
+    {
+        return false;
+    }
+    if (centerNdcY + maxNdcRadiusY < -1.0f || centerNdcY - maxNdcRadiusY > 1.0f)
+    {
+        return false;
+    }
+    if (centerNdcZ + maxNdcRadiusZ < 0.0f || centerNdcZ - maxNdcRadiusZ > 1.0f)
+    {
+        return false;
+    }
+
+    return true;
 }
 
 SceneBounds3D computeSceneBounds(const Scene &scene)
@@ -461,6 +527,7 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
     triangleResourcesReady = triangleResourcesReady && createInstancedTrianglePipeline();
     triangleResourcesReady = triangleResourcesReady && createLinePipeline();
     triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
+    triangleResourcesReady = triangleResourcesReady && createInstancedShadowPipeline();
     if (!triangleResourcesReady)
     {
         std::fprintf(
@@ -544,15 +611,28 @@ void VulkanGraphicsDevice::renderScene(const Camera &camera, const Scene &scene)
     currentCullFarPlane = camera.farPlane;
 
     const bool sceneChanged = cachedScene != &scene || cachedSceneRevision != scene.getRevision();
+    const bool transformChanged = cachedScene != &scene || cachedSceneTransformRevision != scene.getTransformRevision();
 
     if (!updateLightingBuffers(camera, scene))
     {
         return;
     }
 
-    if (!sceneChanged)
+    if (!sceneChanged && !transformChanged)
     {
         return;
+    }
+
+    if (!sceneChanged && transformChanged)
+    {
+        if (updateSceneTransformBuffers(camera, scene))
+        {
+            cachedScene = &scene;
+            cachedSceneTransformRevision = scene.getTransformRevision();
+            sceneTransformBuffersDirty = true;
+            shadowMapsDirty = true;
+            return;
+        }
     }
 
     opaqueSceneVertices.clear();
@@ -569,7 +649,9 @@ void VulkanGraphicsDevice::renderScene(const Camera &camera, const Scene &scene)
 
     cachedScene = &scene;
     cachedSceneRevision = scene.getRevision();
+    cachedSceneTransformRevision = scene.getTransformRevision();
     sceneBuffersDirty = true;
+    sceneTransformBuffersDirty = false;
     if (sceneChanged)
     {
         shadowMapsDirty = true;
@@ -587,7 +669,12 @@ void VulkanGraphicsDevice::endFrame()
         {
             return;
         }
+        if (sceneTransformBuffersDirty && !uploadSceneTransformBuffers())
+        {
+            return;
+        }
         sceneBuffersDirty = false;
+        sceneTransformBuffersDirty = false;
 
         const bool drawTriangle = triangleResourcesReady;
         recordCommandBuffer(commandBuffers[currentImageIndex], currentImageIndex, currentClearColor, drawTriangle);
@@ -1990,6 +2077,134 @@ bool VulkanGraphicsDevice::createShadowPipeline()
     return success;
 }
 
+bool VulkanGraphicsDevice::createInstancedShadowPipeline()
+{
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/shadow/shadow_instanced.vert.spv",
+        "shaders/vulkan/shadow/shadow_instanced.vert.spv"});
+    if (vertexShaderCode.empty())
+    {
+        return false;
+    }
+
+    const VkShaderModule vertexShaderModule = createShaderModule(vertexShaderCode);
+    if (!vertexShaderModule)
+    {
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo vertexShaderStageInfo{};
+    vertexShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    vertexShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+    vertexShaderStageInfo.module = vertexShaderModule;
+    vertexShaderStageInfo.pName = "main";
+
+    std::array<VkVertexInputBindingDescription, 2> bindingDescriptions{};
+    bindingDescriptions[0].binding = 0;
+    bindingDescriptions[0].stride = sizeof(InstancedMeshVertex);
+    bindingDescriptions[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    bindingDescriptions[1].binding = 1;
+    bindingDescriptions[1].stride = sizeof(InstancedMeshInstance);
+    bindingDescriptions[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    std::array<VkVertexInputAttributeDescription, 5> attributeDescriptions{};
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].offset = offsetof(InstancedMeshVertex, position);
+    attributeDescriptions[1].binding = 1;
+    attributeDescriptions[1].location = 4;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[1].offset = offsetof(InstancedMeshInstance, modelRow0);
+    attributeDescriptions[2].binding = 1;
+    attributeDescriptions[2].location = 5;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[2].offset = offsetof(InstancedMeshInstance, modelRow1);
+    attributeDescriptions[3].binding = 1;
+    attributeDescriptions[3].location = 6;
+    attributeDescriptions[3].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[3].offset = offsetof(InstancedMeshInstance, modelRow2);
+    attributeDescriptions[4].binding = 1;
+    attributeDescriptions[4].location = 7;
+    attributeDescriptions[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attributeDescriptions[4].offset = offsetof(InstancedMeshInstance, modelRow3);
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(bindingDescriptions.size());
+    vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions.data();
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer.depthBiasEnable = VK_TRUE;
+    rasterizer.depthBiasConstantFactor = 1.25f;
+    rasterizer.depthBiasSlopeFactor = 1.75f;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineColorBlendStateCreateInfo colorBlending{};
+    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlending.logicOpEnable = VK_FALSE;
+    colorBlending.attachmentCount = 0;
+    colorBlending.pAttachments = nullptr;
+
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.stencilTestEnable = VK_FALSE;
+
+    const std::array<VkDynamicState, 2> dynamicStates = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
+    dynamicState.pDynamicStates = dynamicStates.data();
+
+    VkGraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipelineInfo.stageCount = 1;
+    pipelineInfo.pStages = &vertexShaderStageInfo;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+    pipelineInfo.pInputAssemblyState = &inputAssembly;
+    pipelineInfo.pViewportState = &viewportState;
+    pipelineInfo.pRasterizationState = &rasterizer;
+    pipelineInfo.pMultisampleState = &multisampling;
+    pipelineInfo.pDepthStencilState = &depthStencil;
+    pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDynamicState = &dynamicState;
+    pipelineInfo.layout = shadowPipelineLayout;
+    pipelineInfo.renderPass = shadowRenderPass;
+    pipelineInfo.subpass = 0;
+
+    const bool success = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &shadowInstancedPipeline) == VK_SUCCESS;
+    vkDestroyShaderModule(device, vertexShaderModule, nullptr);
+    return success;
+}
+
 bool VulkanGraphicsDevice::updateLightingBuffers(const Camera &camera, const Scene &scene)
 {
     const Matrix4 viewMatrix = camera.getViewMatrix();
@@ -2651,6 +2866,9 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
         {
             InstancedBatch batch;
             batch.key = entity.instancingKey;
+            batch.chunkX = chunkKey.x;
+            batch.chunkY = chunkKey.y;
+            batch.chunkZ = chunkKey.z;
             appendInstancedMeshVertices(batch, entity);
             batchIndex = opaqueInstancedBatches.size();
             opaqueInstancedBatches.push_back(std::move(batch));
@@ -2696,6 +2914,14 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
     const auto appendShadowCasterTriangles =
         [&](const Entity &entity)
     {
+        if (entity.supportsInstancing &&
+            entity.material.renderSolid &&
+            !entity.material.isTransparent() &&
+            !entity.instancingKey.empty())
+        {
+            return;
+        }
+
         if (!entity.material.renderSolid)
         {
             return;
@@ -2962,6 +3188,165 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
     lineSceneVertices.insert(lineSceneVertices.end(), lineVertices.begin(), lineVertices.end());
 }
 
+bool VulkanGraphicsDevice::updateSceneTransformBuffers(const Camera &, const Scene &scene)
+{
+    const auto isInstancedOpaqueEntity = [](const Entity &entity) {
+        return entity.supportsInstancing &&
+               entity.material.renderSolid &&
+               !entity.material.isTransparent() &&
+               !entity.instancingKey.empty();
+    };
+
+    bool hasShadowLights = false;
+    for (const DirectionalLight &light : scene.getDirectionalLights())
+    {
+        if (light.enabled && light.intensity > 0.0f && light.castShadows)
+        {
+            hasShadowLights = true;
+            break;
+        }
+    }
+    if (!hasShadowLights)
+    {
+        for (const PointLight &light : scene.getPointLights())
+        {
+            if (light.enabled && light.intensity > 0.0f && light.range > 0.0f && light.castShadows)
+            {
+                hasShadowLights = true;
+                break;
+            }
+        }
+    }
+    if (!hasShadowLights)
+    {
+        for (const SpotLight &light : scene.getSpotLights())
+        {
+            if (light.enabled && light.intensity > 0.0f && light.range > 0.0f && light.castShadows)
+            {
+                hasShadowLights = true;
+                break;
+            }
+        }
+    }
+
+    for (const Entity &entity : scene.getEntities())
+    {
+        if (!isInstancedOpaqueEntity(entity))
+        {
+            return false;
+        }
+    }
+
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        batch.instances.clear();
+        batch.boundsCenter = Vector3::zero();
+        batch.boundsRadius = 0.0f;
+    }
+
+    shadowSceneVertices.clear();
+    std::vector<SceneBounds3D> instancedBatchBounds(opaqueInstancedBatches.size());
+
+    for (const Entity &entity : scene.getEntities())
+    {
+        if (hasShadowLights &&
+            !(entity.supportsInstancing &&
+              entity.material.renderSolid &&
+              !entity.material.isTransparent() &&
+              !entity.instancingKey.empty()))
+        {
+            const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+            for (const MeshTriangle &triangle : entity.mesh.triangles)
+            {
+                for (size_t vertexIndex = 0; vertexIndex < 3; ++vertexIndex)
+                {
+                    const Vector3 worldPosition = modelMatrix.transformPoint(entity.mesh.vertices[triangle.indices[vertexIndex]]);
+                    TriangleVertex vertex{};
+                    vertex.worldPosition[0] = worldPosition.x;
+                    vertex.worldPosition[1] = worldPosition.y;
+                    vertex.worldPosition[2] = worldPosition.z;
+                    vertex.worldPosition[3] = 1.0f;
+                    shadowSceneVertices.push_back(vertex);
+                }
+            }
+        }
+
+        const ChunkKey3D chunkKey = {
+            static_cast<int>(std::floor(entity.transform.position.x / kInstancedCullChunkSize)),
+            static_cast<int>(std::floor(entity.transform.position.y / kInstancedCullChunkSize)),
+            static_cast<int>(std::floor(entity.transform.position.z / kInstancedCullChunkSize))};
+
+        InstancedBatch *matchedBatch = nullptr;
+        std::size_t matchedBatchIndex = 0;
+        for (std::size_t batchIndex = 0; batchIndex < opaqueInstancedBatches.size(); ++batchIndex)
+        {
+            InstancedBatch &batch = opaqueInstancedBatches[batchIndex];
+            if (batch.key == entity.instancingKey &&
+                batch.chunkX == chunkKey.x &&
+                batch.chunkY == chunkKey.y &&
+                batch.chunkZ == chunkKey.z)
+            {
+                matchedBatch = &batch;
+                matchedBatchIndex = batchIndex;
+                break;
+            }
+        }
+
+        if (!matchedBatch)
+        {
+            return false;
+        }
+
+        InstancedMeshInstance instance{};
+        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+        std::memcpy(instance.modelRow0, modelMatrix.m.data() + 0, sizeof(instance.modelRow0));
+        std::memcpy(instance.modelRow1, modelMatrix.m.data() + 4, sizeof(instance.modelRow1));
+        std::memcpy(instance.modelRow2, modelMatrix.m.data() + 8, sizeof(instance.modelRow2));
+        std::memcpy(instance.modelRow3, modelMatrix.m.data() + 12, sizeof(instance.modelRow3));
+
+        const std::array<float, 4> baseColor = colorToFloat4(entity.material.solid.resolveBaseColor());
+        const std::array<float, 4> emissiveColor = colorToFloat4(entity.material.solid.resolveEmissiveColor());
+        std::memcpy(instance.color, baseColor.data(), sizeof(instance.color));
+        std::memcpy(instance.emissive, emissiveColor.data(), sizeof(instance.emissive));
+        instance.material[0] = Vector3::clamp(entity.material.solid.ambientFactor, 0.0f, 1.0f);
+        instance.material[1] = Vector3::clamp(entity.material.solid.diffuseFactor, 0.0f, 1.0f);
+        instance.material[2] = entity.material.solid.unlit ? 1.0f : 0.0f;
+        instance.material[3] = entity.material.solid.doubleSidedLighting ? 1.0f : 0.0f;
+        instance.lighting[0] = Vector3::clamp(entity.material.solid.metallic, 0.0f, 1.0f);
+        instance.lighting[1] = Vector3::clamp(entity.material.solid.roughness, 0.0f, 1.0f);
+        instance.lighting[2] = entity.material.renderWireframe ? 1.0f : 0.0f;
+        instance.lighting[3] = entity.instancingKey == "body:cube" ? 1.0f : 0.0f;
+        matchedBatch->instances.push_back(instance);
+
+        const float radius = computeEntityApproximateRadius(entity);
+        expandBounds(
+            instancedBatchBounds[matchedBatchIndex],
+            entity.transform.position - Vector3(radius, radius, radius));
+        expandBounds(
+            instancedBatchBounds[matchedBatchIndex],
+            entity.transform.position + Vector3(radius, radius, radius));
+    }
+
+    shadowSceneVertexCount = static_cast<uint32_t>(shadowSceneVertices.size());
+    for (std::size_t batchIndex = 0; batchIndex < opaqueInstancedBatches.size(); ++batchIndex)
+    {
+        InstancedBatch &batch = opaqueInstancedBatches[batchIndex];
+        batch.instanceCount = static_cast<uint32_t>(batch.instances.size());
+        const SceneBounds3D &bounds = instancedBatchBounds[batchIndex];
+        if (!bounds.valid)
+        {
+            batch.boundsCenter = Vector3::zero();
+            batch.boundsRadius = 0.0f;
+            continue;
+        }
+
+        batch.boundsCenter = (bounds.min + bounds.max) * 0.5f;
+        batch.boundsRadius = (bounds.max - bounds.min).length() * 0.5f;
+    }
+
+    return true;
+}
+
 bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
 {
     const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
@@ -3090,6 +3475,95 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
         batch.meshVertices.clear();
         batch.instances.clear();
         batch.meshVertices.shrink_to_fit();
+        batch.instances.shrink_to_fit();
+    }
+
+    return true;
+}
+
+bool VulkanGraphicsDevice::uploadSceneTransformBuffers()
+{
+    const auto uploadRawBuffer = [&](const void *source, VkDeviceSize requiredSize, BufferHandle &bufferHandle, VkDeviceSize &bufferSize) -> bool
+    {
+        if (!source || requiredSize == 0)
+        {
+            return true;
+        }
+
+        if (!bufferHandle.buffer || bufferSize < requiredSize)
+        {
+            if (bufferHandle.buffer)
+            {
+                vkDestroyBuffer(device, bufferHandle.buffer, nullptr);
+                bufferHandle.buffer = VK_NULL_HANDLE;
+            }
+            if (bufferHandle.memory)
+            {
+                vkFreeMemory(device, bufferHandle.memory, nullptr);
+                bufferHandle.memory = VK_NULL_HANDLE;
+            }
+
+            if (!createBuffer(
+                    requiredSize,
+                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                    bufferHandle))
+            {
+                std::fprintf(stderr, "Failed to create transform scene buffer.\n");
+                bufferSize = 0;
+                return false;
+            }
+            bufferSize = requiredSize;
+        }
+
+        void *data = nullptr;
+        if (vkMapMemory(device, bufferHandle.memory, 0, requiredSize, 0, &data) != VK_SUCCESS)
+        {
+            std::fprintf(stderr, "Failed to map transform scene buffer memory.\n");
+            return false;
+        }
+        std::memcpy(data, source, static_cast<size_t>(requiredSize));
+        vkUnmapMemory(device, bufferHandle.memory);
+        return true;
+    };
+
+    bool instancedUploadSuccess = true;
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        batch.instanceCount = static_cast<uint32_t>(batch.instances.size());
+        if (batch.instanceCount == 0)
+        {
+            continue;
+        }
+
+        instancedUploadSuccess =
+            instancedUploadSuccess &&
+            uploadRawBuffer(
+                batch.instances.data(),
+                sizeof(InstancedMeshInstance) * static_cast<VkDeviceSize>(batch.instances.size()),
+                batch.instanceBuffer,
+                batch.instanceBufferSize);
+    }
+
+    shadowSceneVertexCount = static_cast<uint32_t>(shadowSceneVertices.size());
+    const bool shadowUploadSuccess =
+        shadowSceneVertices.empty() ||
+        uploadRawBuffer(
+            shadowSceneVertices.data(),
+            sizeof(TriangleVertex) * static_cast<VkDeviceSize>(shadowSceneVertices.size()),
+            shadowSceneVertexBuffer,
+            shadowSceneVertexBufferSize);
+
+    if (!instancedUploadSuccess || !shadowUploadSuccess)
+    {
+        return false;
+    }
+
+    shadowSceneVertices.clear();
+    shadowSceneVertices.shrink_to_fit();
+    for (InstancedBatch &batch : opaqueInstancedBatches)
+    {
+        batch.instances.clear();
         batch.instances.shrink_to_fit();
     }
 
@@ -3474,6 +3948,10 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipeline(device, shadowPipeline, nullptr);
         }
+        if (shadowInstancedPipeline)
+        {
+            vkDestroyPipeline(device, shadowInstancedPipeline, nullptr);
+        }
         if (trianglePipelineLayout)
         {
             vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
@@ -3565,8 +4043,6 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
             shadowScissor.extent = shadowExtent;
             vkCmdSetScissor(commandBuffer, 0, 1, &shadowScissor);
 
-            VkDeviceSize shadowOffsets[] = {0};
-            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
             vkCmdPushConstants(
                 commandBuffer,
                 shadowPipelineLayout,
@@ -3574,12 +4050,41 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
                 0,
                 sizeof(float) * 16,
                 shadowMatrix.m.data());
-            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &shadowSceneVertexBuffer.buffer, shadowOffsets);
-            vkCmdDraw(commandBuffer, shadowSceneVertexCount, 1, 0, 0);
+
+            if (shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
+            {
+                VkDeviceSize shadowOffsets[] = {0};
+                vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline);
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, &shadowSceneVertexBuffer.buffer, shadowOffsets);
+                vkCmdDraw(commandBuffer, shadowSceneVertexCount, 1, 0, 0);
+            }
+
+            if (shadowInstancedPipeline)
+            {
+                vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowInstancedPipeline);
+                for (const InstancedBatch &batch : opaqueInstancedBatches)
+                {
+                    if (!batch.meshVertexBuffer.buffer || !batch.instanceBuffer.buffer || batch.meshVertexCount == 0 || batch.instanceCount == 0)
+                    {
+                        continue;
+                    }
+                    if (batch.boundsRadius > 0.0f &&
+                        !isSphereVisibleInShadowClip(shadowMatrix, batch.boundsCenter, batch.boundsRadius))
+                    {
+                        continue;
+                    }
+
+                    VkDeviceSize offsets[] = {0, 0};
+                    VkBuffer vertexBuffers[] = {batch.meshVertexBuffer.buffer, batch.instanceBuffer.buffer};
+                    vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offsets);
+                    vkCmdDraw(commandBuffer, batch.meshVertexCount, batch.instanceCount, 0, 0);
+                }
+            }
             vkCmdEndRenderPass(commandBuffer);
         };
 
-        if (shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0)
+        if ((shadowPipeline && shadowSceneVertexBuffer.buffer && shadowSceneVertexCount > 0) ||
+            shadowInstancedPipeline)
         {
             for (uint32_t shadowIndex = 0; shadowIndex < directionalShadowCount; ++shadowIndex)
             {

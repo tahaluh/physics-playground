@@ -146,7 +146,7 @@ void Demo::updateDebugToggles()
         showWireframes = !showWireframes;
         if (runtimeScene)
         {
-            runtimeScene->getRenderScene().applyWireframeVisibilityOverride(showWireframes);
+            runtimeScene->setWireframeVisible(showWireframes);
         }
         changed = true;
     }
@@ -188,6 +188,10 @@ void Demo::onFixedUpdate(float dt)
     if (runtimeScene)
     {
         runtimeScene->step(dt);
+        if (showLightDebugMarkers)
+        {
+            rebuildCombinedScene();
+        }
     }
 }
 

@@ -6,12 +6,13 @@
 
 namespace
 {
-constexpr int kCubeGridSize = 50;
+constexpr int kCubeGridSize = 10;
 constexpr float kCubeSize = 1.0f;
 constexpr float kCubeNonTouchMargin = 0.1f;
 constexpr float kCubeSpacing = (std::sqrt(3.0f) - kCubeSize) + kCubeNonTouchMargin;
 constexpr float kTau = 6.28318530718f;
 constexpr float kGridFrontDistance = 8.0f;
+constexpr float kMaxAngularSpeed = 1.0f;
 
 float getGridStep()
 {
@@ -52,6 +53,23 @@ Quaternion makeCubeRotation(int column, int row, int layer)
     return Quaternion::fromEulerXYZ(Vector3(rotationX, rotationY, rotationZ));
 }
 
+float hashToUnitFloat(uint32_t value)
+{
+    return static_cast<float>(value) / 4294967295.0f;
+}
+
+Vector3 makeCubeAngularVelocity(int column, int row, int layer)
+{
+    uint32_t value = makeCubeSeed(column, row, layer);
+    value = value * 22695477u + 1u;
+    const float angularVelocityX = hashToUnitFloat(value) * kMaxAngularSpeed;
+    value = value * 22695477u + 1u;
+    const float angularVelocityY = hashToUnitFloat(value) * kMaxAngularSpeed;
+    value = value * 22695477u + 1u;
+    const float angularVelocityZ = hashToUnitFloat(value) * kMaxAngularSpeed;
+    return Vector3(angularVelocityX, angularVelocityY, angularVelocityZ);
+}
+
 uint32_t makeCubeColor(int column, int row, int layer)
 {
     const uint32_t seed = makeCubeSeed(column, row, layer);
@@ -68,11 +86,12 @@ BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &posit
 {
     BodyObjectDesc desc;
     desc.name = "GridCube_" + std::to_string(column) + "_" + std::to_string(row) + "_" + std::to_string(layer);
-    desc.motionType = BodyMotionType::Static;
+    desc.motionType = BodyMotionType::Dynamic;
     desc.shapeType = BodyShapeType::Cube;
     desc.transform.position = position;
     desc.transform.rotation = makeCubeRotation(column, row, layer);
     desc.transform.scale = Vector3::one() * kCubeSize;
+    desc.physics.angularVelocity = makeCubeAngularVelocity(column, row, layer);
     desc.material.solid = MaterialPresets::makePlastic(makeCubeColor(column, row, layer), 0.3f + 0.06f * static_cast<float>((column + row + layer) % 4));
     desc.material.wireframe.baseColor = 0xFFFFFFFF;
     desc.material.wireframe.opacity = 1.0f;

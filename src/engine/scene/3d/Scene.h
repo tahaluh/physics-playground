@@ -20,7 +20,9 @@ public:
     std::vector<Entity> &getEntities();
     const std::vector<Entity> &getEntities() const;
     uint64_t getRevision() const;
+    uint64_t getTransformRevision() const;
     void touch();
+    void touchTransforms();
     AmbientLight &getAmbientLight();
     const AmbientLight &getAmbientLight() const;
     bool copyAmbientLightFromFirstAvailable(std::initializer_list<const Scene *> sources);
@@ -41,6 +43,7 @@ public:
 private:
     std::vector<Entity> entities;
     uint64_t revision = 1;
+    uint64_t transformRevision = 1;
     AmbientLight ambientLight;
     std::vector<DirectionalLight> directionalLights;
     std::vector<PointLight> pointLights;

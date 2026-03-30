@@ -16,6 +16,7 @@ public:
     void removeBody(const BodyObject &body);
     void clearBodies();
     void step(float dt);
+    void setWireframeVisible(bool visible);
 
     Scene &getRenderScene();
     const Scene &getRenderScene() const;
@@ -37,4 +38,5 @@ private:
     std::vector<std::unique_ptr<BodyObject>> bodies;
     std::vector<SceneEntityRange> bodyRanges;
     PhysicsSystem physicsSystem;
+    bool wireframeVisible = false;
 };

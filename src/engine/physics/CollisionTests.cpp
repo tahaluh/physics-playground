@@ -201,6 +201,30 @@ CollisionPoints CollisionTests::testBoxPlane(
     const PlaneCollider &plane,
     const Transform &planeTransform)
 {
+    const std::vector<CollisionPoints> manifold = testBoxPlaneContactManifold(box, boxTransform, plane, planeTransform);
+    if (manifold.empty())
+    {
+        return {};
+    }
+
+    CollisionPoints deepest = manifold.front();
+    for (const CollisionPoints &point : manifold)
+    {
+        if (point.depth > deepest.depth)
+        {
+            deepest = point;
+        }
+    }
+
+    return deepest;
+}
+
+std::vector<CollisionPoints> CollisionTests::testBoxPlaneContactManifold(
+    const BoxCollider &box,
+    const Transform &boxTransform,
+    const PlaneCollider &plane,
+    const Transform &planeTransform)
+{
     Vector3 planeCenter;
     Vector3 planeAxisU;
     Vector3 planeAxisV;
@@ -209,9 +233,8 @@ CollisionPoints CollisionTests::testBoxPlane(
     getPlaneBasis(plane, planeTransform, planeCenter, planeAxisU, planeAxisV, planeNormal, planeHalfSize);
 
     const std::array<Vector3, 8> boxVertices = getBoxVertices(box, boxTransform);
-    float bestDepth = 0.0f;
-    Vector3 bestVertex = Vector3::zero();
-    bool hasCollision = false;
+    std::vector<CollisionPoints> contacts;
+    contacts.reserve(boxVertices.size());
 
     for (const Vector3 &vertex : boxVertices)
     {
@@ -230,27 +253,25 @@ CollisionPoints CollisionTests::testBoxPlane(
         }
 
         const float depth = -signedDistance;
-        if (!hasCollision || depth > bestDepth)
-        {
-            bestDepth = depth;
-            bestVertex = vertex;
-            hasCollision = true;
-        }
+        const Vector3 planePoint = vertex - planeNormal * (vertex - planeCenter).dot(planeNormal);
+        CollisionPoints result;
+        result.a = vertex;
+        result.b = planePoint;
+        result.normal = planeNormal * -1.0f;
+        result.depth = depth;
+        result.hasCollision = true;
+        contacts.push_back(result);
     }
 
-    if (!hasCollision)
+    std::sort(contacts.begin(), contacts.end(), [](const CollisionPoints &a, const CollisionPoints &b) {
+        return a.depth > b.depth;
+    });
+    if (contacts.size() > 4)
     {
-        return {};
+        contacts.resize(4);
     }
 
-    const Vector3 planePoint = bestVertex - planeNormal * (bestVertex - planeCenter).dot(planeNormal);
-    CollisionPoints result;
-    result.a = bestVertex;
-    result.b = planePoint;
-    result.normal = planeNormal * -1.0f;
-    result.depth = bestDepth;
-    result.hasCollision = true;
-    return result;
+    return contacts;
 }
 
 CollisionPoints CollisionTests::invert(const CollisionPoints &collision)

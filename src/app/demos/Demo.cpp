@@ -11,7 +11,6 @@ namespace
 const float kMoveSpeed = 4.0f;
 const float kMouseLookSensitivity = 0.0025f;
 const uint32_t kDefaultCubeColor = 0xFF555555;
-const uint32_t kCollisionCubeColor = 0xFFD64545;
 const uint32_t kSleepingCubeColor = 0xFF4A78D6;
 
 Quaternion makeCameraRotation(float pitch, float yaw)
@@ -66,17 +65,15 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
         BodyObject &body = runtimeScene->addBody(bodyDesc);
         body.onCollisionEnter = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
             collidingBodies[&self].insert(&other);
-            self.setMaterial(makeCubeMaterial(kCollisionCubeColor));
         };
         body.onCollision = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
             collidingBodies[&self].insert(&other);
-            self.setMaterial(makeCubeMaterial(kCollisionCubeColor));
         };
         body.onCollisionExit = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
             auto it = collidingBodies.find(&self);
             if (it == collidingBodies.end())
             {
-                self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
+                self.setMaterial(makeCubeMaterial(self.isSleeping() ? kSleepingCubeColor : kDefaultCubeColor));
                 return;
             }
 
@@ -84,20 +81,20 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
             if (it->second.empty())
             {
                 collidingBodies.erase(it);
-                self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
+                self.setMaterial(makeCubeMaterial(self.isSleeping() ? kSleepingCubeColor : kDefaultCubeColor));
             }
         };
         body.onSleep = [this](BodyObject &self) {
-            if (collidingBodies.find(&self) == collidingBodies.end())
-            {
-                self.setMaterial(makeCubeMaterial(kSleepingCubeColor));
-            }
+            (void)this;
+            self.setMaterial(makeCubeMaterial(kSleepingCubeColor));
         };
         body.onWakeUp = [this](BodyObject &self) {
             if (collidingBodies.find(&self) == collidingBodies.end())
             {
                 self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
+                return;
             }
+            self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
         };
     }
 

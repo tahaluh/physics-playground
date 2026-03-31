@@ -16,7 +16,7 @@ constexpr float kTau = 6.28318530718f;
 constexpr float kGridFrontDistance = 8.0f;
 constexpr float kGroundSize = 80.0f;
 constexpr float kGroundY = -8.0f;
-constexpr float kMaxAngularSpeed = 1.0f;
+constexpr float kMaxAngularSpeed = 0.35f;
 constexpr float kMaxLinearSpeed = 0.15f;
 
 float getGridStep()

@@ -1,0 +1,172 @@
+#version 450
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+const uint SHAPE_TYPE_NONE = 0u;
+const uint SHAPE_TYPE_BOX = 1u;
+
+struct BodyInput
+{
+    uint shapeType;
+    float padding0;
+    float padding1;
+    float padding2;
+    vec4 position;
+    vec4 rotation;
+    vec4 scale;
+    vec4 offset;
+    vec4 halfExtents;
+};
+
+struct CandidatePair
+{
+    uint aIndex;
+    uint bIndex;
+};
+
+struct Bounds
+{
+    vec3 minPoint;
+    vec3 maxPoint;
+};
+
+layout(set = 0, binding = 0) readonly buffer InputBodies
+{
+    BodyInput bodies[];
+};
+
+layout(set = 0, binding = 1) writeonly buffer OutputPairs
+{
+    CandidatePair pairs[];
+};
+
+layout(set = 0, binding = 2) buffer OutputCounter
+{
+    uint pairCount;
+};
+
+layout(push_constant) uniform BroadPhasePushConstants
+{
+    uint inputCount;
+    uint maxPairCount;
+} broadPhase;
+
+vec4 quatNormalize(vec4 q)
+{
+    float len = length(q);
+    if (len <= 0.0)
+    {
+        return vec4(1.0, 0.0, 0.0, 0.0);
+    }
+    return q / len;
+}
+
+mat3 quatToMatrix3(vec4 q)
+{
+    q = quatNormalize(q);
+    float w = q.x;
+    float x = q.y;
+    float y = q.z;
+    float z = q.w;
+
+    float xx = x * x;
+    float yy = y * y;
+    float zz = z * z;
+    float xy = x * y;
+    float xz = x * z;
+    float yz = y * z;
+    float wx = w * x;
+    float wy = w * y;
+    float wz = w * z;
+
+    return mat3(
+        vec3(1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz), 2.0 * (xz + wy)),
+        vec3(2.0 * (xy + wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx)),
+        vec3(2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (xx + yy)));
+}
+
+Bounds makeInvalidBounds()
+{
+    Bounds bounds;
+    bounds.minPoint = vec3(0.0);
+    bounds.maxPoint = vec3(0.0);
+    return bounds;
+}
+
+bool boundsValid(Bounds bounds)
+{
+    return all(lessThanEqual(bounds.minPoint, bounds.maxPoint));
+}
+
+Bounds computeBoxBounds(BodyInput body)
+{
+    vec3 scaledHalfExtents = abs(body.halfExtents.xyz * body.scale.xyz);
+    mat3 rotationMatrix = quatToMatrix3(body.rotation);
+    vec3 worldCenter = body.position.xyz + rotationMatrix * (body.offset.xyz * body.scale.xyz);
+
+    vec3 axisX = normalize(rotationMatrix[0]);
+    vec3 axisY = normalize(rotationMatrix[1]);
+    vec3 axisZ = normalize(rotationMatrix[2]);
+    vec3 extents = vec3(
+        abs(axisX.x) * scaledHalfExtents.x + abs(axisY.x) * scaledHalfExtents.y + abs(axisZ.x) * scaledHalfExtents.z,
+        abs(axisX.y) * scaledHalfExtents.x + abs(axisY.y) * scaledHalfExtents.y + abs(axisZ.y) * scaledHalfExtents.z,
+        abs(axisX.z) * scaledHalfExtents.x + abs(axisY.z) * scaledHalfExtents.y + abs(axisZ.z) * scaledHalfExtents.z);
+
+    Bounds bounds;
+    bounds.minPoint = worldCenter - extents;
+    bounds.maxPoint = worldCenter + extents;
+    return bounds;
+}
+
+Bounds computeBounds(BodyInput body)
+{
+    if (body.shapeType == SHAPE_TYPE_BOX)
+    {
+        return computeBoxBounds(body);
+    }
+
+    return makeInvalidBounds();
+}
+
+bool overlaps(Bounds a, Bounds b)
+{
+    return a.minPoint.x <= b.maxPoint.x &&
+           a.maxPoint.x >= b.minPoint.x &&
+           a.minPoint.y <= b.maxPoint.y &&
+           a.maxPoint.y >= b.minPoint.y &&
+           a.minPoint.z <= b.maxPoint.z &&
+           a.maxPoint.z >= b.minPoint.z;
+}
+
+void main()
+{
+    uint indexA = gl_GlobalInvocationID.x;
+    if (indexA >= broadPhase.inputCount)
+    {
+        return;
+    }
+
+    Bounds boundsA = computeBounds(bodies[indexA]);
+    if (!boundsValid(boundsA))
+    {
+        return;
+    }
+
+    for (uint indexB = indexA + 1; indexB < broadPhase.inputCount; ++indexB)
+    {
+        Bounds boundsB = computeBounds(bodies[indexB]);
+        if (!boundsValid(boundsB) || !overlaps(boundsA, boundsB))
+        {
+            continue;
+        }
+
+        uint outputIndex = atomicAdd(pairCount, 1);
+        if (outputIndex >= broadPhase.maxPairCount)
+        {
+            continue;
+        }
+
+        pairs[outputIndex].aIndex = indexA;
+        pairs[outputIndex].bIndex = indexB;
+    }
+}

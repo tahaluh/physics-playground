@@ -1,16 +1,21 @@
 #pragma once
 
+#include <memory>
 #include <unordered_set>
-#include <vector>
+
+#include "engine/physics/BroadPhase.h"
 
 class BodyObject;
 
 class PhysicsSystem
 {
 public:
+    PhysicsSystem();
+
     void addBody(BodyObject &body);
     void removeBody(const BodyObject &body);
     void clearBodies();
+    void setBroadPhaseCompute(BroadPhaseCompute *computeBackend);
     bool step(float dt);
 
 private:
@@ -36,8 +41,8 @@ private:
     };
 
     std::vector<BodyObject *> bodies;
-    std::vector<BodyObject *> sweepAndPruneOrder;
     std::unordered_set<BodyPair, BodyPairHasher> activeCollisions;
+    std::unique_ptr<BroadPhase> broadPhase;
 
     bool integrateBody(BodyObject &body, float dt);
     void resolveCollisions(float dt);

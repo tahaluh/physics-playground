@@ -59,6 +59,11 @@ void RuntimeScene::step(float dt)
     syncBodyRenderScenes();
 }
 
+void RuntimeScene::setBroadPhaseCompute(BroadPhaseCompute *computeBackend)
+{
+    physicsSystem.setBroadPhaseCompute(computeBackend);
+}
+
 void RuntimeScene::setWireframeVisible(bool visible)
 {
     wireframeVisible = visible;

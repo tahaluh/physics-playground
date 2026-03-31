@@ -120,6 +120,38 @@ void BodyObject::setPhysicsState(const BodyPhysicsState &state)
     config.physics = state;
 }
 
+bool BodyObject::isSleeping() const
+{
+    return physicsState.sleeping;
+}
+
+void BodyObject::setSleeping(bool sleeping)
+{
+    if (physicsState.sleeping == sleeping)
+    {
+        return;
+    }
+
+    physicsState.sleeping = sleeping;
+    if (!sleeping)
+    {
+        physicsState.sleepTime = 0.0f;
+    }
+    config.physics = physicsState;
+}
+
+void BodyObject::wakeUp()
+{
+    if (!physicsState.sleeping && physicsState.sleepTime == 0.0f)
+    {
+        return;
+    }
+
+    physicsState.sleeping = false;
+    physicsState.sleepTime = 0.0f;
+    config.physics = physicsState;
+}
+
 void BodyObject::setCollider(const std::shared_ptr<Collider> &collider)
 {
     config.collider = collider ? collider->clone() : nullptr;

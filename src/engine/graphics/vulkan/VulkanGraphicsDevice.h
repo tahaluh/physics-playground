@@ -8,8 +8,9 @@
 
 #include "engine/graphics/IGraphicsDevice.h"
 #include "engine/math/Matrix4.h"
+#include "engine/physics/BroadPhase.h"
 
-class VulkanGraphicsDevice : public IGraphicsDevice
+class VulkanGraphicsDevice : public IGraphicsDevice, public BroadPhaseCompute
 {
 public:
     static constexpr uint32_t kPointShadowFaceCount = 6;
@@ -144,6 +145,10 @@ public:
     {
         wireframeOverlayEnabled = enabled;
     }
+    BroadPhaseCompute *getBroadPhaseCompute() override
+    {
+        return broadPhasePipeline ? this : nullptr;
+    }
     bool initialize(IWindow &window) override;
     void resize(int width, int height) override;
     int getWidth() const override;
@@ -153,6 +158,9 @@ public:
     void renderScene(const Camera &camera, const Scene &scene) override;
     void endFrame() override;
     void present() override;
+    bool computeCandidatePairs(
+        const std::vector<BroadPhaseBodyInput> &inputs,
+        std::vector<BroadPhaseCandidatePair> &pairs) override;
 
 private:
     bool createInstance();
@@ -173,6 +181,8 @@ private:
     bool createInstancedShadowPipeline();
     bool createSimulationResources();
     bool createSimulationPipeline();
+    bool createBroadPhaseResources();
+    bool createBroadPhasePipeline();
     void appendSceneVertices(const Camera &camera, const Scene &scene);
     bool updateLightDebugVertexBuffer(const Camera &camera, const Scene &scene);
     bool updateSceneTransformBuffers(const Camera &camera, const Scene &scene);
@@ -268,13 +278,17 @@ private:
     VkRenderPass shadowRenderPass = VK_NULL_HANDLE;
     VkDescriptorSetLayout lightingDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout simulationDescriptorSetLayout = VK_NULL_HANDLE;
+    VkDescriptorSetLayout broadPhaseDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool lightingDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorPool simulationDescriptorPool = VK_NULL_HANDLE;
+    VkDescriptorPool broadPhaseDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet lightingDescriptorSet = VK_NULL_HANDLE;
+    VkDescriptorSet broadPhaseDescriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout shadowPipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout simulationPipelineLayout = VK_NULL_HANDLE;
+    VkPipelineLayout broadPhasePipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline opaqueInstancedTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline transparentTrianglePipeline = VK_NULL_HANDLE;
@@ -282,6 +296,7 @@ private:
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
     VkPipeline shadowInstancedPipeline = VK_NULL_HANDLE;
     VkPipeline simulationPipeline = VK_NULL_HANDLE;
+    VkPipeline broadPhasePipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
     BufferHandle opaqueSceneVertexBuffer;
@@ -290,6 +305,9 @@ private:
     BufferHandle lightDebugLineVertexBuffer;
     BufferHandle shadowSceneVertexBuffer;
     BufferHandle ambientUniformBuffer;
+    BufferHandle broadPhaseInputBuffer;
+    BufferHandle broadPhaseOutputBuffer;
+    BufferHandle broadPhaseCounterBuffer;
     BufferHandle directionalLightStorageBuffer;
     BufferHandle pointLightStorageBuffer;
     BufferHandle spotLightStorageBuffer;
@@ -297,6 +315,9 @@ private:
     BufferHandle spotShadowMatrixStorageBuffer;
     BufferHandle pointShadowMatrixStorageBuffer;
     VkDeviceSize ambientUniformBufferSize = 0;
+    VkDeviceSize broadPhaseInputBufferSize = 0;
+    VkDeviceSize broadPhaseOutputBufferSize = 0;
+    VkDeviceSize broadPhaseCounterBufferSize = 0;
     VkDeviceSize directionalLightStorageBufferSize = 0;
     VkDeviceSize pointLightStorageBufferSize = 0;
     VkDeviceSize spotLightStorageBufferSize = 0;

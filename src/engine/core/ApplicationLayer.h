@@ -13,6 +13,6 @@ public:
     virtual void onResize(int viewportWidth, int viewportHeight) = 0;
     virtual void onUpdate(float dt) {}
     virtual void onFixedUpdate(float dt) = 0;
-    virtual void onRender(IGraphicsDevice &graphicsDevice) const = 0;
+    virtual void onRender(IGraphicsDevice &graphicsDevice) = 0;
     virtual std::string getRuntimeStatusText() const { return {}; }
 };

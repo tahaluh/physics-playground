@@ -20,7 +20,7 @@ public:
     void onResize(int viewportWidth, int viewportHeight) override;
     void onUpdate(float dt) override;
     void onFixedUpdate(float dt) override;
-    void onRender(IGraphicsDevice &graphicsDevice) const override;
+    void onRender(IGraphicsDevice &graphicsDevice) override;
     std::string getRuntimeStatusText() const override;
 
 private:

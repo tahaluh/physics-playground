@@ -224,13 +224,14 @@ void Demo::onUpdate(float dt)
     updateCamera(dt);
 }
 
-void Demo::onRender(IGraphicsDevice &graphicsDevice) const
+void Demo::onRender(IGraphicsDevice &graphicsDevice)
 {
     if (!camera3D || !runtimeScene)
     {
         return;
     }
 
+    runtimeScene->setBroadPhaseCompute(graphicsDevice.getBroadPhaseCompute());
     graphicsDevice.setLightDebugOverlayEnabled(showLightDebugMarkers);
     graphicsDevice.setWireframeOverlayEnabled(showWireframes);
     graphicsDevice.renderScene(*camera3D, runtimeScene->getRenderScene());

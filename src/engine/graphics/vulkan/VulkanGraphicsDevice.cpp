@@ -517,6 +517,8 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
         return false;
     if (!createSimulationResources())
         return false;
+    if (!createBroadPhaseResources())
+        return false;
     if (!createFramebuffers())
         return false;
     if (!createCommandPool())
@@ -532,6 +534,7 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
     triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
     triangleResourcesReady = triangleResourcesReady && createInstancedShadowPipeline();
     triangleResourcesReady = triangleResourcesReady && createSimulationPipeline();
+    triangleResourcesReady = triangleResourcesReady && createBroadPhasePipeline();
     if (!triangleResourcesReady)
     {
         std::fprintf(
@@ -1521,6 +1524,39 @@ bool VulkanGraphicsDevice::createSimulationResources()
     return vkCreateDescriptorPool(device, &poolInfo, nullptr, &simulationDescriptorPool) == VK_SUCCESS;
 }
 
+bool VulkanGraphicsDevice::createBroadPhaseResources()
+{
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+    for (uint32_t index = 0; index < bindings.size(); ++index)
+    {
+        bindings[index].binding = index;
+        bindings[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[index].descriptorCount = 1;
+        bindings[index].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    }
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &broadPhaseDescriptorSetLayout) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSize.descriptorCount = 3;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+    return vkCreateDescriptorPool(device, &poolInfo, nullptr, &broadPhaseDescriptorPool) == VK_SUCCESS;
+}
+
 bool VulkanGraphicsDevice::createTrianglePipeline()
 {
     const std::vector<char> vertexShaderCode = readFirstExistingBinary({
@@ -2378,6 +2414,312 @@ bool VulkanGraphicsDevice::createSimulationPipeline()
     const bool success = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &simulationPipeline) == VK_SUCCESS;
     vkDestroyShaderModule(device, computeShaderModule, nullptr);
     return success;
+}
+
+bool VulkanGraphicsDevice::createBroadPhasePipeline()
+{
+    const std::vector<char> computeShaderCode = readFirstExistingBinary({
+        "build/shaders/vulkan/physics/broad_phase.comp.spv",
+        "shaders/vulkan/physics/broad_phase.comp.spv"});
+    if (computeShaderCode.empty())
+    {
+        return false;
+    }
+
+    const VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
+    if (!computeShaderModule)
+    {
+        return false;
+    }
+
+    VkPipelineShaderStageCreateInfo shaderStageInfo{};
+    shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    shaderStageInfo.module = computeShaderModule;
+    shaderStageInfo.pName = "main";
+
+    struct BroadPhasePushConstants
+    {
+        uint32_t inputCount;
+        uint32_t maxPairCount;
+    };
+
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(BroadPhasePushConstants);
+
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &broadPhaseDescriptorSetLayout;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &broadPhasePipelineLayout) != VK_SUCCESS)
+    {
+        vkDestroyShaderModule(device, computeShaderModule, nullptr);
+        return false;
+    }
+
+    VkComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pipelineInfo.stage = shaderStageInfo;
+    pipelineInfo.layout = broadPhasePipelineLayout;
+
+    const bool success = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &broadPhasePipeline) == VK_SUCCESS;
+    vkDestroyShaderModule(device, computeShaderModule, nullptr);
+    return success;
+}
+
+bool VulkanGraphicsDevice::computeCandidatePairs(
+    const std::vector<BroadPhaseBodyInput> &inputs,
+    std::vector<BroadPhaseCandidatePair> &pairs)
+{
+    pairs.clear();
+    if (!device || !graphicsQueue || !commandPool || !broadPhasePipeline || !broadPhasePipelineLayout)
+    {
+        return false;
+    }
+
+    const uint32_t inputCount = static_cast<uint32_t>(inputs.size());
+    if (inputCount < 2)
+    {
+        return true;
+    }
+
+    const uint64_t maxPairCount64 = (static_cast<uint64_t>(inputCount) * static_cast<uint64_t>(inputCount - 1)) / 2ull;
+    const uint64_t maxOutputBytes = maxPairCount64 * sizeof(BroadPhaseCandidatePair);
+    constexpr uint64_t kMaxBroadPhaseOutputBytes = 64ull * 1024ull * 1024ull;
+    if (maxOutputBytes == 0 || maxOutputBytes > kMaxBroadPhaseOutputBytes)
+    {
+        return false;
+    }
+
+    const VkDeviceSize requiredInputSize = sizeof(BroadPhaseBodyInput) * static_cast<VkDeviceSize>(inputCount);
+    const VkDeviceSize requiredOutputSize = sizeof(BroadPhaseCandidatePair) * static_cast<VkDeviceSize>(maxPairCount64);
+    const VkDeviceSize requiredCounterSize = sizeof(uint32_t);
+    const auto ensureStorageBuffer = [&](BufferHandle &bufferHandle, VkDeviceSize &bufferSize, VkDeviceSize requiredSize) -> bool
+    {
+        if (bufferHandle.buffer && bufferSize >= requiredSize)
+        {
+            return true;
+        }
+
+        if (bufferHandle.buffer)
+        {
+            vkDestroyBuffer(device, bufferHandle.buffer, nullptr);
+            bufferHandle.buffer = VK_NULL_HANDLE;
+        }
+        if (bufferHandle.memory)
+        {
+            vkFreeMemory(device, bufferHandle.memory, nullptr);
+            bufferHandle.memory = VK_NULL_HANDLE;
+        }
+
+        if (!createBuffer(
+                requiredSize,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                bufferHandle))
+        {
+            bufferSize = 0;
+            return false;
+        }
+
+        bufferSize = requiredSize;
+        return true;
+    };
+
+    if (!ensureStorageBuffer(broadPhaseInputBuffer, broadPhaseInputBufferSize, requiredInputSize) ||
+        !ensureStorageBuffer(broadPhaseOutputBuffer, broadPhaseOutputBufferSize, requiredOutputSize) ||
+        !ensureStorageBuffer(broadPhaseCounterBuffer, broadPhaseCounterBufferSize, requiredCounterSize))
+    {
+        return false;
+    }
+
+    void *mappedMemory = nullptr;
+    if (vkMapMemory(device, broadPhaseInputBuffer.memory, 0, requiredInputSize, 0, &mappedMemory) != VK_SUCCESS)
+    {
+        return false;
+    }
+    std::memcpy(mappedMemory, inputs.data(), static_cast<size_t>(requiredInputSize));
+    vkUnmapMemory(device, broadPhaseInputBuffer.memory);
+
+    uint32_t zeroCounter = 0;
+    if (vkMapMemory(device, broadPhaseCounterBuffer.memory, 0, requiredCounterSize, 0, &mappedMemory) != VK_SUCCESS)
+    {
+        return false;
+    }
+    std::memcpy(mappedMemory, &zeroCounter, sizeof(zeroCounter));
+    vkUnmapMemory(device, broadPhaseCounterBuffer.memory);
+
+    if (!broadPhaseDescriptorSet)
+    {
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = broadPhaseDescriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &broadPhaseDescriptorSetLayout;
+        if (vkAllocateDescriptorSets(device, &allocInfo, &broadPhaseDescriptorSet) != VK_SUCCESS)
+        {
+            return false;
+        }
+    }
+
+    VkDescriptorBufferInfo inputBufferInfo{};
+    inputBufferInfo.buffer = broadPhaseInputBuffer.buffer;
+    inputBufferInfo.offset = 0;
+    inputBufferInfo.range = requiredInputSize;
+
+    VkDescriptorBufferInfo outputBufferInfo{};
+    outputBufferInfo.buffer = broadPhaseOutputBuffer.buffer;
+    outputBufferInfo.offset = 0;
+    outputBufferInfo.range = requiredOutputSize;
+
+    VkDescriptorBufferInfo counterBufferInfo{};
+    counterBufferInfo.buffer = broadPhaseCounterBuffer.buffer;
+    counterBufferInfo.offset = 0;
+    counterBufferInfo.range = requiredCounterSize;
+
+    std::array<VkWriteDescriptorSet, 3> writes{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = broadPhaseDescriptorSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[0].descriptorCount = 1;
+    writes[0].pBufferInfo = &inputBufferInfo;
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = broadPhaseDescriptorSet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].descriptorCount = 1;
+    writes[1].pBufferInfo = &outputBufferInfo;
+    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[2].dstSet = broadPhaseDescriptorSet;
+    writes[2].dstBinding = 2;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[2].descriptorCount = 1;
+    writes[2].pBufferInfo = &counterBufferInfo;
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = commandPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS)
+    {
+        return false;
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS)
+    {
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    struct BroadPhasePushConstants
+    {
+        uint32_t inputCount;
+        uint32_t maxPairCount;
+    };
+
+    const BroadPhasePushConstants pushConstants{
+        inputCount,
+        static_cast<uint32_t>(maxPairCount64)};
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, broadPhasePipeline);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, broadPhasePipelineLayout, 0, 1, &broadPhaseDescriptorSet, 0, nullptr);
+    vkCmdPushConstants(commandBuffer, broadPhasePipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(BroadPhasePushConstants), &pushConstants);
+    vkCmdDispatch(commandBuffer, (inputCount + 63u) / 64u, 1, 1);
+
+    std::array<VkBufferMemoryBarrier, 2> barriers{};
+    barriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barriers[0].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    barriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[0].buffer = broadPhaseOutputBuffer.buffer;
+    barriers[0].offset = 0;
+    barriers[0].size = requiredOutputSize;
+    barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barriers[1].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barriers[1].dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barriers[1].buffer = broadPhaseCounterBuffer.buffer;
+    barriers[1].offset = 0;
+    barriers[1].size = requiredCounterSize;
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_HOST_BIT,
+        0,
+        0,
+        nullptr,
+        static_cast<uint32_t>(barriers.size()),
+        barriers.data(),
+        0,
+        nullptr);
+
+    if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS)
+    {
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence fence = VK_NULL_HANDLE;
+    if (vkCreateFence(device, &fenceInfo, nullptr, &fence) != VK_SUCCESS)
+    {
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        return false;
+    }
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    const bool submitSuccess = vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence) == VK_SUCCESS &&
+                               vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+    vkDestroyFence(device, fence, nullptr);
+    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+    if (!submitSuccess)
+    {
+        return false;
+    }
+
+    uint32_t pairCount = 0;
+    if (vkMapMemory(device, broadPhaseCounterBuffer.memory, 0, requiredCounterSize, 0, &mappedMemory) != VK_SUCCESS)
+    {
+        return false;
+    }
+    std::memcpy(&pairCount, mappedMemory, sizeof(pairCount));
+    vkUnmapMemory(device, broadPhaseCounterBuffer.memory);
+
+    pairCount = std::min<uint32_t>(pairCount, static_cast<uint32_t>(maxPairCount64));
+    if (pairCount == 0)
+    {
+        return true;
+    }
+
+    pairs.resize(pairCount);
+    const VkDeviceSize readSize = sizeof(BroadPhaseCandidatePair) * static_cast<VkDeviceSize>(pairCount);
+    if (vkMapMemory(device, broadPhaseOutputBuffer.memory, 0, readSize, 0, &mappedMemory) != VK_SUCCESS)
+    {
+        pairs.clear();
+        return false;
+    }
+    std::memcpy(pairs.data(), mappedMemory, static_cast<size_t>(readSize));
+    vkUnmapMemory(device, broadPhaseOutputBuffer.memory);
+    return true;
 }
 
 bool VulkanGraphicsDevice::updateLightingBuffers(const Camera &camera, const Scene &scene)
@@ -4411,6 +4753,10 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipeline(device, simulationPipeline, nullptr);
         }
+        if (broadPhasePipeline)
+        {
+            vkDestroyPipeline(device, broadPhasePipeline, nullptr);
+        }
         if (trianglePipelineLayout)
         {
             vkDestroyPipelineLayout(device, trianglePipelineLayout, nullptr);
@@ -4427,6 +4773,10 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipelineLayout(device, simulationPipelineLayout, nullptr);
         }
+        if (broadPhasePipelineLayout)
+        {
+            vkDestroyPipelineLayout(device, broadPhasePipelineLayout, nullptr);
+        }
         if (lightingDescriptorPool)
         {
             vkDestroyDescriptorPool(device, lightingDescriptorPool, nullptr);
@@ -4435,6 +4785,10 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyDescriptorPool(device, simulationDescriptorPool, nullptr);
         }
+        if (broadPhaseDescriptorPool)
+        {
+            vkDestroyDescriptorPool(device, broadPhaseDescriptorPool, nullptr);
+        }
         if (lightingDescriptorSetLayout)
         {
             vkDestroyDescriptorSetLayout(device, lightingDescriptorSetLayout, nullptr);
@@ -4442,6 +4796,34 @@ void VulkanGraphicsDevice::destroyDevice()
         if (simulationDescriptorSetLayout)
         {
             vkDestroyDescriptorSetLayout(device, simulationDescriptorSetLayout, nullptr);
+        }
+        if (broadPhaseDescriptorSetLayout)
+        {
+            vkDestroyDescriptorSetLayout(device, broadPhaseDescriptorSetLayout, nullptr);
+        }
+        if (broadPhaseInputBuffer.buffer)
+        {
+            vkDestroyBuffer(device, broadPhaseInputBuffer.buffer, nullptr);
+        }
+        if (broadPhaseInputBuffer.memory)
+        {
+            vkFreeMemory(device, broadPhaseInputBuffer.memory, nullptr);
+        }
+        if (broadPhaseOutputBuffer.buffer)
+        {
+            vkDestroyBuffer(device, broadPhaseOutputBuffer.buffer, nullptr);
+        }
+        if (broadPhaseOutputBuffer.memory)
+        {
+            vkFreeMemory(device, broadPhaseOutputBuffer.memory, nullptr);
+        }
+        if (broadPhaseCounterBuffer.buffer)
+        {
+            vkDestroyBuffer(device, broadPhaseCounterBuffer.buffer, nullptr);
+        }
+        if (broadPhaseCounterBuffer.memory)
+        {
+            vkFreeMemory(device, broadPhaseCounterBuffer.memory, nullptr);
         }
         if (renderPass)
         {

@@ -29,6 +29,9 @@ struct BodyPhysicsState
     float mass = 1.0f;
     Vector3 linearVelocity = Vector3::zero();
     Vector3 angularVelocity = Vector3::zero();
+    float sleepTime = 0.0f;
+    bool sleeping = false;
+    bool canSleep = true;
 };
 
 struct BodyObjectDesc
@@ -66,6 +69,9 @@ public:
     const Material &getMaterial() const;
     const BodyPhysicsState &getPhysicsState() const;
     void setPhysicsState(const BodyPhysicsState &state);
+    bool isSleeping() const;
+    void setSleeping(bool sleeping);
+    void wakeUp();
     void setCollider(const std::shared_ptr<Collider> &collider);
     void setMaterial(const Material &material);
     void setTransform(const Transform &transform);

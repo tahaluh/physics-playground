@@ -1,13 +1,17 @@
 #include "engine/physics/PhysicsSystem.h"
 
 #include <algorithm>
-#include <vector>
 
-#include "engine/physics/Collider.h"
+#include "engine/physics/GpuBroadPhase.h"
+#include "engine/physics/SapBroadPhase.h"
 #include "engine/scene/objects/BodyObject.h"
 
 namespace
 {
+constexpr float kSleepLinearSpeedThreshold = 0.01f;
+constexpr float kSleepAngularSpeedThreshold = 0.01f;
+constexpr float kSleepDelaySeconds = 0.35f;
+
 CollisionPoints invertCollision(const CollisionPoints &collision)
 {
     CollisionPoints inverted = collision;
@@ -16,6 +20,16 @@ CollisionPoints invertCollision(const CollisionPoints &collision)
     inverted.normal *= -1.0f;
     return inverted;
 }
+
+void wakeBody(BodyObject &body)
+{
+    body.wakeUp();
+}
+}
+
+PhysicsSystem::PhysicsSystem()
+    : broadPhase(std::make_unique<SapBroadPhase>())
+{
 }
 
 void PhysicsSystem::addBody(BodyObject &body)
@@ -31,31 +45,34 @@ void PhysicsSystem::addBody(BodyObject &body)
     }
 
     bodies.push_back(&body);
-    sweepAndPruneOrder.push_back(&body);
 }
 
 void PhysicsSystem::removeBody(const BodyObject &body)
 {
     bodies.erase(std::remove(bodies.begin(), bodies.end(), &body), bodies.end());
-    sweepAndPruneOrder.erase(std::remove(sweepAndPruneOrder.begin(), sweepAndPruneOrder.end(), &body), sweepAndPruneOrder.end());
 }
 
 void PhysicsSystem::clearBodies()
 {
     bodies.clear();
-    sweepAndPruneOrder.clear();
     activeCollisions.clear();
+}
+
+void PhysicsSystem::setBroadPhaseCompute(BroadPhaseCompute *computeBackend)
+{
+    if (computeBackend)
+    {
+        broadPhase = std::make_unique<GpuBroadPhase>(computeBackend);
+        return;
+    }
+
+    broadPhase = std::make_unique<SapBroadPhase>();
 }
 
 bool PhysicsSystem::step(float dt)
 {
     bool anyBodyMoved = false;
-    if (sweepAndPruneOrder.size() != bodies.size())
-    {
-        sweepAndPruneOrder = bodies;
-    }
-
-    for (BodyObject *body : sweepAndPruneOrder)
+    for (BodyObject *body : bodies)
     {
         if (!body)
         {
@@ -82,9 +99,41 @@ bool PhysicsSystem::integrateBody(BodyObject &body, float dt)
         return false;
     }
 
-    const BodyPhysicsState &physicsState = body.getPhysicsState();
-    if (physicsState.linearVelocity.lengthSquared() == 0.0f &&
-        physicsState.angularVelocity.lengthSquared() == 0.0f)
+    BodyPhysicsState physicsState = body.getPhysicsState();
+    if (physicsState.sleeping)
+    {
+        return false;
+    }
+
+    const float linearSpeedSquared = physicsState.linearVelocity.lengthSquared();
+    const float angularSpeedSquared = physicsState.angularVelocity.lengthSquared();
+    const float sleepLinearThresholdSquared = kSleepLinearSpeedThreshold * kSleepLinearSpeedThreshold;
+    const float sleepAngularThresholdSquared = kSleepAngularSpeedThreshold * kSleepAngularSpeedThreshold;
+
+    if (physicsState.canSleep &&
+        linearSpeedSquared <= sleepLinearThresholdSquared &&
+        angularSpeedSquared <= sleepAngularThresholdSquared)
+    {
+        physicsState.sleepTime += dt;
+        if (physicsState.sleepTime >= kSleepDelaySeconds)
+        {
+            physicsState.sleeping = true;
+            physicsState.sleepTime = kSleepDelaySeconds;
+            physicsState.linearVelocity = Vector3::zero();
+            physicsState.angularVelocity = Vector3::zero();
+        }
+        body.setPhysicsState(physicsState);
+        return false;
+    }
+
+    if (physicsState.sleepTime > 0.0f || physicsState.sleeping)
+    {
+        physicsState.sleepTime = 0.0f;
+        physicsState.sleeping = false;
+        body.setPhysicsState(physicsState);
+    }
+
+    if (linearSpeedSquared == 0.0f && angularSpeedSquared == 0.0f)
     {
         return false;
     }
@@ -101,115 +150,52 @@ void PhysicsSystem::resolveCollisions(float dt)
 {
     (void)dt;
 
-    struct SweepEntry
-    {
-        BodyObject *body = nullptr;
-        const Collider *collider = nullptr;
-        Collider::BroadPhaseBounds bounds;
-    };
-
     std::unordered_set<BodyPair, BodyPairHasher> currentCollisions;
     const auto makeBodyPair = [](BodyObject &bodyA, BodyObject &bodyB) {
         return &bodyA < &bodyB
             ? BodyPair{&bodyA, &bodyB}
             : BodyPair{&bodyB, &bodyA};
     };
-    const auto overlapsOnYZ = [](const Collider::BroadPhaseBounds &a, const Collider::BroadPhaseBounds &b) {
-        return a.min.y <= b.max.y &&
-               a.max.y >= b.min.y &&
-               a.min.z <= b.max.z &&
-               a.max.z >= b.min.z;
-    };
-
-    std::vector<SweepEntry> entries;
-    entries.reserve(bodies.size());
-
-    for (BodyObject *body : bodies)
+    const std::vector<BroadPhasePair> candidatePairs = broadPhase->computePairs(bodies);
+    for (const BroadPhasePair &candidatePair : candidatePairs)
     {
-        if (!body)
+        BodyObject *bodyA = candidatePair.a;
+        BodyObject *bodyB = candidatePair.b;
+        if (!bodyA || !bodyB)
         {
             continue;
         }
 
-        const Collider *collider = body->getCollider();
-        if (!collider)
+        const Collider *colliderA = bodyA->getCollider();
+        const Collider *colliderB = bodyB->getCollider();
+        if (!colliderA || !colliderB)
         {
             continue;
         }
 
-        const Collider::BroadPhaseBounds bounds = collider->getBroadPhaseBounds(body->getTransform());
-        if (!bounds.valid)
+        const CollisionPoints collision = colliderA->testCollision(
+            *colliderB,
+            bodyA->getTransform(),
+            bodyB->getTransform());
+        if (!collision.hasCollision)
         {
             continue;
         }
 
-        entries.push_back({body, collider, bounds});
-    }
+        const BodyPair pair = makeBodyPair(*bodyA, *bodyB);
+        currentCollisions.insert(pair);
 
-    for (std::size_t index = 1; index < entries.size(); ++index)
-    {
-        SweepEntry entry = entries[index];
-        std::size_t insertIndex = index;
-        while (insertIndex > 0 && entries[insertIndex - 1].bounds.min.x > entry.bounds.min.x)
+        wakeBody(*bodyA);
+        wakeBody(*bodyB);
+
+        if (activeCollisions.find(pair) == activeCollisions.end())
         {
-            entries[insertIndex] = entries[insertIndex - 1];
-            --insertIndex;
-        }
-        entries[insertIndex] = entry;
-    }
-
-    sweepAndPruneOrder.clear();
-    sweepAndPruneOrder.reserve(entries.size());
-    for (const SweepEntry &entry : entries)
-    {
-        sweepAndPruneOrder.push_back(entry.body);
-    }
-
-    std::vector<std::size_t> activeEntries;
-    activeEntries.reserve(entries.size());
-    for (std::size_t entryIndex = 0; entryIndex < entries.size(); ++entryIndex)
-    {
-        const SweepEntry &entryA = entries[entryIndex];
-        activeEntries.erase(
-            std::remove_if(
-                activeEntries.begin(),
-                activeEntries.end(),
-                [&](std::size_t activeIndex) {
-                    return entries[activeIndex].bounds.max.x < entryA.bounds.min.x;
-                }),
-            activeEntries.end());
-
-        for (std::size_t activeIndex : activeEntries)
-        {
-            const SweepEntry &entryB = entries[activeIndex];
-            if (!overlapsOnYZ(entryA.bounds, entryB.bounds))
-            {
-                continue;
-            }
-
-            const CollisionPoints collision = entryA.collider->testCollision(
-                *entryB.collider,
-                entryA.body->getTransform(),
-                entryB.body->getTransform());
-            if (!collision.hasCollision)
-            {
-                continue;
-            }
-
-            const BodyPair pair = makeBodyPair(*entryA.body, *entryB.body);
-            currentCollisions.insert(pair);
-
-            if (activeCollisions.find(pair) == activeCollisions.end())
-            {
-                entryA.body->notifyCollisionEnter(*entryB.body, collision);
-                entryB.body->notifyCollisionEnter(*entryA.body, invertCollision(collision));
-            }
-
-            entryA.body->notifyCollisionStay(*entryB.body, collision);
-            entryB.body->notifyCollisionStay(*entryA.body, invertCollision(collision));
+            bodyA->notifyCollisionEnter(*bodyB, collision);
+            bodyB->notifyCollisionEnter(*bodyA, invertCollision(collision));
         }
 
-        activeEntries.push_back(entryIndex);
+        bodyA->notifyCollisionStay(*bodyB, collision);
+        bodyB->notifyCollisionStay(*bodyA, invertCollision(collision));
     }
 
     for (const BodyPair &pair : activeCollisions)

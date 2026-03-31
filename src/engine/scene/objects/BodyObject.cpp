@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "engine/physics/BoxCollider.h"
+#include "engine/physics/PlaneCollider.h"
 #include "engine/render/3d/mesh/MeshFactory.h"
 #include "engine/scene/3d/Entity.h"
 #include "engine/scene/3d/Scene.h"
@@ -15,6 +16,8 @@ std::shared_ptr<Collider> makeDefaultCollider(const BodyObjectDesc &desc)
     {
     case BodyShapeType::Cube:
         return std::make_shared<BoxCollider>(Vector3::zero(), Vector3::one() * 0.5f);
+    case BodyShapeType::Plane:
+        return std::make_shared<PlaneCollider>(Vector3::zero(), Vector2(0.5f, 0.5f));
     case BodyShapeType::Sphere:
     default:
         return std::make_shared<BoxCollider>(Vector3::zero(), Vector3::one() * 0.5f);
@@ -25,6 +28,8 @@ Mesh makeBodyMesh(const BodyObjectDesc &desc)
 {
     switch (desc.shapeType)
     {
+    case BodyShapeType::Plane:
+        return MeshFactory::makeQuadXZ(1.0f);
     case BodyShapeType::Sphere:
         return MeshFactory::makeSphere(0.5f, desc.sphereRings, desc.sphereSegments, 0);
     case BodyShapeType::Cube:
@@ -50,6 +55,9 @@ std::unique_ptr<BodyObject> BodyObject::create(const BodyObjectDesc &desc)
         entity.name = desc.name;
         switch (desc.shapeType)
         {
+        case BodyShapeType::Plane:
+            entity.instancingKey = "body:plane";
+            break;
         case BodyShapeType::Sphere:
             entity.instancingKey = "body:sphere:" + std::to_string(desc.sphereRings) + ":" + std::to_string(desc.sphereSegments);
             break;
@@ -221,6 +229,22 @@ void BodyObject::notifyCollisionExit(BodyObject &other, const CollisionPoints &c
     if (onCollisionExit)
     {
         onCollisionExit(*this, other, collision);
+    }
+}
+
+void BodyObject::notifySleep()
+{
+    if (onSleep)
+    {
+        onSleep(*this);
+    }
+}
+
+void BodyObject::notifyWakeUp()
+{
+    if (onWakeUp)
+    {
+        onWakeUp(*this);
     }
 }
 

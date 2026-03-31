@@ -4,14 +4,18 @@
 #include <cstdint>
 #include <string>
 
+#include "engine/physics/PlaneCollider.h"
+
 namespace
 {
-constexpr int kCubeGridSize = 10;
+constexpr int kCubeGridSize = 5;
 constexpr float kCubeSize = 1.0f;
 constexpr float kCubeNonTouchMargin = 0.1f;
 constexpr float kCubeSpacing = (std::sqrt(3.0f) - kCubeSize) + kCubeNonTouchMargin;
 constexpr float kTau = 6.28318530718f;
 constexpr float kGridFrontDistance = 8.0f;
+constexpr float kGroundSize = 80.0f;
+constexpr float kGroundY = -8.0f;
 constexpr float kMaxAngularSpeed = 1.0f;
 constexpr float kMaxLinearSpeed = 0.15f;
 
@@ -99,9 +103,35 @@ BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &posit
     desc.transform.rotation = makeCubeRotation(column, row, layer);
     desc.transform.scale = Vector3::one() * kCubeSize;
     desc.rigidBody = RigidBody{};
+    desc.rigidBody->useGravity = true;
+    desc.rigidBody->restitution = 0.55f;
     desc.rigidBody->linearVelocity = makeCubeLinearVelocity(column, row, layer);
     desc.rigidBody->angularVelocity = makeCubeAngularVelocity(column, row, layer);
+    desc.contactFriction = 0.45f;
+    desc.contactRestitution = 0.55f;
     desc.material.solid = MaterialPresets::makePlastic(0xFF555555, 0.42f);
+    desc.material.wireframe.baseColor = 0xFFFFFFFF;
+    desc.material.wireframe.opacity = 1.0f;
+    desc.material.wireframe.unlit = true;
+    desc.material.wireframe.ambientFactor = 0.0f;
+    desc.material.wireframe.diffuseFactor = 0.0f;
+    desc.material.renderSolid = true;
+    desc.material.renderWireframe = false;
+    return desc;
+}
+
+BodyObjectDesc makeGroundPlaneDesc()
+{
+    BodyObjectDesc desc;
+    desc.name = "GroundPlane";
+    desc.motionType = BodyMotionType::Static;
+    desc.shapeType = BodyShapeType::Plane;
+    desc.transform.position = Vector3(0.0f, kGroundY, -kGridFrontDistance - 10.0f);
+    desc.transform.scale = Vector3(kGroundSize, 1.0f, kGroundSize);
+    desc.collider = std::make_shared<PlaneCollider>(Vector3::zero(), Vector2(0.5f, 0.5f));
+    desc.contactFriction = 0.7f;
+    desc.contactRestitution = 0.45f;
+    desc.material.solid = MaterialPresets::makePlastic(0xFF3A3A3A, 0.5f);
     desc.material.wireframe.baseColor = 0xFFFFFFFF;
     desc.material.wireframe.opacity = 1.0f;
     desc.material.wireframe.unlit = true;
@@ -120,6 +150,7 @@ PlaygroundSceneDesc makeDefaultPlaygroundSceneDesc()
     desc.ambientLight.intensity = 0.22f;
     desc.cameraPosition = Vector3::zero();
     desc.cameraRotation = Quaternion::identity();
+    desc.bodies.push_back(makeGroundPlaneDesc());
 
     const Vector3 origin = getGridOrigin();
     const float step = getGridStep();

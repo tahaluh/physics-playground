@@ -12,6 +12,7 @@ const float kMoveSpeed = 4.0f;
 const float kMouseLookSensitivity = 0.0025f;
 const uint32_t kDefaultCubeColor = 0xFF555555;
 const uint32_t kCollisionCubeColor = 0xFFD64545;
+const uint32_t kSleepingCubeColor = 0xFF4A78D6;
 
 Quaternion makeCameraRotation(float pitch, float yaw)
 {
@@ -83,6 +84,18 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
             if (it->second.empty())
             {
                 collidingBodies.erase(it);
+                self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
+            }
+        };
+        body.onSleep = [this](BodyObject &self) {
+            if (collidingBodies.find(&self) == collidingBodies.end())
+            {
+                self.setMaterial(makeCubeMaterial(kSleepingCubeColor));
+            }
+        };
+        body.onWakeUp = [this](BodyObject &self) {
+            if (collidingBodies.find(&self) == collidingBodies.end())
+            {
                 self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
             }
         };

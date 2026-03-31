@@ -165,6 +165,37 @@ inline Mesh makeCube(float size, uint32_t color = 0)
     return mesh;
 }
 
+inline Mesh makeQuadXZ(float size, uint32_t color = 0xFFFFFFFF)
+{
+    const float halfSize = size * 0.5f;
+
+    Mesh mesh;
+    mesh.vertices = {
+        Vector3(-halfSize, 0.0f, -halfSize),
+        Vector3(halfSize, 0.0f, -halfSize),
+        Vector3(halfSize, 0.0f, halfSize),
+        Vector3(-halfSize, 0.0f, halfSize),
+    };
+
+    mesh.edges = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+    };
+
+    mesh.vertexNormals = {
+        Vector3::up(),
+        Vector3::up(),
+        Vector3::up(),
+        Vector3::up(),
+    };
+
+    mesh.triangles = {
+        {{{0, 1, 2}}, color},
+        {{{0, 2, 3}}, color},
+    };
+
+    return mesh;
+}
+
 inline Mesh makeCone(float radius, float height, int segments = 24, uint32_t color = 0xFFFFFFFF)
 {
     Mesh mesh;

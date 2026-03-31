@@ -24,6 +24,7 @@ enum class BodyShapeType
 {
     Cube,
     Sphere,
+    Plane,
 };
 
 using BodyPhysicsState = RigidBody;
@@ -38,6 +39,8 @@ struct BodyObjectDesc
     std::shared_ptr<Collider> collider;
     bool createDefaultCollider = true;
     std::optional<RigidBody> rigidBody;
+    float contactFriction = 0.5f;
+    float contactRestitution = 0.0f;
     Material material = Material{};
     bool renderEnabled = true;
     int sphereRings = 16;
@@ -48,6 +51,7 @@ class BodyObject
 {
 public:
     using CollisionCallback = std::function<void(BodyObject &, BodyObject &, const CollisionPoints &)>;
+    using SleepCallback = std::function<void(BodyObject &)>;
 
     ~BodyObject();
 
@@ -79,10 +83,14 @@ public:
     void notifyCollisionEnter(BodyObject &other, const CollisionPoints &collision);
     void notifyCollisionStay(BodyObject &other, const CollisionPoints &collision);
     void notifyCollisionExit(BodyObject &other, const CollisionPoints &collision);
+    void notifySleep();
+    void notifyWakeUp();
 
     CollisionCallback onCollisionEnter;
     CollisionCallback onCollision;
     CollisionCallback onCollisionExit;
+    SleepCallback onSleep;
+    SleepCallback onWakeUp;
 
 private:
     std::unique_ptr<Scene> renderScene;

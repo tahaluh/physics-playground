@@ -98,8 +98,9 @@ BodyObjectDesc makeCubeDesc(int column, int row, int layer, const Vector3 &posit
     desc.transform.position = position;
     desc.transform.rotation = makeCubeRotation(column, row, layer);
     desc.transform.scale = Vector3::one() * kCubeSize;
-    desc.physics.linearVelocity = makeCubeLinearVelocity(column, row, layer);
-    desc.physics.angularVelocity = makeCubeAngularVelocity(column, row, layer);
+    desc.rigidBody = RigidBody{};
+    desc.rigidBody->linearVelocity = makeCubeLinearVelocity(column, row, layer);
+    desc.rigidBody->angularVelocity = makeCubeAngularVelocity(column, row, layer);
     desc.material.solid = MaterialPresets::makePlastic(0xFF555555, 0.42f);
     desc.material.wireframe.baseColor = 0xFFFFFFFF;
     desc.material.wireframe.opacity = 1.0f;

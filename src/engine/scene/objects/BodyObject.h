@@ -2,10 +2,12 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "engine/math/Transform.h"
 #include "engine/physics/CollisionPoints.h"
+#include "engine/physics/RigidBody.h"
 #include "engine/render/3d/Material.h"
 
 class Collider;
@@ -24,15 +26,7 @@ enum class BodyShapeType
     Sphere,
 };
 
-struct BodyPhysicsState
-{
-    float mass = 1.0f;
-    Vector3 linearVelocity = Vector3::zero();
-    Vector3 angularVelocity = Vector3::zero();
-    float sleepTime = 0.0f;
-    bool sleeping = false;
-    bool canSleep = true;
-};
+using BodyPhysicsState = RigidBody;
 
 struct BodyObjectDesc
 {
@@ -42,7 +36,8 @@ struct BodyObjectDesc
     bool simulateOnGpu = false;
     Transform transform;
     std::shared_ptr<Collider> collider;
-    BodyPhysicsState physics;
+    bool createDefaultCollider = true;
+    std::optional<RigidBody> rigidBody;
     Material material = Material{};
     bool renderEnabled = true;
     int sphereRings = 16;
@@ -66,9 +61,13 @@ public:
 
     const BodyObjectDesc &getConfig() const;
     const Collider *getCollider() const;
+    bool hasCollider() const;
     const Material &getMaterial() const;
-    const BodyPhysicsState &getPhysicsState() const;
-    void setPhysicsState(const BodyPhysicsState &state);
+    bool hasRigidBody() const;
+    RigidBody *getRigidBody();
+    const RigidBody *getRigidBody() const;
+    void setRigidBody(const std::optional<RigidBody> &rigidBody);
+    void removeRigidBody();
     bool isSleeping() const;
     void setSleeping(bool sleeping);
     void wakeUp();
@@ -89,5 +88,5 @@ private:
     std::unique_ptr<Scene> renderScene;
     std::size_t entityIndex = static_cast<std::size_t>(-1);
     BodyObjectDesc config;
-    BodyPhysicsState physicsState;
+    std::optional<RigidBody> rigidBodyState;
 };

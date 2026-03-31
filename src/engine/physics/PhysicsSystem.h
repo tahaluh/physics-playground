@@ -45,5 +45,6 @@ private:
     std::unique_ptr<BroadPhase> broadPhase;
 
     bool integrateBody(BodyObject &body, float dt);
+    void solveCollision(BodyObject &bodyA, BodyObject &bodyB, const CollisionPoints &collision, float dt);
     void resolveCollisions(float dt);
 };

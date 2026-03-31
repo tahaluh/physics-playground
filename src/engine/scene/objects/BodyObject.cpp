@@ -40,8 +40,8 @@ std::unique_ptr<BodyObject> BodyObject::create(const BodyObjectDesc &desc)
 {
     auto object = std::make_unique<BodyObject>();
     object->config = desc;
-    object->config.collider = desc.collider ? desc.collider->clone() : makeDefaultCollider(desc);
-    object->physicsState = desc.physics;
+    object->config.collider = desc.collider ? desc.collider->clone() : (desc.createDefaultCollider ? makeDefaultCollider(desc) : nullptr);
+    object->rigidBodyState = desc.rigidBody;
     object->renderScene = std::make_unique<Scene>();
 
     if (desc.renderEnabled)
@@ -59,9 +59,9 @@ std::unique_ptr<BodyObject> BodyObject::create(const BodyObjectDesc &desc)
             break;
         }
         entity.supportsInstancing = true;
-        entity.simulateOnGpu = desc.simulateOnGpu;
-        entity.linearVelocity = desc.physics.linearVelocity;
-        entity.angularVelocity = desc.physics.angularVelocity;
+        entity.simulateOnGpu = desc.simulateOnGpu && desc.rigidBody.has_value();
+        entity.linearVelocity = desc.rigidBody ? desc.rigidBody->linearVelocity : Vector3::zero();
+        entity.angularVelocity = desc.rigidBody ? desc.rigidBody->angularVelocity : Vector3::zero();
         entity.mesh = makeBodyMesh(desc);
         entity.material = desc.material;
         entity.transform = desc.transform;
@@ -104,52 +104,78 @@ const Collider *BodyObject::getCollider() const
     return config.collider.get();
 }
 
+bool BodyObject::hasCollider() const
+{
+    return static_cast<bool>(config.collider);
+}
+
 const Material &BodyObject::getMaterial() const
 {
     return config.material;
 }
 
-const BodyPhysicsState &BodyObject::getPhysicsState() const
+bool BodyObject::hasRigidBody() const
 {
-    return physicsState;
+    return rigidBodyState.has_value();
 }
 
-void BodyObject::setPhysicsState(const BodyPhysicsState &state)
+RigidBody *BodyObject::getRigidBody()
 {
-    physicsState = state;
-    config.physics = state;
+    return rigidBodyState ? &(*rigidBodyState) : nullptr;
+}
+
+const RigidBody *BodyObject::getRigidBody() const
+{
+    return rigidBodyState ? &(*rigidBodyState) : nullptr;
+}
+
+void BodyObject::setRigidBody(const std::optional<RigidBody> &rigidBody)
+{
+    rigidBodyState = rigidBody;
+    config.rigidBody = rigidBody;
+    syncRenderScene();
+}
+
+void BodyObject::removeRigidBody()
+{
+    setRigidBody(std::nullopt);
 }
 
 bool BodyObject::isSleeping() const
 {
-    return physicsState.sleeping;
+    return rigidBodyState && rigidBodyState->sleeping;
 }
 
 void BodyObject::setSleeping(bool sleeping)
 {
-    if (physicsState.sleeping == sleeping)
+    if (!rigidBodyState || rigidBodyState->sleeping == sleeping)
     {
         return;
     }
 
-    physicsState.sleeping = sleeping;
+    rigidBodyState->sleeping = sleeping;
     if (!sleeping)
     {
-        physicsState.sleepTime = 0.0f;
+        rigidBodyState->sleepTime = 0.0f;
     }
-    config.physics = physicsState;
+    config.rigidBody = rigidBodyState;
 }
 
 void BodyObject::wakeUp()
 {
-    if (!physicsState.sleeping && physicsState.sleepTime == 0.0f)
+    if (!rigidBodyState)
     {
         return;
     }
 
-    physicsState.sleeping = false;
-    physicsState.sleepTime = 0.0f;
-    config.physics = physicsState;
+    if (!rigidBodyState->sleeping && rigidBodyState->sleepTime == 0.0f)
+    {
+        return;
+    }
+
+    rigidBodyState->sleeping = false;
+    rigidBodyState->sleepTime = 0.0f;
+    config.rigidBody = rigidBodyState;
 }
 
 void BodyObject::setCollider(const std::shared_ptr<Collider> &collider)
@@ -212,8 +238,8 @@ void BodyObject::syncRenderScene()
     }
 
     entities[entityIndex].transform = config.transform;
-    entities[entityIndex].linearVelocity = physicsState.linearVelocity;
-    entities[entityIndex].angularVelocity = physicsState.angularVelocity;
-    entities[entityIndex].simulateOnGpu = config.simulateOnGpu;
+    entities[entityIndex].linearVelocity = rigidBodyState ? rigidBodyState->linearVelocity : Vector3::zero();
+    entities[entityIndex].angularVelocity = rigidBodyState ? rigidBodyState->angularVelocity : Vector3::zero();
+    entities[entityIndex].simulateOnGpu = config.simulateOnGpu && rigidBodyState.has_value();
     entities[entityIndex].material = config.material;
 }

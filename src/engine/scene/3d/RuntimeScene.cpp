@@ -12,7 +12,7 @@ BodyObject &RuntimeScene::addBody(std::unique_ptr<BodyObject> body)
 {
     bodies.push_back(std::move(body));
     BodyObject &addedBody = *bodies.back();
-    hasGpuSimulatedBodies = hasGpuSimulatedBodies || addedBody.getConfig().simulateOnGpu;
+    hasGpuSimulatedBodies = hasGpuSimulatedBodies || (addedBody.getConfig().simulateOnGpu && addedBody.hasRigidBody());
     physicsSystem.addBody(addedBody);
     appendBodyRenderScene(addedBody);
     renderScene.touch();

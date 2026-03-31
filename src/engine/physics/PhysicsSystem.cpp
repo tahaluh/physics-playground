@@ -34,7 +34,7 @@ PhysicsSystem::PhysicsSystem()
 
 void PhysicsSystem::addBody(BodyObject &body)
 {
-    if (body.getConfig().motionType == BodyMotionType::Static)
+    if (!body.hasRigidBody() && !body.hasCollider())
     {
         return;
     }
@@ -94,12 +94,13 @@ bool PhysicsSystem::integrateBody(BodyObject &body, float dt)
     }
 
     const BodyObjectDesc &config = body.getConfig();
-    if (config.motionType == BodyMotionType::Static || config.simulateOnGpu)
+    RigidBody *rigidBody = body.getRigidBody();
+    if (!rigidBody || config.motionType == BodyMotionType::Static || config.simulateOnGpu)
     {
         return false;
     }
 
-    BodyPhysicsState physicsState = body.getPhysicsState();
+    RigidBody physicsState = *rigidBody;
     if (physicsState.sleeping)
     {
         return false;
@@ -122,7 +123,7 @@ bool PhysicsSystem::integrateBody(BodyObject &body, float dt)
             physicsState.linearVelocity = Vector3::zero();
             physicsState.angularVelocity = Vector3::zero();
         }
-        body.setPhysicsState(physicsState);
+        body.setRigidBody(physicsState);
         return false;
     }
 
@@ -130,7 +131,7 @@ bool PhysicsSystem::integrateBody(BodyObject &body, float dt)
     {
         physicsState.sleepTime = 0.0f;
         physicsState.sleeping = false;
-        body.setPhysicsState(physicsState);
+        body.setRigidBody(physicsState);
     }
 
     if (linearSpeedSquared == 0.0f && angularSpeedSquared == 0.0f)
@@ -143,13 +144,68 @@ bool PhysicsSystem::integrateBody(BodyObject &body, float dt)
     const Quaternion deltaRotation = Quaternion::fromEulerXYZ(physicsState.angularVelocity * dt);
     transform.rotation = (deltaRotation * transform.rotation).normalized();
     body.setTransform(transform);
+    body.setRigidBody(physicsState);
     return true;
+}
+
+void PhysicsSystem::solveCollision(BodyObject &bodyA, BodyObject &bodyB, const CollisionPoints &collision, float dt)
+{
+    (void)collision;
+    (void)dt;
+
+    const auto getInverseMass = [](BodyObject &body) -> float {
+        const BodyObjectDesc &config = body.getConfig();
+        if (config.motionType == BodyMotionType::Static)
+        {
+            return 0.0f;
+        }
+
+        const RigidBody *rigidBody = body.getRigidBody();
+        if (!rigidBody)
+        {
+            return 0.0f;
+        }
+
+        return rigidBody->getInverseMass();
+    };
+
+    const float inverseMassA = getInverseMass(bodyA);
+    const float inverseMassB = getInverseMass(bodyB);
+    const float inverseMassSum = inverseMassA + inverseMassB;
+    if (inverseMassSum > 0.0f && collision.depth > 0.0f && collision.normal.lengthSquared() > 0.0f)
+    {
+        const Vector3 correction = collision.normal.normalized() * (collision.depth / inverseMassSum);
+
+        if (inverseMassA > 0.0f)
+        {
+            Transform transformA = bodyA.getTransform();
+            transformA.position -= correction * inverseMassA;
+            bodyA.setTransform(transformA);
+        }
+
+        if (inverseMassB > 0.0f)
+        {
+            Transform transformB = bodyB.getTransform();
+            transformB.position += correction * inverseMassB;
+            bodyB.setTransform(transformB);
+        }
+    }
+
+    if (RigidBody *rigidBodyA = bodyA.getRigidBody())
+    {
+        rigidBodyA->linearVelocity *= -1.0f;
+        bodyA.setRigidBody(*rigidBodyA);
+    }
+
+    if (RigidBody *rigidBodyB = bodyB.getRigidBody())
+    {
+        rigidBodyB->linearVelocity *= -1.0f;
+        bodyB.setRigidBody(*rigidBodyB);
+    }
 }
 
 void PhysicsSystem::resolveCollisions(float dt)
 {
-    (void)dt;
-
     std::unordered_set<BodyPair, BodyPairHasher> currentCollisions;
     const auto makeBodyPair = [](BodyObject &bodyA, BodyObject &bodyB) {
         return &bodyA < &bodyB
@@ -181,6 +237,8 @@ void PhysicsSystem::resolveCollisions(float dt)
         {
             continue;
         }
+
+        solveCollision(*bodyA, *bodyB, collision, dt);
 
         const BodyPair pair = makeBodyPair(*bodyA, *bodyB);
         currentCollisions.insert(pair);

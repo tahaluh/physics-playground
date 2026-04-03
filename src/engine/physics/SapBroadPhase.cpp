@@ -6,7 +6,8 @@
 
 std::vector<BroadPhasePair> SapBroadPhase::computePairs(const std::vector<BodyObject *> &bodies)
 {
-    const auto overlapsOnYZ = [](const Collider::BroadPhaseBounds &a, const Collider::BroadPhaseBounds &b) {
+    const auto overlapsOnYZ = [](const Collider::BroadPhaseBounds &a, const Collider::BroadPhaseBounds &b)
+    {
         return a.min.y <= b.max.y &&
                a.max.y >= b.min.y &&
                a.min.z <= b.max.z &&
@@ -62,23 +63,19 @@ std::vector<BroadPhasePair> SapBroadPhase::computePairs(const std::vector<BodyOb
     }
 
     std::vector<BroadPhasePair> pairs;
-    std::vector<std::size_t> activeEntries;
-    activeEntries.reserve(entries.size());
-    for (std::size_t entryIndex = 0; entryIndex < entries.size(); ++entryIndex)
-    {
-        const BroadPhaseEntry &entryA = entries[entryIndex];
-        activeEntries.erase(
-            std::remove_if(
-                activeEntries.begin(),
-                activeEntries.end(),
-                [&](std::size_t activeIndex) {
-                    return entries[activeIndex].bounds.max.x < entryA.bounds.min.x;
-                }),
-            activeEntries.end());
+    pairs.reserve(entries.size());
 
-        for (std::size_t activeIndex : activeEntries)
+    for (std::size_t i = 0; i < entries.size(); ++i)
+    {
+        const BroadPhaseEntry &entryA = entries[i];
+        for (std::size_t j = i + 1; j < entries.size(); ++j)
         {
-            const BroadPhaseEntry &entryB = entries[activeIndex];
+            const BroadPhaseEntry &entryB = entries[j];
+            if (entryB.bounds.min.x > entryA.bounds.max.x)
+            {
+                break;
+            }
+
             if (!overlapsOnYZ(entryA.bounds, entryB.bounds))
             {
                 continue;
@@ -86,8 +83,6 @@ std::vector<BroadPhasePair> SapBroadPhase::computePairs(const std::vector<BodyOb
 
             pairs.push_back({entryA.body, entryB.body});
         }
-
-        activeEntries.push_back(entryIndex);
     }
 
     return pairs;

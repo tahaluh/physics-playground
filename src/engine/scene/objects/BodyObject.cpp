@@ -5,38 +5,36 @@
 #include "engine/physics/BoxCollider.h"
 #include "engine/physics/PlaneCollider.h"
 #include "engine/render/3d/mesh/MeshFactory.h"
-#include "engine/scene/3d/Entity.h"
-#include "engine/scene/3d/Scene.h"
 
 namespace
 {
-std::shared_ptr<Collider> makeDefaultCollider(const BodyObjectDesc &desc)
-{
-    switch (desc.shapeType)
+    std::shared_ptr<Collider> makeDefaultCollider(const BodyObjectDesc &desc)
     {
-    case BodyShapeType::Cube:
-        return std::make_shared<BoxCollider>(Vector3::zero(), Vector3::one() * 0.5f);
-    case BodyShapeType::Plane:
-        return std::make_shared<PlaneCollider>(Vector3::zero(), Vector2(0.5f, 0.5f));
-    case BodyShapeType::Sphere:
-    default:
-        return std::make_shared<BoxCollider>(Vector3::zero(), Vector3::one() * 0.5f);
+        switch (desc.shapeType)
+        {
+        case BodyShapeType::Cube:
+            return std::make_shared<BoxCollider>(Vector3::zero(), Vector3::one() * 0.5f);
+        case BodyShapeType::Plane:
+            return std::make_shared<PlaneCollider>(Vector3::zero(), Vector2(0.5f, 0.5f));
+        case BodyShapeType::Sphere:
+        default:
+            return std::make_shared<BoxCollider>(Vector3::zero(), Vector3::one() * 0.5f);
+        }
     }
-}
 
-Mesh makeBodyMesh(const BodyObjectDesc &desc)
-{
-    switch (desc.shapeType)
+    Mesh makeBodyMesh(const BodyObjectDesc &desc)
     {
-    case BodyShapeType::Plane:
-        return MeshFactory::makeQuadXZ(1.0f);
-    case BodyShapeType::Sphere:
-        return MeshFactory::makeSphere(0.5f, desc.sphereRings, desc.sphereSegments, 0);
-    case BodyShapeType::Cube:
-    default:
-        return MeshFactory::makeCube(1.0f);
+        switch (desc.shapeType)
+        {
+        case BodyShapeType::Plane:
+            return MeshFactory::makeQuadXZ(1.0f);
+        case BodyShapeType::Sphere:
+            return MeshFactory::makeSphere(0.5f, desc.sphere.rings, desc.sphere.segments, 0);
+        case BodyShapeType::Cube:
+        default:
+            return MeshFactory::makeCube(1.0f);
+        }
     }
-}
 }
 
 BodyObject::~BodyObject() = default;
@@ -45,61 +43,20 @@ std::unique_ptr<BodyObject> BodyObject::create(const BodyObjectDesc &desc)
 {
     auto object = std::make_unique<BodyObject>();
     object->config = desc;
-    object->config.collider = desc.collider ? desc.collider->clone() : (desc.createDefaultCollider ? makeDefaultCollider(desc) : nullptr);
-    object->rigidBodyState = desc.rigidBody;
-    object->renderScene = std::make_unique<Scene>();
+    object->config.collider = desc.collider ? desc.collider->clone() : makeDefaultCollider(desc);
+    object->transformDirty = false;
+    object->materialDirty = false;
 
-    if (desc.renderEnabled)
-    {
-        Entity entity;
-        entity.name = desc.name;
-        switch (desc.shapeType)
-        {
-        case BodyShapeType::Plane:
-            entity.instancingKey = "body:plane";
-            break;
-        case BodyShapeType::Sphere:
-            entity.instancingKey = "body:sphere:" + std::to_string(desc.sphereRings) + ":" + std::to_string(desc.sphereSegments);
-            break;
-        case BodyShapeType::Cube:
-        default:
-            entity.instancingKey = "body:cube";
-            break;
-        }
-        entity.supportsInstancing = true;
-        entity.simulateOnGpu = desc.simulateOnGpu && desc.rigidBody.has_value();
-        entity.linearVelocity = desc.rigidBody ? desc.rigidBody->linearVelocity : Vector3::zero();
-        entity.angularVelocity = desc.rigidBody ? desc.rigidBody->angularVelocity : Vector3::zero();
-        entity.mesh = makeBodyMesh(desc);
-        entity.material = desc.material;
-        entity.transform = desc.transform;
-        object->entityIndex = object->renderScene->getEntities().size();
-        object->renderScene->createEntity(entity);
-    }
-
-    object->syncRenderScene();
     return object;
 }
 
 bool BodyObject::isValid() const
 {
-    return static_cast<bool>(renderScene);
+    return true;
 }
 
 void BodyObject::destroy()
 {
-    renderScene.reset();
-    entityIndex = static_cast<std::size_t>(-1);
-}
-
-Scene &BodyObject::getRenderScene()
-{
-    return *renderScene;
-}
-
-const Scene &BodyObject::getRenderScene() const
-{
-    return *renderScene;
 }
 
 const BodyObjectDesc &BodyObject::getConfig() const
@@ -117,73 +74,24 @@ bool BodyObject::hasCollider() const
     return static_cast<bool>(config.collider);
 }
 
+bool BodyObject::isSleeping() const
+{
+    return sleeping;
+}
+
 const Material &BodyObject::getMaterial() const
 {
     return config.material;
 }
 
-bool BodyObject::hasRigidBody() const
+const Vector3 &BodyObject::getLinearVelocity() const
 {
-    return rigidBodyState.has_value();
+    return config.linearVelocity;
 }
 
-RigidBody *BodyObject::getRigidBody()
+const Vector3 &BodyObject::getAngularVelocity() const
 {
-    return rigidBodyState ? &(*rigidBodyState) : nullptr;
-}
-
-const RigidBody *BodyObject::getRigidBody() const
-{
-    return rigidBodyState ? &(*rigidBodyState) : nullptr;
-}
-
-void BodyObject::setRigidBody(const std::optional<RigidBody> &rigidBody)
-{
-    rigidBodyState = rigidBody;
-    config.rigidBody = rigidBody;
-    syncRenderScene();
-}
-
-void BodyObject::removeRigidBody()
-{
-    setRigidBody(std::nullopt);
-}
-
-bool BodyObject::isSleeping() const
-{
-    return rigidBodyState && rigidBodyState->sleeping;
-}
-
-void BodyObject::setSleeping(bool sleeping)
-{
-    if (!rigidBodyState || rigidBodyState->sleeping == sleeping)
-    {
-        return;
-    }
-
-    rigidBodyState->sleeping = sleeping;
-    if (!sleeping)
-    {
-        rigidBodyState->sleepTime = 0.0f;
-    }
-    config.rigidBody = rigidBodyState;
-}
-
-void BodyObject::wakeUp()
-{
-    if (!rigidBodyState)
-    {
-        return;
-    }
-
-    if (!rigidBodyState->sleeping && rigidBodyState->sleepTime == 0.0f)
-    {
-        return;
-    }
-
-    rigidBodyState->sleeping = false;
-    rigidBodyState->sleepTime = 0.0f;
-    config.rigidBody = rigidBodyState;
+    return config.angularVelocity;
 }
 
 void BodyObject::setCollider(const std::shared_ptr<Collider> &collider)
@@ -194,13 +102,46 @@ void BodyObject::setCollider(const std::shared_ptr<Collider> &collider)
 void BodyObject::setMaterial(const Material &material)
 {
     config.material = material;
-    syncRenderScene();
+    materialDirty = true;
 }
 
 void BodyObject::setTransform(const Transform &transform)
 {
     config.transform = transform;
-    syncRenderScene();
+    transformDirty = true;
+    sleeping = false;
+}
+
+void BodyObject::setLinearVelocity(const Vector3 &velocity)
+{
+    config.linearVelocity = velocity;
+    sleeping = velocity.lengthSquared() <= 0.0f ? sleeping : false;
+}
+
+void BodyObject::setAngularVelocity(const Vector3 &velocity)
+{
+    config.angularVelocity = velocity;
+    sleeping = velocity.lengthSquared() <= 0.0f ? sleeping : false;
+}
+
+void BodyObject::setVelocities(const Vector3 &linearVelocity, const Vector3 &angularVelocity)
+{
+    config.linearVelocity = linearVelocity;
+    config.angularVelocity = angularVelocity;
+    if (linearVelocity.lengthSquared() > 0.0f || angularVelocity.lengthSquared() > 0.0f)
+    {
+        sleeping = false;
+    }
+}
+
+void BodyObject::setSleeping(bool value)
+{
+    sleeping = value;
+}
+
+void BodyObject::wakeUp()
+{
+    sleeping = false;
 }
 
 const Transform &BodyObject::getTransform() const
@@ -232,38 +173,33 @@ void BodyObject::notifyCollisionExit(BodyObject &other, const CollisionPoints &c
     }
 }
 
-void BodyObject::notifySleep()
+BodyObject::RenderSyncChange BodyObject::syncRenderScene()
 {
-    if (onSleep)
+    bool transformChanged = false;
+    bool materialChanged = false;
+    if (transformDirty)
     {
-        onSleep(*this);
+        transformChanged = true;
     }
-}
-
-void BodyObject::notifyWakeUp()
-{
-    if (onWakeUp)
+    if (materialDirty)
     {
-        onWakeUp(*this);
-    }
-}
-
-void BodyObject::syncRenderScene()
-{
-    if (!isValid())
-    {
-        return;
+        materialChanged = true;
     }
 
-    auto &entities = renderScene->getEntities();
-    if (entityIndex >= entities.size())
-    {
-        return;
-    }
+    transformDirty = false;
+    materialDirty = false;
 
-    entities[entityIndex].transform = config.transform;
-    entities[entityIndex].linearVelocity = rigidBodyState ? rigidBodyState->linearVelocity : Vector3::zero();
-    entities[entityIndex].angularVelocity = rigidBodyState ? rigidBodyState->angularVelocity : Vector3::zero();
-    entities[entityIndex].simulateOnGpu = config.simulateOnGpu && rigidBodyState.has_value();
-    entities[entityIndex].material = config.material;
+    if (transformChanged && materialChanged)
+    {
+        return static_cast<RenderSyncChange>(static_cast<int>(RenderSyncChange::Transform) | static_cast<int>(RenderSyncChange::Material));
+    }
+    if (transformChanged)
+    {
+        return RenderSyncChange::Transform;
+    }
+    if (materialChanged)
+    {
+        return RenderSyncChange::Material;
+    }
+    return RenderSyncChange::None;
 }

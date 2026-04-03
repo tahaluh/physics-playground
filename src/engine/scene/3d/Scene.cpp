@@ -74,6 +74,11 @@ void Scene::touch()
     ++transformRevision;
 }
 
+void Scene::touchMaterials()
+{
+    ++revision;
+}
+
 void Scene::touchTransforms()
 {
     ++transformRevision;

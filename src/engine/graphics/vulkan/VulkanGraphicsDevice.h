@@ -113,8 +113,6 @@ public:
         VkDeviceSize instanceBufferSize = 0;
         uint32_t meshVertexCount = 0;
         uint32_t instanceCount = 0;
-        bool simulateOnGpu = false;
-        VkDescriptorSet simulationDescriptorSet = VK_NULL_HANDLE;
     };
 
     struct CachedSceneBounds
@@ -179,8 +177,6 @@ private:
     bool createLinePipeline();
     bool createShadowPipeline();
     bool createInstancedShadowPipeline();
-    bool createSimulationResources();
-    bool createSimulationPipeline();
     bool createBroadPhaseResources();
     bool createBroadPhasePipeline();
     void appendSceneVertices(const Camera &camera, const Scene &scene);
@@ -223,7 +219,6 @@ private:
     bool commandBufferRecorded = false;
     bool sceneBuffersDirty = true;
     bool sceneTransformBuffersDirty = false;
-    bool simulationDispatchDirty = false;
     bool shadowMapsDirty = true;
     bool triangleResourcesReady = false;
     bool triangleDrawLogged = false;
@@ -272,22 +267,19 @@ private:
     VkImageView pointShadowDepthImageView = VK_NULL_HANDLE;
     std::vector<VkImageView> pointShadowFaceImageViews;
     std::vector<VkFramebuffer> pointShadowFramebuffers;
-    VkExtent2D shadowExtent = {2048, 2048};
+    VkExtent2D shadowExtent = {4096, 4096};
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
     VkRenderPass shadowRenderPass = VK_NULL_HANDLE;
     VkDescriptorSetLayout lightingDescriptorSetLayout = VK_NULL_HANDLE;
-    VkDescriptorSetLayout simulationDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorSetLayout broadPhaseDescriptorSetLayout = VK_NULL_HANDLE;
     VkDescriptorPool lightingDescriptorPool = VK_NULL_HANDLE;
-    VkDescriptorPool simulationDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorPool broadPhaseDescriptorPool = VK_NULL_HANDLE;
     VkDescriptorSet lightingDescriptorSet = VK_NULL_HANDLE;
     VkDescriptorSet broadPhaseDescriptorSet = VK_NULL_HANDLE;
     VkPipelineLayout trianglePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout linePipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout shadowPipelineLayout = VK_NULL_HANDLE;
-    VkPipelineLayout simulationPipelineLayout = VK_NULL_HANDLE;
     VkPipelineLayout broadPhasePipelineLayout = VK_NULL_HANDLE;
     VkPipeline opaqueTrianglePipeline = VK_NULL_HANDLE;
     VkPipeline opaqueInstancedTrianglePipeline = VK_NULL_HANDLE;
@@ -295,7 +287,6 @@ private:
     VkPipeline linePipeline = VK_NULL_HANDLE;
     VkPipeline shadowPipeline = VK_NULL_HANDLE;
     VkPipeline shadowInstancedPipeline = VK_NULL_HANDLE;
-    VkPipeline simulationPipeline = VK_NULL_HANDLE;
     VkPipeline broadPhasePipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::vector<VkCommandBuffer> commandBuffers;
@@ -347,7 +338,6 @@ private:
     uint64_t cachedSceneTransformRevision = 0;
     uint64_t cachedSceneSimulationRevision = 0;
     uint64_t cachedLightDebugSceneRevision = 0;
-    float currentSimulationDeltaTime = 0.0f;
     CachedSceneBounds cachedShadowSceneBounds;
     Matrix4 currentCullViewMatrix = Matrix4::identity();
     float currentCullFovRadians = 60.0f * 3.14159265f / 180.0f;

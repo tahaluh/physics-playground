@@ -24,6 +24,7 @@ public:
     uint64_t getSimulationRevision() const;
     float getLastSimulationDeltaTime() const;
     void touch();
+    void touchMaterials();
     void touchTransforms();
     void touchSimulation(float dt);
     AmbientLight &getAmbientLight();

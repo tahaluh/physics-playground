@@ -16,6 +16,7 @@ struct ApplicationConfig
     int targetFrameRate = 60;
     bool vsyncEnabled = true;
     float maxFrameDelta = 0.25f;
+    int maxFixedStepsPerFrame = 4;
     uint32_t clearColor = 0xFF000000;
     GraphicsBackend preferredGraphicsBackend = GraphicsBackend::Vulkan;
 };

@@ -8,45 +8,45 @@
 #include "engine/math/Vector3.h"
 namespace
 {
-const float kMoveSpeed = 4.0f;
-const float kMouseLookSensitivity = 0.0025f;
-const uint32_t kDefaultCubeColor = 0xFF555555;
-const uint32_t kSleepingCubeColor = 0xFF4A78D6;
+    const float kMoveSpeed = 4.0f;
+    const float kMouseLookSensitivity = 0.0025f;
+    const uint32_t kDefaultCubeColor = 0xFF555555;
+    const uint32_t kCollidingCubeColor = 0xFFD74A4A;
 
-Quaternion makeCameraRotation(float pitch, float yaw)
-{
-    return Quaternion::fromEulerXYZ(Vector3(pitch, yaw, 0.0f));
-}
-
-Vector3 getPlanarForward(const Camera &camera)
-{
-    Vector3 forward = camera.getForward();
-    forward.y = 0.0f;
-    if (forward.lengthSquared() == 0.0f)
+    Quaternion makeCameraRotation(float pitch, float yaw)
     {
-        return Vector3(0.0f, 0.0f, -1.0f);
+        return Quaternion::fromEulerXYZ(Vector3(pitch, yaw, 0.0f));
     }
-    return forward.normalized();
-}
 
-Vector3 getPlanarRight(const Camera &camera)
-{
-    return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
-}
+    Vector3 getPlanarForward(const Camera &camera)
+    {
+        Vector3 forward = camera.getForward();
+        forward.y = 0.0f;
+        if (forward.lengthSquared() == 0.0f)
+        {
+            return Vector3(0.0f, 0.0f, -1.0f);
+        }
+        return forward.normalized();
+    }
 
-Material makeCubeMaterial(uint32_t color)
-{
-    Material material;
-    material.solid = MaterialPresets::makePlastic(color, 0.42f);
-    material.wireframe.baseColor = 0xFFFFFFFF;
-    material.wireframe.opacity = 1.0f;
-    material.wireframe.unlit = true;
-    material.wireframe.ambientFactor = 0.0f;
-    material.wireframe.diffuseFactor = 0.0f;
-    material.renderSolid = true;
-    material.renderWireframe = false;
-    return material;
-}
+    Vector3 getPlanarRight(const Camera &camera)
+    {
+        return Vector3::up().cross(getPlanarForward(camera) * -1.0f).normalized();
+    }
+
+    Material makeCubeMaterial(uint32_t color)
+    {
+        Material material;
+        material.solid = MaterialPresets::makePlastic(color, 0.42f);
+        material.wireframe.baseColor = 0xFFFFFFFF;
+        material.wireframe.opacity = 1.0f;
+        material.wireframe.unlit = true;
+        material.wireframe.ambientFactor = 0.0f;
+        material.wireframe.diffuseFactor = 0.0f;
+        material.renderSolid = true;
+        material.renderWireframe = false;
+        return material;
+    }
 }
 
 Demo::~Demo() = default;
@@ -57,44 +57,39 @@ void Demo::onAttach(int viewportWidth, int viewportHeight)
     this->viewportHeight = viewportHeight;
 
     const PlaygroundSceneDesc sceneDesc = makeDefaultPlaygroundSceneDesc();
-    collidingBodies.clear();
+    activeCollisionCounts.clear();
 
     runtimeScene = std::make_unique<RuntimeScene>();
     for (const BodyObjectDesc &bodyDesc : sceneDesc.bodies)
     {
         BodyObject &body = runtimeScene->addBody(bodyDesc);
-        body.onCollisionEnter = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
-            collidingBodies[&self].insert(&other);
+        body.onCollisionEnter = [this](BodyObject &self, BodyObject &other, const CollisionPoints &)
+        {
+            (void)other;
+            ++activeCollisionCounts[&self];
+            self.setMaterial(makeCubeMaterial(kCollidingCubeColor));
         };
-        body.onCollision = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
-            collidingBodies[&self].insert(&other);
-        };
-        body.onCollisionExit = [this](BodyObject &self, BodyObject &other, const CollisionPoints &) {
-            auto it = collidingBodies.find(&self);
-            if (it == collidingBodies.end())
-            {
-                self.setMaterial(makeCubeMaterial(self.isSleeping() ? kSleepingCubeColor : kDefaultCubeColor));
-                return;
-            }
 
-            it->second.erase(&other);
-            if (it->second.empty())
-            {
-                collidingBodies.erase(it);
-                self.setMaterial(makeCubeMaterial(self.isSleeping() ? kSleepingCubeColor : kDefaultCubeColor));
-            }
-        };
-        body.onSleep = [this](BodyObject &self) {
-            (void)this;
-            self.setMaterial(makeCubeMaterial(kSleepingCubeColor));
-        };
-        body.onWakeUp = [this](BodyObject &self) {
-            if (collidingBodies.find(&self) == collidingBodies.end())
+        body.onCollisionExit = [this](BodyObject &self, BodyObject &other, const CollisionPoints &)
+        {
+            (void)other;
+            auto it = activeCollisionCounts.find(&self);
+            if (it == activeCollisionCounts.end())
             {
                 self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
                 return;
             }
-            self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
+
+            if (it->second > 0)
+            {
+                --it->second;
+            }
+
+            if (it->second == 0)
+            {
+                activeCollisionCounts.erase(it);
+                self.setMaterial(makeCubeMaterial(kDefaultCubeColor));
+            }
         };
     }
 
@@ -241,7 +236,6 @@ void Demo::onRender(IGraphicsDevice &graphicsDevice)
         return;
     }
 
-    runtimeScene->setBroadPhaseCompute(graphicsDevice.getBroadPhaseCompute());
     graphicsDevice.setLightDebugOverlayEnabled(showLightDebugMarkers);
     graphicsDevice.setWireframeOverlayEnabled(showWireframes);
     graphicsDevice.renderScene(*camera3D, runtimeScene->getRenderScene());

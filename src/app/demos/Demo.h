@@ -2,7 +2,6 @@
 
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "engine/core/ApplicationLayer.h"
@@ -37,7 +36,7 @@ private:
     bool showLightDebugMarkers = false;
     bool showWireframes = false;
     bool simulationPaused = false;
-    std::unordered_map<const BodyObject *, std::unordered_set<const BodyObject *>> collidingBodies;
+    std::unordered_map<const BodyObject *, std::size_t> activeCollisionCounts;
     int viewportWidth = 0;
     int viewportHeight = 0;
 };

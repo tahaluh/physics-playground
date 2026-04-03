@@ -3,6 +3,41 @@
 #include <algorithm>
 #include <utility>
 
+#include "engine/render/3d/mesh/MeshFactory.h"
+
+namespace
+{
+    Entity makeBodyEntity(const BodyObjectDesc &desc)
+    {
+        Entity entity;
+        entity.name = desc.name;
+        entity.supportsInstancing = true;
+        entity.linearVelocity = desc.linearVelocity;
+        entity.angularVelocity = desc.angularVelocity;
+        entity.material = desc.material;
+        entity.transform = desc.transform;
+
+        switch (desc.shapeType)
+        {
+        case BodyShapeType::Plane:
+            entity.instancingKey = "body:plane";
+            entity.mesh = MeshFactory::makeQuadXZ(1.0f);
+            break;
+        case BodyShapeType::Sphere:
+            entity.instancingKey = "body:sphere:" + std::to_string(desc.sphere.rings) + ":" + std::to_string(desc.sphere.segments);
+            entity.mesh = MeshFactory::makeSphere(0.5f, desc.sphere.rings, desc.sphere.segments, 0);
+            break;
+        case BodyShapeType::Cube:
+        default:
+            entity.instancingKey = "body:cube";
+            entity.mesh = MeshFactory::makeCube(1.0f);
+            break;
+        }
+
+        return entity;
+    }
+}
+
 BodyObject &RuntimeScene::addBody(const BodyObjectDesc &desc)
 {
     return addBody(BodyObject::create(desc));
@@ -12,7 +47,6 @@ BodyObject &RuntimeScene::addBody(std::unique_ptr<BodyObject> body)
 {
     bodies.push_back(std::move(body));
     BodyObject &addedBody = *bodies.back();
-    hasGpuSimulatedBodies = hasGpuSimulatedBodies || (addedBody.getConfig().simulateOnGpu && addedBody.hasRigidBody());
     physicsSystem.addBody(addedBody);
     appendBodyRenderScene(addedBody);
     renderScene.touch();
@@ -21,9 +55,8 @@ BodyObject &RuntimeScene::addBody(std::unique_ptr<BodyObject> body)
 
 void RuntimeScene::removeBody(const BodyObject &body)
 {
-    const auto it = std::find_if(bodies.begin(), bodies.end(), [&body](const std::unique_ptr<BodyObject> &candidate) {
-        return candidate.get() == &body;
-    });
+    const auto it = std::find_if(bodies.begin(), bodies.end(), [&body](const std::unique_ptr<BodyObject> &candidate)
+                                 { return candidate.get() == &body; });
     if (it == bodies.end())
     {
         return;
@@ -40,28 +73,12 @@ void RuntimeScene::clearBodies()
     bodyRanges.clear();
     physicsSystem.clearBodies();
     renderScene.clearEntities();
-    hasGpuSimulatedBodies = false;
 }
 
 void RuntimeScene::step(float dt)
 {
-    const bool cpuMovedBodies = physicsSystem.step(dt);
-    if (hasGpuSimulatedBodies)
-    {
-        renderScene.touchSimulation(dt);
-    }
-
-    if (!cpuMovedBodies)
-    {
-        return;
-    }
-
+    physicsSystem.step(dt);
     syncBodyRenderScenes();
-}
-
-void RuntimeScene::setBroadPhaseCompute(BroadPhaseCompute *computeBackend)
-{
-    physicsSystem.setBroadPhaseCompute(computeBackend);
 }
 
 void RuntimeScene::setWireframeVisible(bool visible)
@@ -94,38 +111,74 @@ void RuntimeScene::appendBodyRenderScene(const BodyObject &body)
 {
     SceneEntityRange range;
     range.start = renderScene.getEntities().size();
-    range.count = body.getRenderScene().getEntities().size();
-    renderScene.appendEntitiesFrom(body.getRenderScene());
+    if (!body.getConfig().renderEnabled)
+    {
+        range.count = 0;
+        bodyRanges.push_back(range);
+        return;
+    }
+
+    renderScene.createEntity(makeBodyEntity(body.getConfig()));
     renderScene.applyWireframeVisibilityOverride(wireframeVisible);
+    range.count = 1;
     bodyRanges.push_back(range);
 }
 
 void RuntimeScene::syncBodyRenderScenes()
 {
     std::vector<Entity> &targetEntities = renderScene.getEntities();
+    bool anyTransformChanged = false;
+    bool anyMaterialChanged = false;
+
     for (std::size_t i = 0; i < bodies.size() && i < bodyRanges.size(); ++i)
     {
-        const BodyObject *body = bodies[i].get();
+        BodyObject *body = bodies[i].get();
         if (!body)
         {
             continue;
         }
 
-        const SceneEntityRange &range = bodyRanges[i];
-        const std::vector<Entity> &sourceEntities = body->getRenderScene().getEntities();
-        if (sourceEntities.size() != range.count || range.start + range.count > targetEntities.size())
+        const BodyObject::RenderSyncChange syncChange = body->syncRenderScene();
+        if (syncChange == BodyObject::RenderSyncChange::None)
         {
             continue;
         }
 
+        anyTransformChanged = anyTransformChanged || (static_cast<int>(syncChange) & static_cast<int>(BodyObject::RenderSyncChange::Transform));
+        anyMaterialChanged = anyMaterialChanged || (static_cast<int>(syncChange) & static_cast<int>(BodyObject::RenderSyncChange::Material));
+
+        const SceneEntityRange &range = bodyRanges[i];
+        if (range.count == 0 || range.start + range.count > targetEntities.size())
+        {
+            continue;
+        }
+
+        const BodyObjectDesc &config = body->getConfig();
         for (std::size_t entityIndex = 0; entityIndex < range.count; ++entityIndex)
         {
-            targetEntities[range.start + entityIndex] = sourceEntities[entityIndex];
-            targetEntities[range.start + entityIndex].material.renderWireframe = wireframeVisible;
+            Entity &targetEntity = targetEntities[range.start + entityIndex];
+
+            if (static_cast<int>(syncChange) & static_cast<int>(BodyObject::RenderSyncChange::Transform))
+            {
+                targetEntity.transform = config.transform;
+            }
+            if (static_cast<int>(syncChange) & static_cast<int>(BodyObject::RenderSyncChange::Material))
+            {
+                targetEntity.material = config.material;
+            }
+
+            targetEntity.material.renderWireframe = wireframeVisible;
         }
     }
 
-    renderScene.touchTransforms();
+    if (anyMaterialChanged)
+    {
+        renderScene.touchMaterials();
+    }
+    if (anyTransformChanged)
+    {
+        renderScene.touchTransforms();
+    }
 }
 
 void RuntimeScene::rebuildBodyRenderScene()

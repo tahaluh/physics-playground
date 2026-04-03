@@ -16,7 +16,6 @@ public:
     void removeBody(const BodyObject &body);
     void clearBodies();
     void step(float dt);
-    void setBroadPhaseCompute(BroadPhaseCompute *computeBackend);
     void setWireframeVisible(bool visible);
 
     Scene &getRenderScene();
@@ -40,5 +39,4 @@ private:
     std::vector<SceneEntityRange> bodyRanges;
     PhysicsSystem physicsSystem;
     bool wireframeVisible = false;
-    bool hasGpuSimulatedBodies = false;
 };

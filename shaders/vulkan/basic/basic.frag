@@ -91,7 +91,26 @@ vec4 multiplyShadowMatrix(vec4 shadowRows[4], vec3 worldPosition)
         dot(shadowRows[3], point));
 }
 
-float sampleShadowPCF(sampler2DArray depthTexture, vec2 uv, int layerIndex, float compareDepth, float bias)
+float sampleShadowPCF4Tap(sampler2DArray depthTexture, vec2 uv, int layerIndex, float compareDepth, float bias)
+{
+    vec2 texelSize = 1.0 / vec2(textureSize(depthTexture, 0).xy);
+    vec2 offsets[4] = vec2[](
+        vec2(-0.5, -0.5),
+        vec2(0.5, -0.5),
+        vec2(-0.5, 0.5),
+        vec2(0.5, 0.5));
+
+    float visibility = 0.0;
+    for (int i = 0; i < 4; ++i)
+    {
+        float closestDepth = texture(depthTexture, vec3(uv + offsets[i] * texelSize, float(layerIndex))).r;
+        visibility += compareDepth - bias > closestDepth ? 0.0 : 1.0;
+    }
+
+    return visibility * 0.25;
+}
+
+float sampleShadowPCF9Tap(sampler2DArray depthTexture, vec2 uv, int layerIndex, float compareDepth, float bias)
 {
     vec2 texelSize = 1.0 / vec2(textureSize(depthTexture, 0).xy);
     float visibility = 0.0;
@@ -99,8 +118,7 @@ float sampleShadowPCF(sampler2DArray depthTexture, vec2 uv, int layerIndex, floa
     {
         for (int x = -1; x <= 1; ++x)
         {
-            vec2 offsetUv = uv + vec2(float(x), float(y)) * texelSize;
-            float closestDepth = texture(depthTexture, vec3(offsetUv, float(layerIndex))).r;
+            float closestDepth = texture(depthTexture, vec3(uv + vec2(float(x), float(y)) * texelSize, float(layerIndex))).r;
             visibility += compareDepth - bias > closestDepth ? 0.0 : 1.0;
         }
     }
@@ -108,7 +126,13 @@ float sampleShadowPCF(sampler2DArray depthTexture, vec2 uv, int layerIndex, floa
     return visibility / 9.0;
 }
 
-float computeShadowFactorFromClip(sampler2DArray depthTexture, int layerIndex, vec4 lightClip, float ndotl, float biasBase)
+float computeShadowFactorFromClip(
+    sampler2DArray depthTexture,
+    int layerIndex,
+    vec4 lightClip,
+    float ndotl,
+    float biasBase,
+    bool highQualityFilter)
 {
     if (abs(lightClip.w) < 0.0001)
     {
@@ -123,7 +147,9 @@ float computeShadowFactorFromClip(sampler2DArray depthTexture, int layerIndex, v
     }
 
     float bias = max(biasBase * (1.0 - ndotl), biasBase * 0.35);
-    return sampleShadowPCF(depthTexture, shadowCoord.xy, layerIndex, shadowCoord.z, bias);
+    return highQualityFilter
+        ? sampleShadowPCF9Tap(depthTexture, shadowCoord.xy, layerIndex, shadowCoord.z, bias)
+        : sampleShadowPCF4Tap(depthTexture, shadowCoord.xy, layerIndex, shadowCoord.z, bias);
 }
 
 float computeDirectionalShadowFactor(int shadowIndex, vec3 worldPosition, float ndotl)
@@ -139,12 +165,15 @@ float computeDirectionalShadowFactor(int shadowIndex, vec3 worldPosition, float 
         dot(directionalShadowMatrixRows[shadowIndex * 4 + 1], point),
         dot(directionalShadowMatrixRows[shadowIndex * 4 + 2], point),
         dot(directionalShadowMatrixRows[shadowIndex * 4 + 3], point));
+    float cameraDistance = length(worldPosition - ambientLighting.cameraWorldPosition.xyz);
+    bool highQualityFilter = cameraDistance < 18.0;
     return computeShadowFactorFromClip(
         directionalShadowMap,
         shadowIndex,
         lightClip,
         ndotl,
-        ambientLighting.shadowBiases.x);
+        ambientLighting.shadowBiases.x,
+        highQualityFilter);
 }
 
 float computeSpotShadowFactor(int shadowIndex, vec3 worldPosition, float ndotl)
@@ -165,7 +194,8 @@ float computeSpotShadowFactor(int shadowIndex, vec3 worldPosition, float ndotl)
         shadowIndex,
         lightClip,
         ndotl,
-        ambientLighting.shadowBiases.z);
+        ambientLighting.shadowBiases.z,
+        false);
 }
 
 int selectPointShadowFace(vec3 directionFromLight)
@@ -222,7 +252,7 @@ float computePointShadowFactor(int pointShadowIndex, vec3 worldPosition, float n
     }
 
     float bias = max(ambientLighting.shadowBiases.y * (1.0 - ndotl), ambientLighting.shadowBiases.y * 0.35);
-    return sampleShadowPCF(pointShadowMap, shadowCoord.xy, pointShadowIndex * POINT_SHADOW_FACE_COUNT + faceIndex, shadowCoord.z, bias);
+    return sampleShadowPCF4Tap(pointShadowMap, shadowCoord.xy, pointShadowIndex * POINT_SHADOW_FACE_COUNT + faceIndex, shadowCoord.z, bias);
 }
 
 float distributionGGX(vec3 N, vec3 H, float roughness)

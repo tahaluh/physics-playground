@@ -21,449 +21,449 @@
 
 namespace
 {
-bool matricesEqual(const Matrix4 &a, const Matrix4 &b)
-{
-    return a.m == b.m;
-}
-
-constexpr float kInstancedCullChunkSize = 16.0f;
-
-struct ChunkKey3D
-{
-    int x = 0;
-    int y = 0;
-    int z = 0;
-
-    bool operator==(const ChunkKey3D &other) const
+    bool matricesEqual(const Matrix4 &a, const Matrix4 &b)
     {
-        return x == other.x && y == other.y && z == other.z;
+        return a.m == b.m;
     }
-};
 
-struct ChunkKey3DHasher
-{
-    std::size_t operator()(const ChunkKey3D &key) const
+    constexpr float kInstancedCullChunkSize = 16.0f;
+
+    struct ChunkKey3D
     {
-        std::size_t hash = static_cast<std::size_t>(static_cast<uint32_t>(key.x) * 73856093u);
-        hash ^= static_cast<std::size_t>(static_cast<uint32_t>(key.y) * 19349663u);
-        hash ^= static_cast<std::size_t>(static_cast<uint32_t>(key.z) * 83492791u);
-        return hash;
-    }
-};
+        int x = 0;
+        int y = 0;
+        int z = 0;
 
-struct QueueFamilySelection
-{
-    uint32_t graphicsFamily = UINT32_MAX;
-    uint32_t presentFamily = UINT32_MAX;
-
-    bool isComplete() const
-    {
-        return graphicsFamily != UINT32_MAX && presentFamily != UINT32_MAX;
-    }
-};
-
-struct SwapchainSupportDetails
-{
-    VkSurfaceCapabilitiesKHR capabilities = {};
-    std::vector<VkSurfaceFormatKHR> formats;
-    std::vector<VkPresentModeKHR> presentModes;
-};
-
-QueueFamilySelection findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
-{
-    QueueFamilySelection selection;
-
-    uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
-
-    for (uint32_t i = 0; i < queueFamilyCount; ++i)
-    {
-        if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+        bool operator==(const ChunkKey3D &other) const
         {
-            selection.graphicsFamily = i;
+            return x == other.x && y == other.y && z == other.z;
+        }
+    };
+
+    struct ChunkKey3DHasher
+    {
+        std::size_t operator()(const ChunkKey3D &key) const
+        {
+            std::size_t hash = static_cast<std::size_t>(static_cast<uint32_t>(key.x) * 73856093u);
+            hash ^= static_cast<std::size_t>(static_cast<uint32_t>(key.y) * 19349663u);
+            hash ^= static_cast<std::size_t>(static_cast<uint32_t>(key.z) * 83492791u);
+            return hash;
+        }
+    };
+
+    struct QueueFamilySelection
+    {
+        uint32_t graphicsFamily = UINT32_MAX;
+        uint32_t presentFamily = UINT32_MAX;
+
+        bool isComplete() const
+        {
+            return graphicsFamily != UINT32_MAX && presentFamily != UINT32_MAX;
+        }
+    };
+
+    struct SwapchainSupportDetails
+    {
+        VkSurfaceCapabilitiesKHR capabilities = {};
+        std::vector<VkSurfaceFormatKHR> formats;
+        std::vector<VkPresentModeKHR> presentModes;
+    };
+
+    QueueFamilySelection findQueueFamilies(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
+    {
+        QueueFamilySelection selection;
+
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamilyCount, queueFamilies.data());
+
+        for (uint32_t i = 0; i < queueFamilyCount; ++i)
+        {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            {
+                selection.graphicsFamily = i;
+            }
+
+            VkBool32 presentSupport = VK_FALSE;
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupport);
+            if (presentSupport)
+            {
+                selection.presentFamily = i;
+            }
+
+            if (selection.isComplete())
+            {
+                break;
+            }
         }
 
-        VkBool32 presentSupport = VK_FALSE;
-        vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, i, surface, &presentSupport);
-        if (presentSupport)
+        return selection;
+    }
+
+    SwapchainSupportDetails querySwapchainSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
+    {
+        SwapchainSupportDetails details;
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &details.capabilities);
+
+        uint32_t formatCount = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+        if (formatCount > 0)
         {
-            selection.presentFamily = i;
+            details.formats.resize(formatCount);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats.data());
         }
 
-        if (selection.isComplete())
+        uint32_t presentModeCount = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
+        if (presentModeCount > 0)
         {
-            break;
-        }
-    }
-
-    return selection;
-}
-
-SwapchainSupportDetails querySwapchainSupport(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface)
-{
-    SwapchainSupportDetails details;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &details.capabilities);
-
-    uint32_t formatCount = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
-    if (formatCount > 0)
-    {
-        details.formats.resize(formatCount);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats.data());
-    }
-
-    uint32_t presentModeCount = 0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
-    if (presentModeCount > 0)
-    {
-        details.presentModes.resize(presentModeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes.data());
-    }
-
-    return details;
-}
-
-bool deviceSupportsRequiredExtensions(VkPhysicalDevice physicalDevice)
-{
-    uint32_t extensionCount = 0;
-    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
-    std::vector<VkExtensionProperties> extensions(extensionCount);
-    vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data());
-
-    bool hasSwapchain = false;
-    for (const auto &extension : extensions)
-    {
-        if (std::strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
-        {
-            hasSwapchain = true;
-            break;
-        }
-    }
-
-    return hasSwapchain;
-}
-
-std::vector<char> readFirstExistingBinary(const std::initializer_list<const char *> &paths)
-{
-    for (const char *path : paths)
-    {
-        std::ifstream file(path, std::ios::ate | std::ios::binary);
-        if (!file.is_open())
-        {
-            continue;
+            details.presentModes.resize(presentModeCount);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes.data());
         }
 
-        const std::streamsize fileSize = file.tellg();
-        if (fileSize <= 0)
+        return details;
+    }
+
+    bool deviceSupportsRequiredExtensions(VkPhysicalDevice physicalDevice)
+    {
+        uint32_t extensionCount = 0;
+        vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, nullptr);
+        std::vector<VkExtensionProperties> extensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(physicalDevice, nullptr, &extensionCount, extensions.data());
+
+        bool hasSwapchain = false;
+        for (const auto &extension : extensions)
         {
-            continue;
+            if (std::strcmp(extension.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
+            {
+                hasSwapchain = true;
+                break;
+            }
         }
 
-        std::vector<char> buffer(static_cast<size_t>(fileSize));
-        file.seekg(0);
-        file.read(buffer.data(), fileSize);
-        if (file.good() || file.eof())
+        return hasSwapchain;
+    }
+
+    std::vector<char> readFirstExistingBinary(const std::initializer_list<const char *> &paths)
+    {
+        for (const char *path : paths)
         {
-            return buffer;
-        }
-    }
+            std::ifstream file(path, std::ios::ate | std::ios::binary);
+            if (!file.is_open())
+            {
+                continue;
+            }
 
-    return {};
-}
+            const std::streamsize fileSize = file.tellg();
+            if (fileSize <= 0)
+            {
+                continue;
+            }
 
-uint32_t toVulkanColor(uint32_t argb)
-{
-    const uint32_t a = (argb >> 24) & 0xFF;
-    const uint32_t r = (argb >> 16) & 0xFF;
-    const uint32_t g = (argb >> 8) & 0xFF;
-    const uint32_t b = argb & 0xFF;
-    return (a << 24) | (b << 16) | (g << 8) | r;
-}
-
-std::array<float, 4> colorToFloat4(uint32_t argb)
-{
-    const float a = static_cast<float>((argb >> 24) & 0xFF) / 255.0f;
-    const float r = static_cast<float>((argb >> 16) & 0xFF) / 255.0f;
-    const float g = static_cast<float>((argb >> 8) & 0xFF) / 255.0f;
-    const float b = static_cast<float>(argb & 0xFF) / 255.0f;
-    return {r, g, b, a};
-}
-
-Vector3 safeNormalized(const Vector3 &value, const Vector3 &fallback)
-{
-    if (value.lengthSquared() == 0.0f)
-    {
-        return fallback;
-    }
-
-    return value.normalized();
-}
-
-struct SceneBounds3D
-{
-    Vector3 min = Vector3::zero();
-    Vector3 max = Vector3::zero();
-    bool valid = false;
-};
-
-struct ClipPoint
-{
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    float w = 1.0f;
-};
-
-void expandBounds(SceneBounds3D &bounds, const Vector3 &point)
-{
-    if (!bounds.valid)
-    {
-        bounds.min = point;
-        bounds.max = point;
-        bounds.valid = true;
-        return;
-    }
-
-    bounds.min.x = std::min(bounds.min.x, point.x);
-    bounds.min.y = std::min(bounds.min.y, point.y);
-    bounds.min.z = std::min(bounds.min.z, point.z);
-    bounds.max.x = std::max(bounds.max.x, point.x);
-    bounds.max.y = std::max(bounds.max.y, point.y);
-    bounds.max.z = std::max(bounds.max.z, point.z);
-}
-
-Matrix4 composeModelMatrix(const Transform &transform)
-{
-    return Matrix4::translation(transform.position) *
-           transform.rotation.toMatrix() *
-           Matrix4::scale(transform.scale);
-}
-
-ClipPoint transformPointToClip(const Matrix4 &matrix, const Vector3 &point)
-{
-    ClipPoint result;
-    result.x = matrix.m[0] * point.x + matrix.m[1] * point.y + matrix.m[2] * point.z + matrix.m[3];
-    result.y = matrix.m[4] * point.x + matrix.m[5] * point.y + matrix.m[6] * point.z + matrix.m[7];
-    result.z = matrix.m[8] * point.x + matrix.m[9] * point.y + matrix.m[10] * point.z + matrix.m[11];
-    result.w = matrix.m[12] * point.x + matrix.m[13] * point.y + matrix.m[14] * point.z + matrix.m[15];
-    return result;
-}
-
-bool isSphereVisibleInShadowClip(const Matrix4 &shadowMatrix, const Vector3 &center, float radius)
-{
-    const ClipPoint centerClip = transformPointToClip(shadowMatrix, center);
-    const float absW = std::max(std::abs(centerClip.w), 0.0001f);
-    if (centerClip.w <= 0.0f)
-    {
-        return false;
-    }
-
-    const std::array<Vector3, 6> sampleOffsets = {
-        Vector3(radius, 0.0f, 0.0f),
-        Vector3(-radius, 0.0f, 0.0f),
-        Vector3(0.0f, radius, 0.0f),
-        Vector3(0.0f, -radius, 0.0f),
-        Vector3(0.0f, 0.0f, radius),
-        Vector3(0.0f, 0.0f, -radius)};
-
-    float maxNdcRadiusX = 0.0f;
-    float maxNdcRadiusY = 0.0f;
-    float maxNdcRadiusZ = 0.0f;
-    const float centerNdcX = centerClip.x / absW;
-    const float centerNdcY = centerClip.y / absW;
-    const float centerNdcZ = centerClip.z / absW;
-    for (const Vector3 &offset : sampleOffsets)
-    {
-        const ClipPoint sampleClip = transformPointToClip(shadowMatrix, center + offset);
-        const float sampleAbsW = std::max(std::abs(sampleClip.w), 0.0001f);
-        maxNdcRadiusX = std::max(maxNdcRadiusX, std::abs(sampleClip.x / sampleAbsW - centerNdcX));
-        maxNdcRadiusY = std::max(maxNdcRadiusY, std::abs(sampleClip.y / sampleAbsW - centerNdcY));
-        maxNdcRadiusZ = std::max(maxNdcRadiusZ, std::abs(sampleClip.z / sampleAbsW - centerNdcZ));
-    }
-
-    if (centerNdcX + maxNdcRadiusX < -1.0f || centerNdcX - maxNdcRadiusX > 1.0f)
-    {
-        return false;
-    }
-    if (centerNdcY + maxNdcRadiusY < -1.0f || centerNdcY - maxNdcRadiusY > 1.0f)
-    {
-        return false;
-    }
-    if (centerNdcZ + maxNdcRadiusZ < 0.0f || centerNdcZ - maxNdcRadiusZ > 1.0f)
-    {
-        return false;
-    }
-
-    return true;
-}
-
-SceneBounds3D computeSceneBounds(const Scene &scene)
-{
-    SceneBounds3D bounds;
-    for (const Entity &entity : scene.getEntities())
-    {
-        if (!entity.material.renderSolid)
-        {
-            continue;
+            std::vector<char> buffer(static_cast<size_t>(fileSize));
+            file.seekg(0);
+            file.read(buffer.data(), fileSize);
+            if (file.good() || file.eof())
+            {
+                return buffer;
+            }
         }
 
-        const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+        return {};
+    }
+
+    uint32_t toVulkanColor(uint32_t argb)
+    {
+        const uint32_t a = (argb >> 24) & 0xFF;
+        const uint32_t r = (argb >> 16) & 0xFF;
+        const uint32_t g = (argb >> 8) & 0xFF;
+        const uint32_t b = argb & 0xFF;
+        return (a << 24) | (b << 16) | (g << 8) | r;
+    }
+
+    std::array<float, 4> colorToFloat4(uint32_t argb)
+    {
+        const float a = static_cast<float>((argb >> 24) & 0xFF) / 255.0f;
+        const float r = static_cast<float>((argb >> 16) & 0xFF) / 255.0f;
+        const float g = static_cast<float>((argb >> 8) & 0xFF) / 255.0f;
+        const float b = static_cast<float>(argb & 0xFF) / 255.0f;
+        return {r, g, b, a};
+    }
+
+    Vector3 safeNormalized(const Vector3 &value, const Vector3 &fallback)
+    {
+        if (value.lengthSquared() == 0.0f)
+        {
+            return fallback;
+        }
+
+        return value.normalized();
+    }
+
+    struct SceneBounds3D
+    {
+        Vector3 min = Vector3::zero();
+        Vector3 max = Vector3::zero();
+        bool valid = false;
+    };
+
+    struct ClipPoint
+    {
+        float x = 0.0f;
+        float y = 0.0f;
+        float z = 0.0f;
+        float w = 1.0f;
+    };
+
+    void expandBounds(SceneBounds3D &bounds, const Vector3 &point)
+    {
+        if (!bounds.valid)
+        {
+            bounds.min = point;
+            bounds.max = point;
+            bounds.valid = true;
+            return;
+        }
+
+        bounds.min.x = std::min(bounds.min.x, point.x);
+        bounds.min.y = std::min(bounds.min.y, point.y);
+        bounds.min.z = std::min(bounds.min.z, point.z);
+        bounds.max.x = std::max(bounds.max.x, point.x);
+        bounds.max.y = std::max(bounds.max.y, point.y);
+        bounds.max.z = std::max(bounds.max.z, point.z);
+    }
+
+    Matrix4 composeModelMatrix(const Transform &transform)
+    {
+        return Matrix4::translation(transform.position) *
+               transform.rotation.toMatrix() *
+               Matrix4::scale(transform.scale);
+    }
+
+    ClipPoint transformPointToClip(const Matrix4 &matrix, const Vector3 &point)
+    {
+        ClipPoint result;
+        result.x = matrix.m[0] * point.x + matrix.m[1] * point.y + matrix.m[2] * point.z + matrix.m[3];
+        result.y = matrix.m[4] * point.x + matrix.m[5] * point.y + matrix.m[6] * point.z + matrix.m[7];
+        result.z = matrix.m[8] * point.x + matrix.m[9] * point.y + matrix.m[10] * point.z + matrix.m[11];
+        result.w = matrix.m[12] * point.x + matrix.m[13] * point.y + matrix.m[14] * point.z + matrix.m[15];
+        return result;
+    }
+
+    bool isSphereVisibleInShadowClip(const Matrix4 &shadowMatrix, const Vector3 &center, float radius)
+    {
+        const ClipPoint centerClip = transformPointToClip(shadowMatrix, center);
+        const float absW = std::max(std::abs(centerClip.w), 0.0001f);
+        if (centerClip.w <= 0.0f)
+        {
+            return false;
+        }
+
+        const std::array<Vector3, 6> sampleOffsets = {
+            Vector3(radius, 0.0f, 0.0f),
+            Vector3(-radius, 0.0f, 0.0f),
+            Vector3(0.0f, radius, 0.0f),
+            Vector3(0.0f, -radius, 0.0f),
+            Vector3(0.0f, 0.0f, radius),
+            Vector3(0.0f, 0.0f, -radius)};
+
+        float maxNdcRadiusX = 0.0f;
+        float maxNdcRadiusY = 0.0f;
+        float maxNdcRadiusZ = 0.0f;
+        const float centerNdcX = centerClip.x / absW;
+        const float centerNdcY = centerClip.y / absW;
+        const float centerNdcZ = centerClip.z / absW;
+        for (const Vector3 &offset : sampleOffsets)
+        {
+            const ClipPoint sampleClip = transformPointToClip(shadowMatrix, center + offset);
+            const float sampleAbsW = std::max(std::abs(sampleClip.w), 0.0001f);
+            maxNdcRadiusX = std::max(maxNdcRadiusX, std::abs(sampleClip.x / sampleAbsW - centerNdcX));
+            maxNdcRadiusY = std::max(maxNdcRadiusY, std::abs(sampleClip.y / sampleAbsW - centerNdcY));
+            maxNdcRadiusZ = std::max(maxNdcRadiusZ, std::abs(sampleClip.z / sampleAbsW - centerNdcZ));
+        }
+
+        if (centerNdcX + maxNdcRadiusX < -1.0f || centerNdcX - maxNdcRadiusX > 1.0f)
+        {
+            return false;
+        }
+        if (centerNdcY + maxNdcRadiusY < -1.0f || centerNdcY - maxNdcRadiusY > 1.0f)
+        {
+            return false;
+        }
+        if (centerNdcZ + maxNdcRadiusZ < 0.0f || centerNdcZ - maxNdcRadiusZ > 1.0f)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    SceneBounds3D computeSceneBounds(const Scene &scene)
+    {
+        SceneBounds3D bounds;
+        for (const Entity &entity : scene.getEntities())
+        {
+            if (!entity.material.renderSolid)
+            {
+                continue;
+            }
+
+            const Matrix4 modelMatrix = composeModelMatrix(entity.transform);
+            for (const Vector3 &vertex : entity.mesh.vertices)
+            {
+                expandBounds(bounds, modelMatrix.transformPoint(vertex));
+            }
+        }
+        return bounds;
+    }
+
+    float computeEntityApproximateRadius(const Entity &entity)
+    {
+        float localRadiusSquared = 0.0f;
         for (const Vector3 &vertex : entity.mesh.vertices)
         {
-            expandBounds(bounds, modelMatrix.transformPoint(vertex));
+            localRadiusSquared = std::max(localRadiusSquared, vertex.lengthSquared());
         }
-    }
-    return bounds;
-}
 
-float computeEntityApproximateRadius(const Entity &entity)
-{
-    float localRadiusSquared = 0.0f;
-    for (const Vector3 &vertex : entity.mesh.vertices)
+        const float maxScale = std::max(entity.transform.scale.x, std::max(entity.transform.scale.y, entity.transform.scale.z));
+        return std::sqrt(std::max(localRadiusSquared, 0.0f)) * std::max(maxScale, 0.0f);
+    }
+
+    bool isEntityRoughlyVisible(const Camera &camera, const Matrix4 &viewMatrix, const Entity &entity)
     {
-        localRadiusSquared = std::max(localRadiusSquared, vertex.lengthSquared());
+        const float radius = computeEntityApproximateRadius(entity);
+        const Vector3 viewCenter = viewMatrix.transformPoint(entity.transform.position);
+        const float depth = -viewCenter.z;
+        if (depth + radius < camera.nearPlane || depth - radius > camera.farPlane)
+        {
+            return false;
+        }
+
+        if (depth <= 0.0001f)
+        {
+            return true;
+        }
+
+        const float tanHalfFov = std::tan(camera.fovRadians * 0.5f);
+        const float halfHeight = depth * tanHalfFov + radius;
+        const float halfWidth = halfHeight * camera.aspectRatio;
+        return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
     }
 
-    const float maxScale = std::max(entity.transform.scale.x, std::max(entity.transform.scale.y, entity.transform.scale.z));
-    return std::sqrt(std::max(localRadiusSquared, 0.0f)) * std::max(maxScale, 0.0f);
-}
-
-bool isEntityRoughlyVisible(const Camera &camera, const Matrix4 &viewMatrix, const Entity &entity)
-{
-    const float radius = computeEntityApproximateRadius(entity);
-    const Vector3 viewCenter = viewMatrix.transformPoint(entity.transform.position);
-    const float depth = -viewCenter.z;
-    if (depth + radius < camera.nearPlane || depth - radius > camera.farPlane)
+    bool isSphereRoughlyVisible(
+        const Matrix4 &viewMatrix,
+        float fovRadians,
+        float aspectRatio,
+        float nearPlane,
+        float farPlane,
+        const Vector3 &center,
+        float radius)
     {
-        return false;
+        const Vector3 viewCenter = viewMatrix.transformPoint(center);
+        const float depth = -viewCenter.z;
+        if (depth + radius < nearPlane || depth - radius > farPlane)
+        {
+            return false;
+        }
+
+        if (depth <= 0.0001f)
+        {
+            return true;
+        }
+
+        const float tanHalfFov = std::tan(fovRadians * 0.5f);
+        const float halfHeight = depth * tanHalfFov + radius;
+        const float halfWidth = halfHeight * aspectRatio;
+        return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
     }
 
-    if (depth <= 0.0001f)
+    Matrix4 computeDirectionalShadowMatrix(const SceneBounds3D &bounds, const DirectionalLight &light)
     {
-        return true;
+        if (!bounds.valid)
+        {
+            return Matrix4::identity();
+        }
+
+        const Vector3 center = (bounds.min + bounds.max) * 0.5f;
+        const Vector3 extents = bounds.max - bounds.min;
+        const float radius = std::max(extents.length() * 0.5f, 1.0f);
+        const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
+        const Vector3 upHint = std::abs(lightDirection.dot(Vector3::up())) > 0.98f ? Vector3::right() : Vector3::up();
+        const Vector3 lightPosition = center - lightDirection * (radius * 2.0f);
+        const Matrix4 lightView = Matrix4::lookAt(lightPosition, center, upHint);
+
+        const std::array<Vector3, 8> corners = {
+            Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+            Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
+            Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
+            Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
+            Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
+            Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
+            Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
+            Vector3(bounds.max.x, bounds.max.y, bounds.max.z)};
+
+        SceneBounds3D lightSpaceBounds;
+        for (const Vector3 &corner : corners)
+        {
+            expandBounds(lightSpaceBounds, lightView.transformPoint(corner));
+        }
+
+        const float padding = std::max(radius * 0.15f, 0.5f);
+        const float nearPlane = std::max(0.01f, -lightSpaceBounds.max.z - padding);
+        const float farPlane = std::max(nearPlane + 0.01f, -lightSpaceBounds.min.z + padding);
+        const Matrix4 lightProjection = Matrix4::orthographicVulkan(
+            lightSpaceBounds.min.x - padding,
+            lightSpaceBounds.max.x + padding,
+            lightSpaceBounds.min.y - padding,
+            lightSpaceBounds.max.y + padding,
+            nearPlane,
+            farPlane);
+        return lightProjection * lightView;
     }
 
-    const float tanHalfFov = std::tan(camera.fovRadians * 0.5f);
-    const float halfHeight = depth * tanHalfFov + radius;
-    const float halfWidth = halfHeight * camera.aspectRatio;
-    return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
-}
-
-bool isSphereRoughlyVisible(
-    const Matrix4 &viewMatrix,
-    float fovRadians,
-    float aspectRatio,
-    float nearPlane,
-    float farPlane,
-    const Vector3 &center,
-    float radius)
-{
-    const Vector3 viewCenter = viewMatrix.transformPoint(center);
-    const float depth = -viewCenter.z;
-    if (depth + radius < nearPlane || depth - radius > farPlane)
+    Matrix4 computeSpotShadowMatrix(const SpotLight &light)
     {
-        return false;
+        const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
+        const Vector3 upHint = std::abs(lightDirection.dot(Vector3::up())) > 0.98f ? Vector3::right() : Vector3::up();
+        const float outerConeCos = Vector3::clamp(light.outerConeCos, -0.9999f, 0.9999f);
+        const float fovRadians = Vector3::clamp(std::acos(outerConeCos) * 2.1f, 0.2f, 3.04159265f);
+        const float nearPlane = 0.05f;
+        const float farPlane = std::max(light.range, nearPlane + 0.05f);
+        const Matrix4 lightView = Matrix4::lookAt(light.position, light.position + lightDirection, upHint);
+        const Matrix4 lightProjection = Matrix4::perspective(fovRadians, 1.0f, nearPlane, farPlane);
+        return lightProjection * lightView;
     }
 
-    if (depth <= 0.0001f)
+    std::array<Matrix4, 6> computePointShadowMatrices(const PointLight &light)
     {
-        return true;
+        const float nearPlane = 0.05f;
+        const float farPlane = std::max(light.range, nearPlane + 0.05f);
+        const Matrix4 projection = Matrix4::perspective(3.14159265f * 0.5f, 1.0f, nearPlane, farPlane);
+
+        const std::array<Vector3, 6> directions = {
+            Vector3(1.0f, 0.0f, 0.0f),
+            Vector3(-1.0f, 0.0f, 0.0f),
+            Vector3(0.0f, 1.0f, 0.0f),
+            Vector3(0.0f, -1.0f, 0.0f),
+            Vector3(0.0f, 0.0f, 1.0f),
+            Vector3(0.0f, 0.0f, -1.0f)};
+        const std::array<Vector3, 6> ups = {
+            Vector3(0.0f, 1.0f, 0.0f),
+            Vector3(0.0f, 1.0f, 0.0f),
+            Vector3(0.0f, 0.0f, -1.0f),
+            Vector3(0.0f, 0.0f, 1.0f),
+            Vector3(0.0f, 1.0f, 0.0f),
+            Vector3(0.0f, 1.0f, 0.0f)};
+
+        std::array<Matrix4, 6> matrices{};
+        for (size_t i = 0; i < matrices.size(); ++i)
+        {
+            matrices[i] = projection * Matrix4::lookAt(light.position, light.position + directions[i], ups[i]);
+        }
+
+        return matrices;
     }
-
-    const float tanHalfFov = std::tan(fovRadians * 0.5f);
-    const float halfHeight = depth * tanHalfFov + radius;
-    const float halfWidth = halfHeight * aspectRatio;
-    return std::abs(viewCenter.x) <= halfWidth && std::abs(viewCenter.y) <= halfHeight;
-}
-
-Matrix4 computeDirectionalShadowMatrix(const SceneBounds3D &bounds, const DirectionalLight &light)
-{
-    if (!bounds.valid)
-    {
-        return Matrix4::identity();
-    }
-
-    const Vector3 center = (bounds.min + bounds.max) * 0.5f;
-    const Vector3 extents = bounds.max - bounds.min;
-    const float radius = std::max(extents.length() * 0.5f, 1.0f);
-    const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
-    const Vector3 upHint = std::abs(lightDirection.dot(Vector3::up())) > 0.98f ? Vector3::right() : Vector3::up();
-    const Vector3 lightPosition = center - lightDirection * (radius * 2.0f);
-    const Matrix4 lightView = Matrix4::lookAt(lightPosition, center, upHint);
-
-    const std::array<Vector3, 8> corners = {
-        Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
-        Vector3(bounds.max.x, bounds.min.y, bounds.min.z),
-        Vector3(bounds.min.x, bounds.max.y, bounds.min.z),
-        Vector3(bounds.max.x, bounds.max.y, bounds.min.z),
-        Vector3(bounds.min.x, bounds.min.y, bounds.max.z),
-        Vector3(bounds.max.x, bounds.min.y, bounds.max.z),
-        Vector3(bounds.min.x, bounds.max.y, bounds.max.z),
-        Vector3(bounds.max.x, bounds.max.y, bounds.max.z)};
-
-    SceneBounds3D lightSpaceBounds;
-    for (const Vector3 &corner : corners)
-    {
-        expandBounds(lightSpaceBounds, lightView.transformPoint(corner));
-    }
-
-    const float padding = std::max(radius * 0.15f, 0.5f);
-    const float nearPlane = std::max(0.01f, -lightSpaceBounds.max.z - padding);
-    const float farPlane = std::max(nearPlane + 0.01f, -lightSpaceBounds.min.z + padding);
-    const Matrix4 lightProjection = Matrix4::orthographicVulkan(
-        lightSpaceBounds.min.x - padding,
-        lightSpaceBounds.max.x + padding,
-        lightSpaceBounds.min.y - padding,
-        lightSpaceBounds.max.y + padding,
-        nearPlane,
-        farPlane);
-    return lightProjection * lightView;
-}
-
-Matrix4 computeSpotShadowMatrix(const SpotLight &light)
-{
-    const Vector3 lightDirection = safeNormalized(light.direction, Vector3(0.0f, -1.0f, 0.0f));
-    const Vector3 upHint = std::abs(lightDirection.dot(Vector3::up())) > 0.98f ? Vector3::right() : Vector3::up();
-    const float outerConeCos = Vector3::clamp(light.outerConeCos, -0.9999f, 0.9999f);
-    const float fovRadians = Vector3::clamp(std::acos(outerConeCos) * 2.1f, 0.2f, 3.04159265f);
-    const float nearPlane = 0.05f;
-    const float farPlane = std::max(light.range, nearPlane + 0.05f);
-    const Matrix4 lightView = Matrix4::lookAt(light.position, light.position + lightDirection, upHint);
-    const Matrix4 lightProjection = Matrix4::perspective(fovRadians, 1.0f, nearPlane, farPlane);
-    return lightProjection * lightView;
-}
-
-std::array<Matrix4, 6> computePointShadowMatrices(const PointLight &light)
-{
-    const float nearPlane = 0.05f;
-    const float farPlane = std::max(light.range, nearPlane + 0.05f);
-    const Matrix4 projection = Matrix4::perspective(3.14159265f * 0.5f, 1.0f, nearPlane, farPlane);
-
-    const std::array<Vector3, 6> directions = {
-        Vector3(1.0f, 0.0f, 0.0f),
-        Vector3(-1.0f, 0.0f, 0.0f),
-        Vector3(0.0f, 1.0f, 0.0f),
-        Vector3(0.0f, -1.0f, 0.0f),
-        Vector3(0.0f, 0.0f, 1.0f),
-        Vector3(0.0f, 0.0f, -1.0f)};
-    const std::array<Vector3, 6> ups = {
-        Vector3(0.0f, 1.0f, 0.0f),
-        Vector3(0.0f, 1.0f, 0.0f),
-        Vector3(0.0f, 0.0f, -1.0f),
-        Vector3(0.0f, 0.0f, 1.0f),
-        Vector3(0.0f, 1.0f, 0.0f),
-        Vector3(0.0f, 1.0f, 0.0f)};
-
-    std::array<Matrix4, 6> matrices{};
-    for (size_t i = 0; i < matrices.size(); ++i)
-    {
-        matrices[i] = projection * Matrix4::lookAt(light.position, light.position + directions[i], ups[i]);
-    }
-
-    return matrices;
-}
 
 }
 
@@ -515,8 +515,6 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
         return false;
     if (!createLightingResources())
         return false;
-    if (!createSimulationResources())
-        return false;
     if (!createBroadPhaseResources())
         return false;
     if (!createFramebuffers())
@@ -533,7 +531,6 @@ bool VulkanGraphicsDevice::initialize(IWindow &windowRef)
     triangleResourcesReady = triangleResourcesReady && createLinePipeline();
     triangleResourcesReady = triangleResourcesReady && createShadowPipeline();
     triangleResourcesReady = triangleResourcesReady && createInstancedShadowPipeline();
-    triangleResourcesReady = triangleResourcesReady && createSimulationPipeline();
     triangleResourcesReady = triangleResourcesReady && createBroadPhasePipeline();
     if (!triangleResourcesReady)
     {
@@ -638,8 +635,6 @@ void VulkanGraphicsDevice::renderScene(const Camera &camera, const Scene &scene)
     if (simulationChanged)
     {
         cachedSceneSimulationRevision = scene.getSimulationRevision();
-        currentSimulationDeltaTime = scene.getLastSimulationDeltaTime();
-        simulationDispatchDirty = true;
         shadowMapsDirty = true;
     }
 
@@ -770,7 +765,6 @@ void VulkanGraphicsDevice::endFrame()
 
         const bool drawTriangle = triangleResourcesReady;
         recordCommandBuffer(commandBuffers[currentImageIndex], currentImageIndex, currentClearColor, drawTriangle);
-        simulationDispatchDirty = false;
         commandBufferRecorded = true;
         if (drawTriangle && !triangleDrawLogged)
         {
@@ -1494,36 +1488,6 @@ bool VulkanGraphicsDevice::createLightingResources()
     return true;
 }
 
-bool VulkanGraphicsDevice::createSimulationResources()
-{
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &binding;
-    if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &simulationDescriptorSetLayout) != VK_SUCCESS)
-    {
-        return false;
-    }
-
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    poolSize.descriptorCount = 4096;
-
-    VkDescriptorPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = 4096;
-    return vkCreateDescriptorPool(device, &poolInfo, nullptr, &simulationDescriptorPool) == VK_SUCCESS;
-}
-
 bool VulkanGraphicsDevice::createBroadPhaseResources()
 {
     std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
@@ -1559,12 +1523,10 @@ bool VulkanGraphicsDevice::createBroadPhaseResources()
 
 bool VulkanGraphicsDevice::createTrianglePipeline()
 {
-    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/basic/basic.vert.spv",
-        "shaders/vulkan/basic/basic.vert.spv"});
-    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/basic/basic.frag.spv",
-        "shaders/vulkan/basic/basic.frag.spv"});
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({"build/shaders/vulkan/basic/basic.vert.spv",
+                                                                        "shaders/vulkan/basic/basic.vert.spv"});
+    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({"build/shaders/vulkan/basic/basic.frag.spv",
+                                                                          "shaders/vulkan/basic/basic.frag.spv"});
     if (vertexShaderCode.empty() || fragmentShaderCode.empty())
     {
         std::fprintf(
@@ -1758,12 +1720,10 @@ bool VulkanGraphicsDevice::createTrianglePipeline()
 
 bool VulkanGraphicsDevice::createInstancedTrianglePipeline()
 {
-    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/basic/basic_instanced.vert.spv",
-        "shaders/vulkan/basic/basic_instanced.vert.spv"});
-    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/basic/basic.frag.spv",
-        "shaders/vulkan/basic/basic.frag.spv"});
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({"build/shaders/vulkan/basic/basic_instanced.vert.spv",
+                                                                        "shaders/vulkan/basic/basic_instanced.vert.spv"});
+    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({"build/shaders/vulkan/basic/basic.frag.spv",
+                                                                          "shaders/vulkan/basic/basic.frag.spv"});
     if (vertexShaderCode.empty() || fragmentShaderCode.empty())
     {
         return false;
@@ -1937,12 +1897,10 @@ bool VulkanGraphicsDevice::createInstancedTrianglePipeline()
 
 bool VulkanGraphicsDevice::createLinePipeline()
 {
-    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/basic/basic.vert.spv",
-        "shaders/vulkan/basic/basic.vert.spv"});
-    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/basic/basic.frag.spv",
-        "shaders/vulkan/basic/basic.frag.spv"});
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({"build/shaders/vulkan/basic/basic.vert.spv",
+                                                                        "shaders/vulkan/basic/basic.vert.spv"});
+    const std::vector<char> fragmentShaderCode = readFirstExistingBinary({"build/shaders/vulkan/basic/basic.frag.spv",
+                                                                          "shaders/vulkan/basic/basic.frag.spv"});
     if (vertexShaderCode.empty() || fragmentShaderCode.empty())
     {
         return false;
@@ -2111,9 +2069,8 @@ bool VulkanGraphicsDevice::createLinePipeline()
 
 bool VulkanGraphicsDevice::createShadowPipeline()
 {
-    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/shadow/shadow.vert.spv",
-        "shaders/vulkan/shadow/shadow.vert.spv"});
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({"build/shaders/vulkan/shadow/shadow.vert.spv",
+                                                                        "shaders/vulkan/shadow/shadow.vert.spv"});
     if (vertexShaderCode.empty())
     {
         return false;
@@ -2235,9 +2192,8 @@ bool VulkanGraphicsDevice::createShadowPipeline()
 
 bool VulkanGraphicsDevice::createInstancedShadowPipeline()
 {
-    const std::vector<char> vertexShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/shadow/shadow_instanced.vert.spv",
-        "shaders/vulkan/shadow/shadow_instanced.vert.spv"});
+    const std::vector<char> vertexShaderCode = readFirstExistingBinary({"build/shaders/vulkan/shadow/shadow_instanced.vert.spv",
+                                                                        "shaders/vulkan/shadow/shadow_instanced.vert.spv"});
     if (vertexShaderCode.empty())
     {
         return false;
@@ -2361,66 +2317,10 @@ bool VulkanGraphicsDevice::createInstancedShadowPipeline()
     return success;
 }
 
-bool VulkanGraphicsDevice::createSimulationPipeline()
-{
-    const std::vector<char> computeShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/simulation/simulate_instances.comp.spv",
-        "shaders/vulkan/simulation/simulate_instances.comp.spv"});
-    if (computeShaderCode.empty())
-    {
-        return false;
-    }
-
-    const VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
-    if (!computeShaderModule)
-    {
-        return false;
-    }
-
-    VkPipelineShaderStageCreateInfo shaderStageInfo{};
-    shaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    shaderStageInfo.module = computeShaderModule;
-    shaderStageInfo.pName = "main";
-
-    struct SimulationPushConstants
-    {
-        float deltaTime;
-        uint32_t instanceCount;
-    };
-
-    VkPushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(SimulationPushConstants);
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &simulationDescriptorSetLayout;
-    pipelineLayoutInfo.pushConstantRangeCount = 1;
-    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-    if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &simulationPipelineLayout) != VK_SUCCESS)
-    {
-        vkDestroyShaderModule(device, computeShaderModule, nullptr);
-        return false;
-    }
-
-    VkComputePipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-    pipelineInfo.stage = shaderStageInfo;
-    pipelineInfo.layout = simulationPipelineLayout;
-
-    const bool success = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &simulationPipeline) == VK_SUCCESS;
-    vkDestroyShaderModule(device, computeShaderModule, nullptr);
-    return success;
-}
-
 bool VulkanGraphicsDevice::createBroadPhasePipeline()
 {
-    const std::vector<char> computeShaderCode = readFirstExistingBinary({
-        "build/shaders/vulkan/physics/broad_phase.comp.spv",
-        "shaders/vulkan/physics/broad_phase.comp.spv"});
+    const std::vector<char> computeShaderCode = readFirstExistingBinary({"build/shaders/vulkan/physics/broad_phase.comp.spv",
+                                                                         "shaders/vulkan/physics/broad_phase.comp.spv"});
     if (computeShaderCode.empty())
     {
         return false;
@@ -3267,8 +3167,8 @@ bool VulkanGraphicsDevice::updateLightDebugVertexBuffer(const Camera &camera, co
         Scene debugScene;
         const CachedSceneBounds bounds = getCachedSceneBounds(scene);
         const Vector3 directionalMarkerOrigin = bounds.valid
-            ? (bounds.min + bounds.max) * 0.5f
-            : (camera.transform.position + camera.getForward() * 2.0f);
+                                                    ? (bounds.min + bounds.max) * 0.5f
+                                                    : (camera.transform.position + camera.getForward() * 2.0f);
 
         for (const DirectionalLight &light : scene.getDirectionalLights())
         {
@@ -3411,8 +3311,7 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
         batch.meshVertices.reserve(entity.mesh.triangles.size() * 3);
         for (const MeshTriangle &triangle : entity.mesh.triangles)
         {
-            Vector3 localSurfaceNormal = (
-                entity.mesh.vertices[triangle.indices[1]] - entity.mesh.vertices[triangle.indices[0]])
+            Vector3 localSurfaceNormal = (entity.mesh.vertices[triangle.indices[1]] - entity.mesh.vertices[triangle.indices[0]])
                                              .cross(entity.mesh.vertices[triangle.indices[2]] - entity.mesh.vertices[triangle.indices[0]])
                                              .normalized();
             if (localSurfaceNormal.lengthSquared() == 0.0f)
@@ -3520,7 +3419,6 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
         instance.angularVelocity[1] = entity.angularVelocity.y;
         instance.angularVelocity[2] = entity.angularVelocity.z;
         instance.angularVelocity[3] = 0.0f;
-        batch.simulateOnGpu = batch.simulateOnGpu || entity.simulateOnGpu;
         batch.instances.push_back(instance);
 
         const float radius = computeEntityApproximateRadius(entity);
@@ -3811,7 +3709,8 @@ void VulkanGraphicsDevice::appendSceneVertices(const Camera &camera, const Scene
 
 bool VulkanGraphicsDevice::updateSceneTransformBuffers(const Camera &, const Scene &scene)
 {
-    const auto isInstancedOpaqueEntity = [](const Entity &entity) {
+    const auto isInstancedOpaqueEntity = [](const Entity &entity)
+    {
         return entity.supportsInstancing &&
                entity.material.renderSolid &&
                !entity.material.isTransparent() &&
@@ -3957,7 +3856,6 @@ bool VulkanGraphicsDevice::updateSceneTransformBuffers(const Camera &, const Sce
         instance.angularVelocity[1] = entity.angularVelocity.y;
         instance.angularVelocity[2] = entity.angularVelocity.z;
         instance.angularVelocity[3] = 0.0f;
-        matchedBatch->simulateOnGpu = matchedBatch->simulateOnGpu || entity.simulateOnGpu;
         matchedBatch->instances.push_back(instance);
 
         const float radius = computeEntityApproximateRadius(entity);
@@ -3991,7 +3889,8 @@ bool VulkanGraphicsDevice::updateSceneTransformBuffers(const Camera &, const Sce
 
 bool VulkanGraphicsDevice::updateSceneMaterialBuffers(const Scene &scene)
 {
-    const auto isInstancedOpaqueEntity = [](const Entity &entity) {
+    const auto isInstancedOpaqueEntity = [](const Entity &entity)
+    {
         return entity.supportsInstancing &&
                entity.material.renderSolid &&
                !entity.material.isTransparent() &&
@@ -4198,36 +4097,6 @@ bool VulkanGraphicsDevice::uploadSceneVertexBuffers()
         batch.instances.clear();
         batch.meshVertices.shrink_to_fit();
         batch.instances.shrink_to_fit();
-
-        if (batch.simulateOnGpu && simulationDescriptorPool && simulationDescriptorSetLayout && batch.instanceBuffer.buffer)
-        {
-            if (!batch.simulationDescriptorSet)
-            {
-                VkDescriptorSetAllocateInfo allocInfo{};
-                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                allocInfo.descriptorPool = simulationDescriptorPool;
-                allocInfo.descriptorSetCount = 1;
-                allocInfo.pSetLayouts = &simulationDescriptorSetLayout;
-                if (vkAllocateDescriptorSets(device, &allocInfo, &batch.simulationDescriptorSet) != VK_SUCCESS)
-                {
-                    return false;
-                }
-            }
-
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = batch.instanceBuffer.buffer;
-            bufferInfo.offset = 0;
-            bufferInfo.range = batch.instanceBufferSize;
-
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = batch.simulationDescriptorSet;
-            write.dstBinding = 0;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write.descriptorCount = 1;
-            write.pBufferInfo = &bufferInfo;
-            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-        }
     }
 
     return true;
@@ -4296,36 +4165,6 @@ bool VulkanGraphicsDevice::uploadSceneTransformBuffers()
                 batch.instanceBuffer,
                 batch.instanceBufferSize,
                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-
-        if (instancedUploadSuccess && batch.simulateOnGpu && simulationDescriptorPool && simulationDescriptorSetLayout && batch.instanceBuffer.buffer)
-        {
-            if (!batch.simulationDescriptorSet)
-            {
-                VkDescriptorSetAllocateInfo allocInfo{};
-                allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-                allocInfo.descriptorPool = simulationDescriptorPool;
-                allocInfo.descriptorSetCount = 1;
-                allocInfo.pSetLayouts = &simulationDescriptorSetLayout;
-                if (vkAllocateDescriptorSets(device, &allocInfo, &batch.simulationDescriptorSet) != VK_SUCCESS)
-                {
-                    return false;
-                }
-            }
-
-            VkDescriptorBufferInfo bufferInfo{};
-            bufferInfo.buffer = batch.instanceBuffer.buffer;
-            bufferInfo.offset = 0;
-            bufferInfo.range = batch.instanceBufferSize;
-
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = batch.simulationDescriptorSet;
-            write.dstBinding = 0;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write.descriptorCount = 1;
-            write.pBufferInfo = &bufferInfo;
-            vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-        }
     }
 
     shadowSceneVertexCount = static_cast<uint32_t>(shadowSceneVertices.size());
@@ -4364,11 +4203,6 @@ void VulkanGraphicsDevice::destroyInstancedBatches()
 
     for (InstancedBatch &batch : opaqueInstancedBatches)
     {
-        if (simulationDescriptorPool && batch.simulationDescriptorSet)
-        {
-            vkFreeDescriptorSets(device, simulationDescriptorPool, 1, &batch.simulationDescriptorSet);
-            batch.simulationDescriptorSet = VK_NULL_HANDLE;
-        }
         if (batch.meshVertexBuffer.buffer)
         {
             vkDestroyBuffer(device, batch.meshVertexBuffer.buffer, nullptr);
@@ -4749,10 +4583,6 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipeline(device, shadowInstancedPipeline, nullptr);
         }
-        if (simulationPipeline)
-        {
-            vkDestroyPipeline(device, simulationPipeline, nullptr);
-        }
         if (broadPhasePipeline)
         {
             vkDestroyPipeline(device, broadPhasePipeline, nullptr);
@@ -4769,10 +4599,6 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyPipelineLayout(device, shadowPipelineLayout, nullptr);
         }
-        if (simulationPipelineLayout)
-        {
-            vkDestroyPipelineLayout(device, simulationPipelineLayout, nullptr);
-        }
         if (broadPhasePipelineLayout)
         {
             vkDestroyPipelineLayout(device, broadPhasePipelineLayout, nullptr);
@@ -4781,10 +4607,6 @@ void VulkanGraphicsDevice::destroyDevice()
         {
             vkDestroyDescriptorPool(device, lightingDescriptorPool, nullptr);
         }
-        if (simulationDescriptorPool)
-        {
-            vkDestroyDescriptorPool(device, simulationDescriptorPool, nullptr);
-        }
         if (broadPhaseDescriptorPool)
         {
             vkDestroyDescriptorPool(device, broadPhaseDescriptorPool, nullptr);
@@ -4792,10 +4614,6 @@ void VulkanGraphicsDevice::destroyDevice()
         if (lightingDescriptorSetLayout)
         {
             vkDestroyDescriptorSetLayout(device, lightingDescriptorSetLayout, nullptr);
-        }
-        if (simulationDescriptorSetLayout)
-        {
-            vkDestroyDescriptorSetLayout(device, simulationDescriptorSetLayout, nullptr);
         }
         if (broadPhaseDescriptorSetLayout)
         {
@@ -4856,67 +4674,6 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
     {
         std::fprintf(stderr, "vkBeginCommandBuffer failed.\n");
         return;
-    }
-
-    if (simulationDispatchDirty && simulationPipeline && simulationPipelineLayout)
-    {
-        struct SimulationPushConstants
-        {
-            float deltaTime;
-            uint32_t instanceCount;
-        };
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, simulationPipeline);
-        for (const InstancedBatch &batch : opaqueInstancedBatches)
-        {
-            if (!batch.simulateOnGpu || !batch.simulationDescriptorSet || batch.instanceCount == 0)
-            {
-                continue;
-            }
-
-            SimulationPushConstants pushConstants{};
-            pushConstants.deltaTime = currentSimulationDeltaTime;
-            pushConstants.instanceCount = batch.instanceCount;
-            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, simulationPipelineLayout, 0, 1, &batch.simulationDescriptorSet, 0, nullptr);
-            vkCmdPushConstants(commandBuffer, simulationPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(SimulationPushConstants), &pushConstants);
-            vkCmdDispatch(commandBuffer, (batch.instanceCount + 63u) / 64u, 1, 1);
-        }
-
-        std::vector<VkBufferMemoryBarrier> simulationBarriers;
-        simulationBarriers.reserve(opaqueInstancedBatches.size());
-        for (const InstancedBatch &batch : opaqueInstancedBatches)
-        {
-            if (!batch.simulateOnGpu || !batch.instanceBuffer.buffer)
-            {
-                continue;
-            }
-
-            VkBufferMemoryBarrier barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_SHADER_READ_BIT;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.buffer = batch.instanceBuffer.buffer;
-            barrier.offset = 0;
-            barrier.size = VK_WHOLE_SIZE;
-            simulationBarriers.push_back(barrier);
-        }
-
-        if (!simulationBarriers.empty())
-        {
-            vkCmdPipelineBarrier(
-                commandBuffer,
-                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-                VK_PIPELINE_STAGE_VERTEX_INPUT_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-                0,
-                0,
-                nullptr,
-                static_cast<uint32_t>(simulationBarriers.size()),
-                simulationBarriers.data(),
-                0,
-                nullptr);
-        }
     }
 
     if (drawTriangle && shadowMapsDirty)
@@ -4982,8 +4739,7 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
                     {
                         continue;
                     }
-                    if (!batch.simulateOnGpu &&
-                        batch.boundsRadius > 0.0f &&
+                    if (batch.boundsRadius > 0.0f &&
                         !isSphereVisibleInShadowClip(shadowMatrix, batch.boundsCenter, batch.boundsRadius))
                     {
                         continue;
@@ -5081,8 +4837,7 @@ void VulkanGraphicsDevice::recordCommandBuffer(VkCommandBuffer commandBuffer, ui
                     continue;
                 }
 
-                if (!batch.simulateOnGpu &&
-                    batch.boundsRadius > 0.0f &&
+                if (batch.boundsRadius > 0.0f &&
                     !isSphereRoughlyVisible(
                         currentCullViewMatrix,
                         currentCullFovRadians,

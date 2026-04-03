@@ -16,5 +16,4 @@ struct Entity
     Mesh mesh;
     Material material;
     bool supportsInstancing = false;
-    bool simulateOnGpu = false;
 };
